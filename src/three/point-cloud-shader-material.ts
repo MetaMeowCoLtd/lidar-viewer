@@ -6,9 +6,12 @@ import {
 import type { PointCloudColorMode } from "../core/point-cloud.js";
 
 const colorModeToNumber: Record<PointCloudColorMode, number> = { height: 0, rgb: 1, intensity: 2 };
+const sizeScaleFraction = 0.78;
+const minDepthFraction = 0.01;
 
 export interface PointCloudShaderOptions {
   readonly pointSize?: number;
+  readonly worldScale: number;
   readonly minHeight: number;
   readonly maxHeight: number;
   readonly minIntensity?: number;
@@ -20,6 +23,8 @@ export class PointCloudShaderMaterial extends ShaderMaterial {
   public constructor(options: PointCloudShaderOptions) {
     const uniforms: Record<string, IUniform> = {
       uPointSize: { value: options.pointSize ?? 2.4 },
+      uSizeScale: { value: Math.max(options.worldScale, 0.0001) * sizeScaleFraction },
+      uMinDepth: { value: Math.max(options.worldScale, 0.0001) * minDepthFraction },
       uColorMode: { value: colorModeToNumber.height },
       uMinHeight: { value: options.minHeight },
       uMaxHeight: { value: Math.max(options.maxHeight, options.minHeight + 0.0001) },
@@ -39,12 +44,14 @@ export class PointCloudShaderMaterial extends ShaderMaterial {
         varying float vHeight;
         varying float vIntensity;
         uniform float uPointSize;
+        uniform float uSizeScale;
+        uniform float uMinDepth;
         void main() {
           vColor = color;
           vHeight = position.y;
           vIntensity = intensity;
           vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-          gl_PointSize = clamp(uPointSize * (90.0 / max(1.0, -mvPosition.z)), 0.8, 10.0);
+          gl_PointSize = clamp(uPointSize * (uSizeScale / max(uMinDepth, -mvPosition.z)), 0.8, 10.0);
           gl_Position = projectionMatrix * mvPosition;
         }
       `,

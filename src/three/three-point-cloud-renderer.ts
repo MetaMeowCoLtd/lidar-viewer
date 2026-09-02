@@ -32,6 +32,7 @@ export class ThreePointCloudRenderer {
     const source = pyramid.tiers[0]!.cloud;
     const intensityRange = findRange(source.intensity);
     this.material = new PointCloudShaderMaterial({
+      worldScale: source.bounds.diagonal,
       minHeight: source.bounds.min[1],
       maxHeight: source.bounds.max[1],
       ...(intensityRange === undefined ? {} : { minIntensity: intensityRange.min, maxIntensity: intensityRange.max }),
