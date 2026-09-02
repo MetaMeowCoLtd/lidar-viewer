@@ -40,7 +40,7 @@ export class LidarViewer {
       antialias: false,
       powerPreference: "high-performance",
     });
-    this.renderer.setClearColor(options.clearColor ?? 0x07111f, 1);
+    this.renderer.setClearColor(options.clearColor ?? 0x07111f, 0);
     this.renderer.setPixelRatio(options.pixelRatio ?? Math.min(window.devicePixelRatio, 2));
     this.controls = new OrbitControls(this.camera, canvas);
     this.controls.enableDamping = true;
