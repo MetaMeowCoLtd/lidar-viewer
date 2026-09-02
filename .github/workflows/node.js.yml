@@ -8,6 +8,17 @@ on:
     branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Only one Pages deployment at a time; a new push cancels a queued one.
+concurrency:
+  group: pages
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -16,8 +27,9 @@ jobs:
 
     strategy:
       matrix:
-        node-version: [18.x, 20.x, 22.x]
-        # See supported Node.js release schedule at https://nodejs.org/en/about/releases/
+        node-version: [20.x, 22.x]
+        # Node 18.x is not supported here: vite@7 and vitest@3 require
+        # Node ^20.19.0 or >=22.12.0. See https://nodejs.org/en/about/releases/
 
     steps:
     - uses: actions/checkout@v4
@@ -29,3 +41,20 @@ jobs:
     - run: npm ci
     - run: npm run build --if-present
     - run: npm test
+    # Upload the build output once, from the newest Node version, as the
+    # Pages deployment artifact. Only needed on pushes to main.
+    - if: matrix.node-version == '22.x' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+      uses: actions/upload-pages-artifact@v3
+      with:
+        path: dist
+
+  deploy:
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
