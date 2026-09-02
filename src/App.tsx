@@ -20,9 +20,9 @@ export function App() {
   const [statusText, setStatusText] = useState("Booting visualizer");
   const [pointBudget, setPointBudget] = useState(DEFAULT_BUDGET);
   const [pointSize, setPointSize] = useState(2.4);
-  const [colorMode, setColorMode] = useState<PointCloudColorMode>("height");
+  const [colorMode, setColorMode] = useState<PointCloudColorMode>("rgb");
   const [isDragging, setIsDragging] = useState(false);
-  const [sourceLabel, setSourceLabel] = useState("Procedural terrain study");
+  const [sourceLabel, setSourceLabel] = useState("Procedural city block");
 
   const source = pyramid?.tiers[0]?.cloud;
   const effectivePointBudget = Math.min(pointBudget, source?.pointCount ?? pointBudget);
@@ -37,7 +37,7 @@ export function App() {
   const loadProcedural = useCallback((seed = Math.floor(Math.random() * 1_000_000)) => {
     const viewer = viewerRef.current;
     if (viewer === undefined) return;
-    setSourceLabel("Procedural terrain study");
+    setSourceLabel("Procedural city block");
     void viewer.load(
       new ProceduralCloudGenerator().generate({ pointCount: INITIAL_POINT_COUNT, seed }),
       createLodSpecs(115),
