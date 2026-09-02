@@ -124,7 +124,7 @@ export class LidarViewer {
     const cloud = this.activePyramid?.tiers[0]?.cloud;
     if (cloud === undefined) return;
     const { center, diagonal } = cloud.bounds;
-    const distance = Math.max(diagonal * 1.15, 4);
+    const distance = diagonal > 0 ? diagonal * 1.15 : 1;
     this.controls.target.set(...center);
     this.camera.position.set(center[0] + distance, center[1] + distance * 0.55, center[2] + distance);
     this.camera.near = Math.max(0.01, distance / 10_000);
