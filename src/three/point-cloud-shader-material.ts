@@ -1,6 +1,5 @@
 import {
   Color,
-  NormalBlending,
   ShaderMaterial,
   type IUniform,
 } from "three";
@@ -31,9 +30,8 @@ export class PointCloudShaderMaterial extends ShaderMaterial {
     };
     super({
       uniforms,
-      transparent: true,
-      depthWrite: false,
-      blending: NormalBlending,
+      transparent: false,
+      depthWrite: true,
       vertexShader: `
         attribute vec3 color;
         attribute float intensity;
@@ -67,7 +65,7 @@ export class PointCloudShaderMaterial extends ShaderMaterial {
           float normalizedIntensity = clamp((vIntensity - uMinIntensity) / (uMaxIntensity - uMinIntensity), 0.0, 1.0);
           vec3 intensityColor = vec3(normalizedIntensity);
           vec3 finalColor = uColorMode < 0.5 ? heightColor : (uColorMode < 1.5 ? vColor : intensityColor);
-          gl_FragColor = vec4(finalColor, 0.92);
+          gl_FragColor = vec4(finalColor, 1.0);
         }
       `,
     });
