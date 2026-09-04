@@ -25,9 +25,13 @@ export interface LodRenderSummary {
 interface TileRenderState {
   readonly id: string;
   readonly bounds: PointCloudBounds;
-  readonly geometries: Map<string, BufferGeometry>;
   readonly points: Points;
-  activeTier: PointCloudLodTier;
+  activeTier: PointCloudLodTier | undefined;
+}
+
+interface CachedGeometry {
+  readonly geometry: BufferGeometry;
+  readonly pointCount: number;
 }
 
 /**
@@ -35,9 +39,15 @@ interface TileRenderState {
  * state can call these methods without rebuilding scene objects or GPU buffers.
  * Each spatial tile gets its own `Points` mesh so tiers can be swapped
  * independently per tile as the camera moves, while sharing one material.
+ * Tier geometry is uploaded the first time a tier is actually shown and held
+ * in a least-recently-used cache, so a scene never costs more GPU memory than
+ * the tiers it has really drawn.
  */
 export class ThreePointCloudRenderer {
   private readonly tileStates = new Map<string, TileRenderState>();
+  private readonly geometryCache = new Map<string, CachedGeometry>();
+  private readonly emptyGeometry = new BufferGeometry();
+  private cachedPointCount = 0;
   private material: PointCloudShaderMaterial | undefined;
   private eyeDome: EyeDomeLighting | undefined;
   private reliefEnabled = false;
@@ -51,23 +61,18 @@ export class ThreePointCloudRenderer {
 
   public setTiledPyramid(source: PointCloud, tiled: TiledPointCloudLodPyramid): void {
     this.disposeCloudResources();
-    const intensityRange = findRange(source.intensity);
     this.material = new PointCloudShaderMaterial({
       worldScale: source.bounds.diagonal,
       minHeight: source.bounds.min[1],
       maxHeight: source.bounds.max[1],
-      ...(intensityRange === undefined ? {} : { minIntensity: intensityRange.min, maxIntensity: intensityRange.max }),
     });
     this.material.setHasRgb(source.supportsColorMode("rgb"));
     this.hasRgb = source.supportsColorMode("rgb");
 
     for (const tile of tiled.tiles) {
-      const geometries = new Map<string, BufferGeometry>();
-      for (const tier of tile.pyramid.tiers) geometries.set(tier.id, createGeometry(tier.cloud));
-      const activeTier = tile.pyramid.tiers[0]!;
-      const points = new Points(geometries.get(activeTier.id)!, this.material);
+      const points = new Points(this.emptyGeometry, this.material);
       this.scene.add(points);
-      this.tileStates.set(tile.id, { id: tile.id, bounds: tile.bounds, geometries, points, activeTier });
+      this.tileStates.set(tile.id, { id: tile.id, bounds: tile.bounds, points, activeTier: undefined });
     }
   }
 
@@ -90,11 +95,11 @@ export class ThreePointCloudRenderer {
     let focusTierId: string | undefined;
     let focusDistance = Number.POSITIVE_INFINITY;
     for (const state of this.tileStates.values()) {
-      drawnPointCount += state.activeTier.cloud.pointCount;
+      drawnPointCount += state.activeTier?.cloud.pointCount ?? 0;
       const distance = distanceToBounds(cameraX, cameraY, cameraZ, state.bounds);
       if (distance < focusDistance) {
         focusDistance = distance;
-        focusTierId = state.activeTier.id;
+        focusTierId = state.activeTier?.id;
       }
     }
     return { tileCount: this.tileStates.size, drawnPointCount, totalPointCount: tiled.totalPointCount, focusTierId };
@@ -136,23 +141,58 @@ export class ThreePointCloudRenderer {
 
   public dispose(): void {
     this.disposeCloudResources();
+    this.emptyGeometry.dispose();
     this.eyeDome?.dispose();
     this.eyeDome = undefined;
   }
 
   private applyTileTier(tileId: string, nextTier: PointCloudLodTier): void {
     const state = this.tileStates.get(tileId);
-    if (state === undefined || state.activeTier.id === nextTier.id) return;
-    state.points.geometry = state.geometries.get(nextTier.id)!;
+    if (state === undefined || state.activeTier?.id === nextTier.id) return;
+    state.points.geometry = this.geometryFor(tileId, nextTier);
     state.activeTier = nextTier;
   }
 
-  private disposeCloudResources(): void {
-    for (const state of this.tileStates.values()) {
-      this.scene.remove(state.points);
-      for (const geometry of state.geometries.values()) geometry.dispose();
+  private geometryFor(tileId: string, tier: PointCloudLodTier): BufferGeometry {
+    const key = `${tileId}/${tier.id}`;
+    const cached = this.geometryCache.get(key);
+    if (cached !== undefined) {
+      this.geometryCache.delete(key);
+      this.geometryCache.set(key, cached);
+      return cached.geometry;
     }
+    const geometry = createGeometry(tier.cloud);
+    this.geometryCache.set(key, { geometry, pointCount: tier.cloud.pointCount });
+    this.cachedPointCount += tier.cloud.pointCount;
+    this.releaseUnusedGeometry(key);
+    return geometry;
+  }
+
+  /**
+   * Drops the oldest geometry that no tile is currently drawing until the
+   * budget is met. `keepKey` is the geometry the caller is about to draw, which
+   * no tile references yet and so would otherwise look evictable.
+   */
+  private releaseUnusedGeometry(keepKey: string): void {
+    const budget = viewerConfig().gpuPointBudget;
+    if (this.cachedPointCount <= budget) return;
+    const drawn = new Set<BufferGeometry>();
+    for (const state of this.tileStates.values()) drawn.add(state.points.geometry);
+    for (const [key, entry] of this.geometryCache) {
+      if (this.cachedPointCount <= budget) return;
+      if (key === keepKey || drawn.has(entry.geometry)) continue;
+      entry.geometry.dispose();
+      this.geometryCache.delete(key);
+      this.cachedPointCount -= entry.pointCount;
+    }
+  }
+
+  private disposeCloudResources(): void {
+    for (const state of this.tileStates.values()) this.scene.remove(state.points);
     this.tileStates.clear();
+    for (const entry of this.geometryCache.values()) entry.geometry.dispose();
+    this.geometryCache.clear();
+    this.cachedPointCount = 0;
     this.material?.dispose();
     this.material = undefined;
     this.hasRgb = false;
@@ -162,25 +202,9 @@ export class ThreePointCloudRenderer {
 function createGeometry(cloud: PointCloud): BufferGeometry {
   const geometry = new BufferGeometry();
   geometry.setAttribute("position", new BufferAttribute(cloud.positions, 3));
-  geometry.setAttribute("color", new BufferAttribute(cloud.colors ?? fallbackColors(cloud.pointCount), 3, true));
-  geometry.setAttribute("intensity", new BufferAttribute(cloud.intensity ?? new Float32Array(cloud.pointCount), 1));
+  if (cloud.colors !== undefined) {
+    geometry.setAttribute("color", new BufferAttribute(cloud.colors, 3, true));
+  }
   geometry.computeBoundingSphere();
   return geometry;
-}
-
-function fallbackColors(pointCount: number): Uint8Array {
-  const colors = new Uint8Array(pointCount * 3);
-  colors.fill(255);
-  return colors;
-}
-
-function findRange(values: Float32Array | undefined): { min: number; max: number } | undefined {
-  if (values === undefined) return undefined;
-  let min = Number.POSITIVE_INFINITY;
-  let max = Number.NEGATIVE_INFINITY;
-  for (const value of values) {
-    min = Math.min(min, value);
-    max = Math.max(max, value);
-  }
-  return { min, max };
 }

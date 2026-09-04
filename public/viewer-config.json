@@ -35,5 +35,6 @@
     "enabled": true,
     "targetPointsPerTile": 2000000,
     "buildWorkers": 16
-  }
+  },
+  "gpuPointBudget": 40000000
 }

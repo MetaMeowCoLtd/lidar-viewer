@@ -61,6 +61,8 @@ export interface ViewerConfig {
   readonly camera: CameraConfig;
   readonly distanceLod: DistanceLodConfig;
   readonly tiling: TilingConfig;
+  /** Points allowed to stay resident in GPU buffers before unused tiers are released. */
+  readonly gpuPointBudget: number;
 }
 
 const fallback: ViewerConfig = {
@@ -77,6 +79,7 @@ const fallback: ViewerConfig = {
     distanceMultipliers: { full: 0, fine: 0.5, balanced: 1.2, lean: 2.5 },
   },
   tiling: { enabled: true, targetPointsPerTile: 2_000_000, buildWorkers: 16 },
+  gpuPointBudget: 40_000_000,
 };
 
 let active: ViewerConfig = fallback;
