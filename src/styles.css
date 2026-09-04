@@ -14,6 +14,7 @@ button { color: inherit; }
 .atmosphere-one { left: 16%; top: 26%; background: #1a8dca; }
 .atmosphere-two { right: -13%; bottom: -24%; background: #3159c8; }
 .topbar, .view-copy, .command-panel, .orbit-hint, .telemetry-bar { position: absolute; z-index: 4; }
+.ui-hidden .topbar, .ui-hidden .view-copy, .ui-hidden .command-panel, .ui-hidden .orbit-hint, .ui-hidden .telemetry-bar { display: none; }
 .topbar { top: 0; left: 0; right: 0; height: 78px; padding: 0 36px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(168, 205, 255, .1); background: linear-gradient(180deg, rgba(4,8,15,.58), rgba(4,8,15,0)); }
 .brand { display: flex; align-items: center; gap: 11px; color: white; text-decoration: none; font-size: 13px; font-weight: 800; letter-spacing: .12em; }
 .brand-slash { color: #72d6ff; padding: 0 2px; }

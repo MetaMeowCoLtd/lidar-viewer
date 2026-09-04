@@ -23,6 +23,7 @@ export function App() {
   const [colorMode, setColorMode] = useState<PointCloudColorMode>("rgb");
   const [isDragging, setIsDragging] = useState(false);
   const [sourceLabel, setSourceLabel] = useState("Procedural city block");
+  const [uiHidden, setUiHidden] = useState(false);
 
   const source = pyramid?.tiers[0]?.cloud;
   const effectivePointBudget = Math.min(pointBudget, source?.pointCount ?? pointBudget);
@@ -95,6 +96,15 @@ export function App() {
   }, [pointSize]);
 
   useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key.toLowerCase() !== "h" || event.metaKey || event.ctrlKey || event.altKey) return;
+      setUiHidden((hidden) => !hidden);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
+  useEffect(() => {
     if (source !== undefined && !source.supportsColorMode(colorMode)) {
       setColorMode("height");
       return;
@@ -129,7 +139,7 @@ export function App() {
   };
 
   return (
-    <main className="app-shell">
+    <main className={uiHidden ? "app-shell ui-hidden" : "app-shell"}>
       <section className="viewer-shell" aria-label="Interactive point cloud viewer">
         <canvas ref={canvasRef} className="point-cloud-canvas" />
         <div className="atmosphere atmosphere-one" />
@@ -152,7 +162,7 @@ export function App() {
           <p className="lead">A performant, single-cloud LiDAR viewer built to make spatial data tangible.</p>
         </div>
 
-        <div className="orbit-hint"><Icon name="orbit" /><span>DRAG TO ORBIT</span><span className="hint-separator">·</span><span>SCROLL TO ZOOM</span></div>
+        <div className="orbit-hint"><Icon name="orbit" /><span>DRAG TO ORBIT</span><span className="hint-separator">·</span><span>SCROLL TO ZOOM</span><span className="hint-separator">·</span><span>H TO HIDE UI</span></div>
 
         <aside className="command-panel" aria-label="Point cloud controls">
           <div className="panel-heading">
