@@ -17,7 +17,7 @@ describe("PointCloud", () => {
     expect(cloud.bounds.min).toEqual([0, -2, -1]);
     expect(cloud.bounds.max).toEqual([4, 2, 3]);
     expect(cloud.supportsColorMode("rgb")).toBe(true);
-    expect(cloud.supportsColorMode("intensity")).toBe(false);
+    expect(cloud.supportsColorMode("relief")).toBe(true);
   });
 });
 

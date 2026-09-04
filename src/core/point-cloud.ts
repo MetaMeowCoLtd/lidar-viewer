@@ -1,4 +1,4 @@
-export type PointCloudColorMode = "height" | "rgb" | "intensity";
+export type PointCloudColorMode = "height" | "rgb" | "relief";
 
 export interface PointCloudBounds {
   readonly min: readonly [number, number, number];
@@ -56,7 +56,7 @@ export class PointCloud {
 
   public supportsColorMode(mode: PointCloudColorMode): boolean {
     return mode === "height" || (mode === "rgb" && this.colors !== undefined) ||
-      (mode === "intensity" && this.intensity !== undefined);
+      mode === "relief";
   }
 }
 

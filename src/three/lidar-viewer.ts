@@ -93,6 +93,7 @@ export class LidarViewer {
     this.camera.updateProjectionMatrix();
     this.renderer.setPixelRatio(pixelRatio);
     this.renderer.setSize(width, height, false);
+    this.pointCloudRenderer.setSize(width * pixelRatio, height * pixelRatio);
   }
 
   public start(): void {

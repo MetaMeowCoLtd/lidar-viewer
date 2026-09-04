@@ -3,12 +3,15 @@ import {
   BufferGeometry,
   Points,
   Scene,
+  Vector2,
   type Camera,
   type WebGLRenderer,
 } from "three";
 import type { PointCloud, PointCloudColorMode } from "../core/point-cloud.js";
 import type { PointCloudLodPyramid, PointCloudLodTier } from "../core/lod-pyramid.js";
 import { PointCloudShaderMaterial } from "./point-cloud-shader-material.js";
+import { EyeDomeLighting } from "./eye-dome-lighting.js";
+import { viewerConfig } from "../config.js";
 
 /**
  * Imperative Three.js boundary. It is deliberately not a React component: UI
@@ -19,6 +22,8 @@ export class ThreePointCloudRenderer {
   private activeTier: PointCloudLodTier | undefined;
   private material: PointCloudShaderMaterial | undefined;
   private points: Points | undefined;
+  private eyeDome: EyeDomeLighting | undefined;
+  private reliefEnabled = false;
 
   public constructor(
     private readonly scene: Scene,
@@ -37,6 +42,7 @@ export class ThreePointCloudRenderer {
       maxHeight: source.bounds.max[1],
       ...(intensityRange === undefined ? {} : { minIntensity: intensityRange.min, maxIntensity: intensityRange.max }),
     });
+    this.material.setHasRgb(source.supportsColorMode("rgb"));
     this.points = new Points(this.geometries.get(pyramid.tiers[0]!.id)!, this.material);
     this.scene.add(this.points);
     this.activeTier = pyramid.tiers[0];
@@ -57,16 +63,34 @@ export class ThreePointCloudRenderer {
 
   public setColorMode(mode: PointCloudColorMode): void {
     const supportedMode = this.activeTier?.cloud.supportsColorMode(mode) === false ? "height" : mode;
+    this.reliefEnabled = supportedMode === "relief";
     this.material?.setColorMode(supportedMode);
+  }
+
+  public setSize(width: number, height: number): void {
+    this.eyeDome?.setSize(width, height);
   }
 
   /** Call from the host application's single requestAnimationFrame loop. */
   public render(): void {
-    this.renderer.render(this.scene, this.camera);
+    if (!this.reliefEnabled) {
+      this.renderer.render(this.scene, this.camera);
+      return;
+    }
+    if (this.eyeDome === undefined) {
+      this.eyeDome = new EyeDomeLighting(this.renderer);
+      const size = this.renderer.getDrawingBufferSize(new Vector2());
+      this.eyeDome.setSize(size.x, size.y);
+      this.eyeDome.setStrength(viewerConfig().eyeDomeLighting.strength);
+      this.eyeDome.setRadius(viewerConfig().eyeDomeLighting.radius);
+    }
+    this.eyeDome.render(this.scene, this.camera);
   }
 
   public dispose(): void {
     this.disposeCloudResources();
+    this.eyeDome?.dispose();
+    this.eyeDome = undefined;
   }
 
   private disposeCloudResources(): void {

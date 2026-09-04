@@ -5,7 +5,7 @@ import {
 } from "three";
 import type { PointCloudColorMode } from "../core/point-cloud.js";
 
-const colorModeToNumber: Record<PointCloudColorMode, number> = { height: 0, rgb: 1, intensity: 2 };
+const colorModeToNumber: Record<PointCloudColorMode, number> = { height: 0, rgb: 1, relief: 2 };
 const sizeScaleFraction = 0.78;
 const minDepthFraction = 0.01;
 
@@ -30,6 +30,7 @@ export class PointCloudShaderMaterial extends ShaderMaterial {
       uMaxHeight: { value: Math.max(options.maxHeight, options.minHeight + 0.0001) },
       uMinIntensity: { value: options.minIntensity ?? 0 },
       uMaxIntensity: { value: Math.max(options.maxIntensity ?? 1, (options.minIntensity ?? 0) + 0.0001) },
+      uHasRgb: { value: 0 },
       uLowHeightColor: { value: new Color("#123f71") },
       uHighHeightColor: { value: new Color("#ffe09a") },
     };
@@ -61,6 +62,7 @@ export class PointCloudShaderMaterial extends ShaderMaterial {
         uniform float uMaxHeight;
         uniform float uMinIntensity;
         uniform float uMaxIntensity;
+        uniform float uHasRgb;
         uniform vec3 uLowHeightColor;
         uniform vec3 uHighHeightColor;
         varying vec3 vColor;
@@ -69,9 +71,8 @@ export class PointCloudShaderMaterial extends ShaderMaterial {
         void main() {
           if (length(gl_PointCoord - vec2(0.5)) > 0.5) discard;
           vec3 heightColor = mix(uLowHeightColor, uHighHeightColor, clamp((vHeight - uMinHeight) / (uMaxHeight - uMinHeight), 0.0, 1.0));
-          float normalizedIntensity = clamp((vIntensity - uMinIntensity) / (uMaxIntensity - uMinIntensity), 0.0, 1.0);
-          vec3 intensityColor = vec3(normalizedIntensity);
-          vec3 finalColor = uColorMode < 0.5 ? heightColor : (uColorMode < 1.5 ? vColor : intensityColor);
+          vec3 reliefColor = uHasRgb > 0.5 ? vColor : heightColor;
+          vec3 finalColor = uColorMode < 0.5 ? heightColor : (uColorMode < 1.5 ? vColor : reliefColor);
           gl_FragColor = vec4(finalColor, 1.0);
         }
       `,
@@ -81,6 +82,10 @@ export class PointCloudShaderMaterial extends ShaderMaterial {
   public setPointSize(pointSize: number): void {
     if (!Number.isFinite(pointSize) || pointSize <= 0) throw new Error("pointSize must be positive");
     this.uniforms.uPointSize!.value = pointSize;
+  }
+
+  public setHasRgb(hasRgb: boolean): void {
+    this.uniforms.uHasRgb!.value = hasRgb ? 1 : 0;
   }
 
   public setColorMode(mode: PointCloudColorMode): void {

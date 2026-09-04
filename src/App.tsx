@@ -32,7 +32,6 @@ export function App() {
     [effectivePointBudget, pyramid],
   );
   const supportsRgb = source?.supportsColorMode("rgb") ?? false;
-  const supportsIntensity = source?.supportsColorMode("intensity") ?? false;
   const budgetMaximum = source?.pointCount ?? viewerConfig().defaultPointBudget;
 
   const loadProcedural = useCallback((seed = Math.floor(Math.random() * 1_000_000)) => {
@@ -205,7 +204,7 @@ export function App() {
             <div className="segmented-control" role="group" aria-label="Color treatment">
               <ModeButton active={colorMode === "height"} onClick={() => setColorMode("height")}>Height</ModeButton>
               <ModeButton active={colorMode === "rgb"} disabled={!supportsRgb} onClick={() => setColorMode("rgb")}>RGB</ModeButton>
-              <ModeButton active={colorMode === "intensity"} disabled={!supportsIntensity} onClick={() => setColorMode("intensity")}>Intensity</ModeButton>
+              <ModeButton active={colorMode === "relief"} onClick={() => setColorMode("relief")}>Relief</ModeButton>
             </div>
           </div>
 
