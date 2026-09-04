@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChangeEvent, DragEvent, ReactNode } from "react";
 import type { PointCloudColorMode, PointCloudPointShape } from "./core/point-cloud.js";
-import type { PointCloudLodPyramid, PointCloudLodTier } from "./core/lod-pyramid.js";
+import type { PointCloudLodPyramid } from "./core/lod-pyramid.js";
+import type { LodRenderSummary } from "./three/lidar-viewer.js";
 import { ProceduralCloudGenerator } from "./core/procedural-cloud-generator.js";
 import { importPlyFile } from "./import/ply-file-importer.js";
 import { LidarViewer } from "./three/lidar-viewer.js";
@@ -28,14 +29,10 @@ export function App() {
   const [lodMode, setLodMode] = useState<"manual" | "distance">(
     () => (viewerConfig().distanceLod.enabledByDefault ? "distance" : "manual"),
   );
-  const [activeTier, setActiveTier] = useState<PointCloudLodTier>();
+  const [lodSummary, setLodSummary] = useState<LodRenderSummary>();
 
   const source = pyramid?.tiers[0]?.cloud;
   const effectivePointBudget = Math.min(pointBudget, source?.pointCount ?? pointBudget);
-  const selectedTier = useMemo(
-    () => (lodMode === "manual" ? pyramid?.selectForPointBudget(effectivePointBudget) : activeTier),
-    [activeTier, effectivePointBudget, lodMode, pyramid],
-  );
   const supportsRgb = source?.supportsColorMode("rgb") ?? false;
   const budgetMaximum = source?.pointCount ?? viewerConfig().defaultPointBudget;
 
@@ -58,7 +55,7 @@ export function App() {
       distanceBasedLod: viewerConfig().distanceLod.enabledByDefault,
     });
     viewerRef.current = viewer;
-    const unsubscribeTier = viewer.onActiveTierChange(setActiveTier);
+    const unsubscribeTier = viewer.onLodSummaryChange(setLodSummary);
     const unsubscribe = viewer.session.subscribe((nextState) => {
       if (nextState.status === "processing") {
         setStatus("processing");
@@ -266,8 +263,9 @@ export function App() {
 
         <footer className="telemetry-bar">
           <Telemetry label="SOURCE POINTS" value={source === undefined ? "—" : formatCount(source.pointCount)} />
-          <Telemetry label="ACTIVE LOD" value={selectedTier?.id.toUpperCase() ?? "—"} />
-          <Telemetry label="DRAW BUDGET" value={selectedTier === undefined ? "—" : formatCount(selectedTier.cloud.pointCount)} />
+          <Telemetry label="ACTIVE LOD" value={lodSummary?.focusTierId?.toUpperCase() ?? "—"} />
+          <Telemetry label="DRAW BUDGET" value={lodSummary === undefined ? "—" : formatCount(lodSummary.drawnPointCount)} />
+          <Telemetry label="TILES" value={lodSummary === undefined ? "—" : String(lodSummary.tileCount)} />
           <Telemetry label="LOD SOURCE" value={lodMode === "distance" ? "CAMERA DIST." : "MANUAL"} />
           <div className="telemetry-note"><span className="pulse-ring" />EDGE-READY RENDER PATH</div>
         </footer>

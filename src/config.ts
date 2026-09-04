@@ -41,6 +41,13 @@ export interface DistanceLodConfig {
   readonly distanceMultipliers: DistanceLodThresholds;
 }
 
+export interface TilingConfig {
+  /** Whether the dataset is partitioned into spatial tiles before LOD is applied. */
+  readonly enabled: boolean;
+  /** World-space edge length of one square XZ tile column. */
+  readonly tileSize: number;
+}
+
 export interface ViewerConfig {
   readonly backgroundColor: string;
   readonly maxImportSizeMb: number;
@@ -51,6 +58,7 @@ export interface ViewerConfig {
   readonly eyeDomeLighting: EyeDomeLightingConfig;
   readonly camera: CameraConfig;
   readonly distanceLod: DistanceLodConfig;
+  readonly tiling: TilingConfig;
 }
 
 const fallback: ViewerConfig = {
@@ -66,6 +74,7 @@ const fallback: ViewerConfig = {
     enabledByDefault: false,
     distanceMultipliers: { full: 0, fine: 0.5, balanced: 1.2, lean: 2.5 },
   },
+  tiling: { enabled: true, tileSize: 25 },
 };
 
 let active: ViewerConfig = fallback;
@@ -94,6 +103,7 @@ export async function loadViewerConfig(): Promise<ViewerConfig> {
             ...parsed.distanceLod?.distanceMultipliers,
           },
         },
+        tiling: { ...fallback.tiling, ...parsed.tiling },
       };
     }
   } catch {

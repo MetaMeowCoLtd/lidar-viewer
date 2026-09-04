@@ -1,10 +1,14 @@
 import { PerspectiveCamera, Scene, WebGLRenderer } from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import type { PointCloud, PointCloudColorMode, PointCloudPointShape } from "../core/point-cloud.js";
-import { PointCloudLodPyramid, type LodTierSpec, type PointCloudLodTier } from "../core/lod-pyramid.js";
+import { PointCloudLodPyramid, type LodTierSpec } from "../core/lod-pyramid.js";
 import { PointCloudSession } from "../core/point-cloud-session.js";
+import { TiledPointCloudLodPyramid } from "../core/tiled-lod-pyramid.js";
 import { ThreePointCloudRenderer } from "./three-point-cloud-renderer.js";
 import { viewerConfig } from "../config.js";
+
+export type { LodRenderSummary } from "./three-point-cloud-renderer.js";
+import type { LodRenderSummary } from "./three-point-cloud-renderer.js";
 
 export interface LidarViewerOptions {
   readonly pointBudget?: number;
@@ -12,7 +16,7 @@ export interface LidarViewerOptions {
   readonly clearColor?: number;
   readonly pixelRatio?: number;
   /**
-   * When true, the active LOD tier is chosen every frame from the camera's
+   * When true, the active LOD tier is chosen every frame from each tile's
    * distance to the orbit target instead of the manual point budget. Off by
    * default so existing integrations keep their current behavior.
    */
@@ -22,7 +26,9 @@ export interface LidarViewerOptions {
 /**
  * Browser composition root for the renderer. It owns the only animation loop,
  * camera controls, and GPU lifecycle, while keeping UI framework state outside
- * the Three.js scene graph.
+ * the Three.js scene graph. The loaded cloud is partitioned into spatial
+ * tiles (see {@link TiledPointCloudLodPyramid}) so LOD can be resolved per
+ * region instead of switching the whole cloud's detail level at once.
  */
 export class LidarViewer {
   public readonly scene = new Scene();
@@ -33,6 +39,8 @@ export class LidarViewer {
   private readonly controls: OrbitControls;
   private readonly pointCloudRenderer: ThreePointCloudRenderer;
   private activePyramid: PointCloudLodPyramid | undefined;
+  private activeTiledPyramid: TiledPointCloudLodPyramid | undefined;
+  private lastSpecs: readonly LodTierSpec[] = [];
   private pointBudget: number;
   private pointSize: number;
   private colorMode: PointCloudColorMode = "height";
@@ -40,8 +48,8 @@ export class LidarViewer {
   private frameHandle: number | undefined;
   private disposed = false;
   private distanceBasedLodEnabled: boolean;
-  private lastNotifiedTierId: string | undefined;
-  private readonly tierChangeListeners = new Set<(tier: PointCloudLodTier) => void>();
+  private lastNotifiedSummaryKey: string | undefined;
+  private readonly summaryListeners = new Set<(summary: LodRenderSummary) => void>();
 
   public constructor(canvas: HTMLCanvasElement, options: LidarViewerOptions = {}) {
     this.pointBudget = options.pointBudget ?? 500_000;
@@ -64,9 +72,11 @@ export class LidarViewer {
     this.session.subscribe((state) => {
       if (state.status !== "ready" || this.disposed) return;
       this.activePyramid = state.pyramid;
-      this.pointCloudRenderer.setPyramid(state.pyramid);
+      const source = state.pyramid.tiers[0]!.cloud;
+      this.activeTiledPyramid = TiledPointCloudLodPyramid.build(source, this.lastSpecs, viewerConfig().tiling);
+      this.pointCloudRenderer.setTiledPyramid(source, this.activeTiledPyramid);
       this.frameActiveCloud();
-      this.applyLodForCurrentMode(state.pyramid);
+      this.applyLodForCurrentMode();
       this.pointCloudRenderer.setPointSize(this.pointSize);
       this.pointCloudRenderer.setColorMode(this.colorMode);
       this.pointCloudRenderer.setPointShape(this.pointShape);
@@ -75,14 +85,16 @@ export class LidarViewer {
 
   public async load(source: PointCloud | Promise<PointCloud>, specs: readonly LodTierSpec[]): Promise<void> {
     this.assertNotDisposed();
+    this.lastSpecs = specs;
     await this.session.load(source, specs);
   }
 
   public setPointBudget(pointBudget: number): void {
     this.assertNotDisposed();
     this.pointBudget = pointBudget;
-    if (this.activePyramid !== undefined && !this.distanceBasedLodEnabled) {
-      this.notifyActiveTier(this.pointCloudRenderer.setPointBudget(pointBudget, this.activePyramid));
+    if (this.activeTiledPyramid !== undefined && !this.distanceBasedLodEnabled) {
+      this.pointCloudRenderer.applyPointBudget(pointBudget, this.activeTiledPyramid);
+      this.notifySummary();
     }
   }
 
@@ -91,17 +103,17 @@ export class LidarViewer {
     this.assertNotDisposed();
     if (this.distanceBasedLodEnabled === enabled) return;
     this.distanceBasedLodEnabled = enabled;
-    if (this.activePyramid !== undefined) this.applyLodForCurrentMode(this.activePyramid);
+    if (this.activeTiledPyramid !== undefined) this.applyLodForCurrentMode();
   }
 
   public isDistanceBasedLodEnabled(): boolean {
     return this.distanceBasedLodEnabled;
   }
 
-  /** Notified whenever the rendered LOD tier changes, from either selection mode. */
-  public onActiveTierChange(listener: (tier: PointCloudLodTier) => void): () => void {
-    this.tierChangeListeners.add(listener);
-    return () => this.tierChangeListeners.delete(listener);
+  /** Notified whenever the rendered tiers change, from either selection mode. */
+  public onLodSummaryChange(listener: (summary: LodRenderSummary) => void): () => void {
+    this.summaryListeners.add(listener);
+    return () => this.summaryListeners.delete(listener);
   }
 
   public setPointSize(pointSize: number): void {
@@ -137,9 +149,9 @@ export class LidarViewer {
     if (this.frameHandle !== undefined) return;
     const tick = () => {
       this.controls.update();
-      if (this.distanceBasedLodEnabled && this.activePyramid !== undefined) {
-        const distance = this.camera.position.distanceTo(this.controls.target);
-        this.notifyActiveTier(this.pointCloudRenderer.setActiveTierByCameraDistance(distance, this.activePyramid));
+      if (this.distanceBasedLodEnabled && this.activeTiledPyramid !== undefined) {
+        this.pointCloudRenderer.applyCameraDistanceLod(this.camera.position.x, this.camera.position.z, this.activeTiledPyramid);
+        this.notifySummary();
       }
       this.pointCloudRenderer.render();
       this.frameHandle = requestAnimationFrame(tick);
@@ -163,19 +175,23 @@ export class LidarViewer {
     this.disposed = true;
   }
 
-  private applyLodForCurrentMode(pyramid: PointCloudLodPyramid): void {
+  private applyLodForCurrentMode(): void {
+    if (this.activeTiledPyramid === undefined) return;
     if (this.distanceBasedLodEnabled) {
-      const distance = this.camera.position.distanceTo(this.controls.target);
-      this.notifyActiveTier(this.pointCloudRenderer.setActiveTierByCameraDistance(distance, pyramid));
+      this.pointCloudRenderer.applyCameraDistanceLod(this.camera.position.x, this.camera.position.z, this.activeTiledPyramid);
     } else {
-      this.notifyActiveTier(this.pointCloudRenderer.setPointBudget(this.pointBudget, pyramid));
+      this.pointCloudRenderer.applyPointBudget(this.pointBudget, this.activeTiledPyramid);
     }
+    this.notifySummary();
   }
 
-  private notifyActiveTier(tier: PointCloudLodTier): void {
-    if (tier.id === this.lastNotifiedTierId) return;
-    this.lastNotifiedTierId = tier.id;
-    for (const listener of this.tierChangeListeners) listener(tier);
+  private notifySummary(): void {
+    if (this.activeTiledPyramid === undefined) return;
+    const summary = this.pointCloudRenderer.getRenderSummary(this.camera.position.x, this.camera.position.z, this.activeTiledPyramid);
+    const key = `${summary.focusTierId ?? ""}:${summary.drawnPointCount}:${summary.tileCount}`;
+    if (key === this.lastNotifiedSummaryKey) return;
+    this.lastNotifiedSummaryKey = key;
+    for (const listener of this.summaryListeners) listener(summary);
   }
 
   private frameActiveCloud(): void {
