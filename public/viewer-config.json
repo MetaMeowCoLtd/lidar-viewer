@@ -2,6 +2,7 @@
   "backgroundColor": "#000000",
   "maxImportSizeMb": 1200,
   "defaultPointBudget": 1000000,
+  "pointShape": "circle",
   "pointSize": {
     "default": 2.4,
     "min": 1,

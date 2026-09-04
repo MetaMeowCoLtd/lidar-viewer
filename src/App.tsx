@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, DragEvent, ReactNode } from "react";
-import type { PointCloudColorMode } from "./core/point-cloud.js";
+import type { PointCloudColorMode, PointCloudPointShape } from "./core/point-cloud.js";
 import type { PointCloudLodPyramid } from "./core/lod-pyramid.js";
 import { ProceduralCloudGenerator } from "./core/procedural-cloud-generator.js";
 import { importPlyFile } from "./import/ply-file-importer.js";
@@ -21,6 +21,7 @@ export function App() {
   const [pointBudget, setPointBudget] = useState(() => viewerConfig().defaultPointBudget);
   const [pointSize, setPointSize] = useState(() => viewerConfig().pointSize.default);
   const [colorMode, setColorMode] = useState<PointCloudColorMode>("rgb");
+  const [pointShape, setPointShape] = useState<PointCloudPointShape>(() => viewerConfig().pointShape);
   const [isDragging, setIsDragging] = useState(false);
   const [sourceLabel, setSourceLabel] = useState("Procedural city block");
   const [uiHidden, setUiHidden] = useState(false);
@@ -102,6 +103,10 @@ export function App() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
+
+  useEffect(() => {
+    viewerRef.current?.setPointShape(pointShape);
+  }, [pointShape]);
 
   useEffect(() => {
     if (source !== undefined && !source.supportsColorMode(colorMode)) {
@@ -198,6 +203,14 @@ export function App() {
             <input aria-label="Point size" type="range" min={viewerConfig().pointSize.min} max={viewerConfig().pointSize.max} step="0.1" value={pointSize} onChange={(event) => setPointSize(Number(event.target.value))} />
             <div className="range-ends"><span>FINE</span><span>BOLD</span></div>
           </ControlRow>
+
+          <div className="control-block color-control">
+            <div className="control-label"><span>Point shape</span></div>
+            <div className="segmented-control" role="group" aria-label="Point shape">
+              <ModeButton active={pointShape === "circle"} onClick={() => setPointShape("circle")}>Circle</ModeButton>
+              <ModeButton active={pointShape === "square"} onClick={() => setPointShape("square")}>Square</ModeButton>
+            </div>
+          </div>
 
           <div className="control-block color-control">
             <div className="control-label"><span>Color treatment</span></div>

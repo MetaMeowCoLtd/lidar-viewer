@@ -21,10 +21,13 @@ export interface CameraConfig {
   readonly damping: number;
 }
 
+import type { PointCloudPointShape } from "./core/point-cloud.js";
+
 export interface ViewerConfig {
   readonly backgroundColor: string;
   readonly maxImportSizeMb: number;
   readonly defaultPointBudget: number;
+  readonly pointShape: PointCloudPointShape;
   readonly pointSize: PointSizeConfig;
   readonly lodDivisors: LodDivisors;
   readonly eyeDomeLighting: EyeDomeLightingConfig;
@@ -35,6 +38,7 @@ const fallback: ViewerConfig = {
   backgroundColor: "#000000",
   maxImportSizeMb: 1200,
   defaultPointBudget: 1_000_000,
+  pointShape: "circle",
   pointSize: { default: 2.4, min: 1, max: 7 },
   lodDivisors: { fine: 900, balanced: 350, lean: 130 },
   eyeDomeLighting: { strength: 40, radius: 1.4 },

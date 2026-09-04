@@ -1,6 +1,6 @@
 import { PerspectiveCamera, Scene, WebGLRenderer } from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import type { PointCloud, PointCloudColorMode } from "../core/point-cloud.js";
+import type { PointCloud, PointCloudColorMode, PointCloudPointShape } from "../core/point-cloud.js";
 import { PointCloudLodPyramid, type LodTierSpec } from "../core/lod-pyramid.js";
 import { PointCloudSession } from "../core/point-cloud-session.js";
 import { ThreePointCloudRenderer } from "./three-point-cloud-renderer.js";
@@ -30,6 +30,7 @@ export class LidarViewer {
   private pointBudget: number;
   private pointSize: number;
   private colorMode: PointCloudColorMode = "height";
+  private pointShape: PointCloudPointShape = viewerConfig().pointShape;
   private frameHandle: number | undefined;
   private disposed = false;
 
@@ -57,6 +58,7 @@ export class LidarViewer {
       this.setPointBudget(this.pointBudget);
       this.pointCloudRenderer.setPointSize(this.pointSize);
       this.pointCloudRenderer.setColorMode(this.colorMode);
+      this.pointCloudRenderer.setPointShape(this.pointShape);
       this.frameActiveCloud();
     });
   }
@@ -78,6 +80,12 @@ export class LidarViewer {
     this.assertNotDisposed();
     this.pointSize = pointSize;
     this.pointCloudRenderer.setPointSize(pointSize);
+  }
+
+  public setPointShape(shape: PointCloudPointShape): void {
+    this.assertNotDisposed();
+    this.pointShape = shape;
+    this.pointCloudRenderer.setPointShape(shape);
   }
 
   public setColorMode(mode: PointCloudColorMode): void {

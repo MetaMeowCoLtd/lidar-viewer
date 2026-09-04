@@ -7,7 +7,7 @@ import {
   type Camera,
   type WebGLRenderer,
 } from "three";
-import type { PointCloud, PointCloudColorMode } from "../core/point-cloud.js";
+import type { PointCloud, PointCloudColorMode, PointCloudPointShape } from "../core/point-cloud.js";
 import type { PointCloudLodPyramid, PointCloudLodTier } from "../core/lod-pyramid.js";
 import { PointCloudShaderMaterial } from "./point-cloud-shader-material.js";
 import { EyeDomeLighting } from "./eye-dome-lighting.js";
@@ -59,6 +59,10 @@ export class ThreePointCloudRenderer {
 
   public setPointSize(pointSize: number): void {
     this.material?.setPointSize(pointSize);
+  }
+
+  public setPointShape(shape: PointCloudPointShape): void {
+    this.material?.setPointShape(shape);
   }
 
   public setColorMode(mode: PointCloudColorMode): void {

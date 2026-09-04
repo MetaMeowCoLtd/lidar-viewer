@@ -3,9 +3,10 @@ import {
   ShaderMaterial,
   type IUniform,
 } from "three";
-import type { PointCloudColorMode } from "../core/point-cloud.js";
+import type { PointCloudColorMode, PointCloudPointShape } from "../core/point-cloud.js";
 
 const colorModeToNumber: Record<PointCloudColorMode, number> = { height: 0, rgb: 1, relief: 2 };
+const pointShapeToNumber: Record<PointCloudPointShape, number> = { circle: 0, square: 1 };
 const sizeScaleFraction = 0.78;
 const minDepthFraction = 0.01;
 
@@ -31,6 +32,7 @@ export class PointCloudShaderMaterial extends ShaderMaterial {
       uMinIntensity: { value: options.minIntensity ?? 0 },
       uMaxIntensity: { value: Math.max(options.maxIntensity ?? 1, (options.minIntensity ?? 0) + 0.0001) },
       uHasRgb: { value: 0 },
+      uPointShape: { value: pointShapeToNumber.circle },
       uLowHeightColor: { value: new Color("#123f71") },
       uHighHeightColor: { value: new Color("#ffe09a") },
     };
@@ -58,6 +60,7 @@ export class PointCloudShaderMaterial extends ShaderMaterial {
       `,
       fragmentShader: `
         uniform float uColorMode;
+        uniform float uPointShape;
         uniform float uMinHeight;
         uniform float uMaxHeight;
         uniform float uMinIntensity;
@@ -69,7 +72,7 @@ export class PointCloudShaderMaterial extends ShaderMaterial {
         varying float vHeight;
         varying float vIntensity;
         void main() {
-          if (length(gl_PointCoord - vec2(0.5)) > 0.5) discard;
+          if (uPointShape < 0.5 && length(gl_PointCoord - vec2(0.5)) > 0.5) discard;
           vec3 heightColor = mix(uLowHeightColor, uHighHeightColor, clamp((vHeight - uMinHeight) / (uMaxHeight - uMinHeight), 0.0, 1.0));
           vec3 reliefColor = uHasRgb > 0.5 ? vColor : heightColor;
           vec3 finalColor = uColorMode < 0.5 ? heightColor : (uColorMode < 1.5 ? vColor : reliefColor);
@@ -86,6 +89,10 @@ export class PointCloudShaderMaterial extends ShaderMaterial {
 
   public setHasRgb(hasRgb: boolean): void {
     this.uniforms.uHasRgb!.value = hasRgb ? 1 : 0;
+  }
+
+  public setPointShape(shape: PointCloudPointShape): void {
+    this.uniforms.uPointShape!.value = pointShapeToNumber[shape];
   }
 
   public setColorMode(mode: PointCloudColorMode): void {

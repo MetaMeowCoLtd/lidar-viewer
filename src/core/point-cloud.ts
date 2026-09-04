@@ -1,4 +1,5 @@
 export type PointCloudColorMode = "height" | "rgb" | "relief";
+export type PointCloudPointShape = "circle" | "square";
 
 export interface PointCloudBounds {
   readonly min: readonly [number, number, number];
