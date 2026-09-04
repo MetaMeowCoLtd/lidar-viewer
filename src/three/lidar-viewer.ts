@@ -46,6 +46,7 @@ export class LidarViewer {
     this.controls.enableDamping = true;
     this.controls.dampingFactor = 0.08;
     this.controls.screenSpacePanning = true;
+    this.controls.zoomToCursor = true;
     this.pointCloudRenderer = new ThreePointCloudRenderer(this.scene, this.renderer, this.camera);
 
     this.session.subscribe((state) => {
@@ -130,6 +131,8 @@ export class LidarViewer {
     this.camera.near = Math.max(0.01, distance / 10_000);
     this.camera.far = Math.max(100, distance * 8);
     this.camera.updateProjectionMatrix();
+    this.controls.minDistance = Math.max(diagonal / 5_000, 0.01);
+    this.controls.maxDistance = distance * 4;
     this.controls.update();
   }
 
