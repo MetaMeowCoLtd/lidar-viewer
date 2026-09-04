@@ -1,6 +1,6 @@
 {
   "backgroundColor": "#000000",
-  "maxImportSizeMb": 500,
+  "maxImportSizeMb": 1200,
   "defaultPointBudget": 1000000,
   "pointSize": {
     "default": 2.4,

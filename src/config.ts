@@ -33,7 +33,7 @@ export interface ViewerConfig {
 
 const fallback: ViewerConfig = {
   backgroundColor: "#000000",
-  maxImportSizeMb: 500,
+  maxImportSizeMb: 1200,
   defaultPointBudget: 1_000_000,
   pointSize: { default: 2.4, min: 1, max: 7 },
   lodDivisors: { fine: 900, balanced: 350, lean: 130 },
