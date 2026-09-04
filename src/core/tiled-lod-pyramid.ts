@@ -1,6 +1,8 @@
-import type { PointCloud, PointCloudBounds } from "./point-cloud.js";
+import { PointCloud, type PointCloudBounds } from "./point-cloud.js";
 import { PointCloudLodPyramid, type LodTierSpec, type PointCloudLodTier } from "./lod-pyramid.js";
 import { PointCloudTiler, type PointCloudTile } from "./point-cloud-tiler.js";
+import type { LodBuildPool } from "./lod-build-pool.js";
+import type { SerializedTier } from "./lod-build-protocol.js";
 
 export interface TiledPointCloudTile {
   readonly id: string;
@@ -10,7 +12,8 @@ export interface TiledPointCloudTile {
 
 export interface TilingConfig {
   readonly enabled: boolean;
-  readonly tileSize: number;
+  /** Tile edges are sized so a tile holds roughly this many points. */
+  readonly targetPointsPerTile: number;
 }
 
 export interface TiledLodSelection {
@@ -37,15 +40,42 @@ export class TiledPointCloudLodPyramid {
   }
 
   public static build(source: PointCloud, specs: readonly LodTierSpec[], tiling: TilingConfig): TiledPointCloudLodPyramid {
-    const rawTiles: readonly PointCloudTile[] = tiling.enabled
-      ? new PointCloudTiler().tile(source, { tileSize: tiling.tileSize })
-      : [{ id: "tile-0-0", gridX: 0, gridZ: 0, cloud: source }];
-
-    const tiles = rawTiles.map((tile) => ({
+    const tiles = partition(source, tiling).map((tile) => ({
       id: tile.id,
       bounds: tile.cloud.bounds,
       pyramid: PointCloudLodPyramid.build(tile.cloud, specs),
     }));
+    return new TiledPointCloudLodPyramid(tiles);
+  }
+
+  /**
+   * Builds every tile's pyramid on a worker pool. A cloud small enough to stay
+   * in one tile is built on the calling thread instead, because that tile's
+   * buffers are the caller's own and must not be transferred away.
+   */
+  public static async buildWithPool(
+    source: PointCloud,
+    specs: readonly LodTierSpec[],
+    tiling: TilingConfig,
+    pool: LodBuildPool,
+  ): Promise<TiledPointCloudLodPyramid> {
+    const rawTiles = partition(source, tiling);
+    if (rawTiles.length === 1) return TiledPointCloudLodPyramid.build(source, specs, tiling);
+
+    const tiles = await Promise.all(
+      rawTiles.map(async (tile) => {
+        const bounds = tile.cloud.bounds;
+        const response = await pool.run({
+          tileId: tile.id,
+          name: tile.cloud.name,
+          positions: tile.cloud.positions,
+          ...(tile.cloud.colors === undefined ? {} : { colors: tile.cloud.colors }),
+          ...(tile.cloud.intensity === undefined ? {} : { intensity: tile.cloud.intensity }),
+          specs,
+        });
+        return { id: tile.id, bounds, pyramid: new PointCloudLodPyramid(response.tiers.map(toTier)) };
+      }),
+    );
     return new TiledPointCloudLodPyramid(tiles);
   }
 
@@ -73,6 +103,30 @@ export class TiledPointCloudLodPyramid {
       return { tile, tier: tile.pyramid.selectForPointBudget(tileBudget) };
     });
   }
+}
+
+function partition(source: PointCloud, tiling: TilingConfig): readonly PointCloudTile[] {
+  const single: readonly PointCloudTile[] = [{ id: "tile-0-0", gridX: 0, gridZ: 0, cloud: source }];
+  if (!tiling.enabled) return single;
+  const span = Math.max(source.bounds.size[0], source.bounds.size[2]);
+  const tilesPerAxis = Math.ceil(Math.sqrt(source.pointCount / Math.max(1, tiling.targetPointsPerTile)));
+  if (span <= 0 || tilesPerAxis < 2) return single;
+  return new PointCloudTiler().tile(source, { tileSize: span / tilesPerAxis });
+}
+
+function toTier(tier: SerializedTier): PointCloudLodTier {
+  return {
+    id: tier.id,
+    voxelSize: tier.voxelSize,
+    cloud: new PointCloud({
+      positions: tier.positions,
+      ...(tier.colors === undefined ? {} : { colors: tier.colors }),
+      ...(tier.intensity === undefined ? {} : { intensity: tier.intensity }),
+      bounds: tier.bounds,
+      name: tier.name,
+    }),
+    ...(tier.minCameraDistance === undefined ? {} : { minCameraDistance: tier.minCameraDistance }),
+  };
 }
 
 /** Distance from a point to the nearest point on an axis-aligned box; zero when inside it. */

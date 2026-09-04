@@ -168,7 +168,7 @@ describe("TiledPointCloudLodPyramid", () => {
   }
 
   it("gives a nearby tile full detail while a distant tile falls back to a coarser tier", () => {
-    const tiled = TiledPointCloudLodPyramid.build(makeTwoTileCloud(), specs, { enabled: true, tileSize: 10 });
+    const tiled = TiledPointCloudLodPyramid.build(makeTwoTileCloud(), specs, { enabled: true, targetPointsPerTile: 3 });
     expect(tiled.tiles.length).toBe(2);
 
     const selections = tiled.selectForCameraPosition(0, 0, 0);
@@ -179,13 +179,13 @@ describe("TiledPointCloudLodPyramid", () => {
   });
 
   it("treats tiling as a single whole-cloud tile when disabled", () => {
-    const tiled = TiledPointCloudLodPyramid.build(makeTwoTileCloud(), specs, { enabled: false, tileSize: 10 });
+    const tiled = TiledPointCloudLodPyramid.build(makeTwoTileCloud(), specs, { enabled: false, targetPointsPerTile: 3 });
     expect(tiled.tiles.length).toBe(1);
     expect(tiled.totalPointCount).toBe(6);
   });
 
   it("distributes a point budget across tiles proportional to their share of points", () => {
-    const tiled = TiledPointCloudLodPyramid.build(makeTwoTileCloud(), specs, { enabled: true, tileSize: 10 });
+    const tiled = TiledPointCloudLodPyramid.build(makeTwoTileCloud(), specs, { enabled: true, targetPointsPerTile: 3 });
     const selections = tiled.selectForPointBudget(6);
     for (const selection of selections) expect(selection.tier.id).toBe("full");
   });
@@ -203,5 +203,34 @@ describe("distanceToBounds", () => {
 
   it("counts camera height, so looking straight down is not treated as being on top of a tile", () => {
     expect(distanceToBounds(5, 104, 5, bounds)).toBeCloseTo(100);
+  });
+});
+
+describe("tile sizing", () => {
+  function grid(pointCount: number): PointCloud {
+    const positions = new Float32Array(pointCount * 3);
+    for (let point = 0; point < pointCount; point += 1) {
+      positions[point * 3] = (point % 100) * 10;
+      positions[point * 3 + 2] = Math.floor(point / 100) * 10;
+    }
+    return new PointCloud({ positions });
+  }
+
+  it("leaves a cloud under the target in a single tile", () => {
+    const tiled = TiledPointCloudLodPyramid.build(grid(400), [{ id: "full", voxelSize: 0 }], {
+      enabled: true,
+      targetPointsPerTile: 1_000,
+    });
+    expect(tiled.tiles.length).toBe(1);
+  });
+
+  it("splits a larger cloud into roughly one tile per target and keeps every point", () => {
+    const cloud = grid(10_000);
+    const tiled = TiledPointCloudLodPyramid.build(cloud, [{ id: "full", voxelSize: 0 }], {
+      enabled: true,
+      targetPointsPerTile: 1_000,
+    });
+    expect(tiled.tiles.length).toBeGreaterThan(1);
+    expect(tiled.totalPointCount).toBe(cloud.pointCount);
   });
 });

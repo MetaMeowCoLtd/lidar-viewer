@@ -1,10 +1,16 @@
 import type { PointCloud } from "./point-cloud.js";
 import { PointCloudLodPyramid, type LodTierSpec } from "./lod-pyramid.js";
+import type { TiledPointCloudLodPyramid } from "./tiled-lod-pyramid.js";
 
 export type PointCloudSessionState =
   | { readonly status: "idle" }
   | { readonly status: "processing"; readonly requestId: number; readonly sourceName: string }
-  | { readonly status: "ready"; readonly requestId: number; readonly pyramid: PointCloudLodPyramid }
+  | {
+      readonly status: "ready";
+      readonly requestId: number;
+      readonly pyramid: PointCloudLodPyramid;
+      readonly tiled?: TiledPointCloudLodPyramid;
+    }
   | { readonly status: "error"; readonly requestId: number; readonly error: Error };
 
 export type PointCloudSessionListener = (state: PointCloudSessionState) => void;
@@ -28,7 +34,11 @@ export class PointCloudSession {
     return () => this.listeners.delete(listener);
   }
 
-  public async load(source: PointCloud | Promise<PointCloud>, specs: readonly LodTierSpec[]): Promise<void> {
+  public async load(
+    source: PointCloud | Promise<PointCloud>,
+    specs: readonly LodTierSpec[],
+    buildTiles?: (cloud: PointCloud) => Promise<TiledPointCloudLodPyramid>,
+  ): Promise<void> {
     const requestId = ++this.requestId;
     this.transition({ status: "processing", requestId, sourceName: "Loading point cloud" });
     try {
@@ -37,7 +47,13 @@ export class PointCloudSession {
       this.transition({ status: "processing", requestId, sourceName: cloud.name });
       const pyramid = PointCloudLodPyramid.build(cloud, specs);
       if (requestId !== this.requestId) return;
-      this.transition({ status: "ready", requestId, pyramid });
+      if (buildTiles === undefined) {
+        this.transition({ status: "ready", requestId, pyramid });
+        return;
+      }
+      const tiled = await buildTiles(cloud);
+      if (requestId !== this.requestId) return;
+      this.transition({ status: "ready", requestId, pyramid, tiled });
     } catch (cause) {
       if (requestId !== this.requestId) return;
       this.transition({

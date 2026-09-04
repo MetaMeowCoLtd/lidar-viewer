@@ -4,6 +4,7 @@ import type { PointCloud, PointCloudColorMode, PointCloudPointShape } from "../c
 import { PointCloudLodPyramid, type LodTierSpec } from "../core/lod-pyramid.js";
 import { PointCloudSession } from "../core/point-cloud-session.js";
 import { TiledPointCloudLodPyramid } from "../core/tiled-lod-pyramid.js";
+import { LodBuildPool } from "../core/lod-build-pool.js";
 import { ThreePointCloudRenderer } from "./three-point-cloud-renderer.js";
 import { viewerConfig } from "../config.js";
 
@@ -50,6 +51,7 @@ export class LidarViewer {
   private distanceBasedLodEnabled: boolean;
   private lastSummary: LodRenderSummary | undefined;
   private readonly summaryListeners = new Set<(summary: LodRenderSummary) => void>();
+  private buildPool: LodBuildPool | undefined;
 
   public constructor(canvas: HTMLCanvasElement, options: LidarViewerOptions = {}) {
     this.pointBudget = options.pointBudget ?? 500_000;
@@ -70,10 +72,10 @@ export class LidarViewer {
     this.pointCloudRenderer = new ThreePointCloudRenderer(this.scene, this.renderer, this.camera);
 
     this.session.subscribe((state) => {
-      if (state.status !== "ready" || this.disposed) return;
+      if (state.status !== "ready" || this.disposed || state.tiled === undefined) return;
       this.activePyramid = state.pyramid;
       const source = state.pyramid.tiers[0]!.cloud;
-      this.activeTiledPyramid = TiledPointCloudLodPyramid.build(source, this.lastSpecs, viewerConfig().tiling);
+      this.activeTiledPyramid = state.tiled;
       this.pointCloudRenderer.setTiledPyramid(source, this.activeTiledPyramid);
       this.frameActiveCloud();
       this.applyLodForCurrentMode();
@@ -86,7 +88,12 @@ export class LidarViewer {
   public async load(source: PointCloud | Promise<PointCloud>, specs: readonly LodTierSpec[]): Promise<void> {
     this.assertNotDisposed();
     this.lastSpecs = specs;
-    await this.session.load(source, specs);
+    const tiling = viewerConfig().tiling;
+    this.buildPool ??= new LodBuildPool(Math.min(navigator.hardwareConcurrency || 4, tiling.buildWorkers));
+    const pool = this.buildPool;
+    await this.session.load(source, specs.filter((spec) => spec.voxelSize === 0), (cloud) =>
+      TiledPointCloudLodPyramid.buildWithPool(cloud, specs, tiling, pool),
+    );
   }
 
   public setPointBudget(pointBudget: number): void {
@@ -170,6 +177,7 @@ export class LidarViewer {
     this.stop();
     this.session.cancelPendingLoad();
     this.controls.dispose();
+    this.buildPool?.dispose();
     this.pointCloudRenderer.dispose();
     this.renderer.dispose();
     this.disposed = true;

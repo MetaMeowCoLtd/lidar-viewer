@@ -19,6 +19,8 @@ export interface PointCloudAttributes {
 export interface PointCloudInit extends PointCloudAttributes {
   readonly positions: Float32Array;
   readonly name?: string;
+  /** Supplied when bounds are already known, to skip a redundant pass over `positions`. */
+  readonly bounds?: PointCloudBounds;
 }
 
 /**
@@ -34,7 +36,7 @@ export class PointCloud {
   public readonly pointCount: number;
   public readonly bounds: PointCloudBounds;
 
-  public constructor({ positions, colors, intensity, name = "point-cloud" }: PointCloudInit) {
+  public constructor({ positions, colors, intensity, bounds, name = "point-cloud" }: PointCloudInit) {
     if (positions.length === 0 || positions.length % 3 !== 0) {
       throw new Error("positions must contain at least one complete xyz triplet");
     }
@@ -52,7 +54,7 @@ export class PointCloud {
     this.intensity = intensity;
     this.name = name;
     this.pointCount = pointCount;
-    this.bounds = calculateBounds(positions);
+    this.bounds = bounds ?? calculateBounds(positions);
   }
 
   public supportsColorMode(mode: PointCloudColorMode): boolean {

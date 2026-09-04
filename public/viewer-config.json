@@ -30,5 +30,10 @@
       "balanced": 1.2,
       "lean": 2.5
     }
+  },
+  "tiling": {
+    "enabled": true,
+    "targetPointsPerTile": 2000000,
+    "buildWorkers": 16
   }
 }

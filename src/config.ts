@@ -44,8 +44,10 @@ export interface DistanceLodConfig {
 export interface TilingConfig {
   /** Whether the dataset is partitioned into spatial tiles before LOD is applied. */
   readonly enabled: boolean;
-  /** World-space edge length of one square XZ tile column. */
-  readonly tileSize: number;
+  /** Tile edges are sized so a tile holds roughly this many points. */
+  readonly targetPointsPerTile: number;
+  /** Upper bound on the LOD build workers started for a load. */
+  readonly buildWorkers: number;
 }
 
 export interface ViewerConfig {
@@ -74,7 +76,7 @@ const fallback: ViewerConfig = {
     enabledByDefault: false,
     distanceMultipliers: { full: 0, fine: 0.5, balanced: 1.2, lean: 2.5 },
   },
-  tiling: { enabled: true, tileSize: 25 },
+  tiling: { enabled: true, targetPointsPerTile: 2_000_000, buildWorkers: 16 },
 };
 
 let active: ViewerConfig = fallback;
