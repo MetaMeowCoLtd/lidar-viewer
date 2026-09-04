@@ -1,9 +1,24 @@
 {
+  "backgroundColor": "#000000",
   "maxImportSizeMb": 500,
   "defaultPointBudget": 1000000,
+  "pointSize": {
+    "default": 2.4,
+    "min": 1,
+    "max": 7
+  },
   "lodDivisors": {
     "fine": 900,
     "balanced": 350,
     "lean": 130
+  },
+  "eyeDomeLighting": {
+    "strength": 40,
+    "radius": 1.4
+  },
+  "camera": {
+    "fieldOfView": 55,
+    "framingDistance": 1.15,
+    "damping": 0.08
   }
 }

@@ -19,7 +19,7 @@ export function App() {
   const [status, setStatus] = useState<ViewerStatus>("initializing");
   const [statusText, setStatusText] = useState("Booting visualizer");
   const [pointBudget, setPointBudget] = useState(() => viewerConfig().defaultPointBudget);
-  const [pointSize, setPointSize] = useState(2.4);
+  const [pointSize, setPointSize] = useState(() => viewerConfig().pointSize.default);
   const [colorMode, setColorMode] = useState<PointCloudColorMode>("rgb");
   const [isDragging, setIsDragging] = useState(false);
   const [sourceLabel, setSourceLabel] = useState("Procedural city block");
@@ -196,7 +196,7 @@ export function App() {
           </ControlRow>
 
           <ControlRow label="Point size" value={`${pointSize.toFixed(1)} px`}>
-            <input aria-label="Point size" type="range" min="1" max="7" step="0.1" value={pointSize} onChange={(event) => setPointSize(Number(event.target.value))} />
+            <input aria-label="Point size" type="range" min={viewerConfig().pointSize.min} max={viewerConfig().pointSize.max} step="0.1" value={pointSize} onChange={(event) => setPointSize(Number(event.target.value))} />
             <div className="range-ends"><span>FINE</span><span>BOLD</span></div>
           </ControlRow>
 

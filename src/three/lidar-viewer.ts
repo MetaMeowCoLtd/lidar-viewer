@@ -4,6 +4,7 @@ import type { PointCloud, PointCloudColorMode } from "../core/point-cloud.js";
 import { PointCloudLodPyramid, type LodTierSpec } from "../core/lod-pyramid.js";
 import { PointCloudSession } from "../core/point-cloud-session.js";
 import { ThreePointCloudRenderer } from "./three-point-cloud-renderer.js";
+import { viewerConfig } from "../config.js";
 
 export interface LidarViewerOptions {
   readonly pointBudget?: number;
@@ -19,7 +20,7 @@ export interface LidarViewerOptions {
  */
 export class LidarViewer {
   public readonly scene = new Scene();
-  public readonly camera = new PerspectiveCamera(55, 1, 0.05, 10_000);
+  public readonly camera = new PerspectiveCamera(viewerConfig().camera.fieldOfView, 1, 0.05, 10_000);
   public readonly session = new PointCloudSession();
 
   private readonly renderer: WebGLRenderer;
@@ -44,7 +45,7 @@ export class LidarViewer {
     this.renderer.setPixelRatio(options.pixelRatio ?? Math.min(window.devicePixelRatio, 2));
     this.controls = new OrbitControls(this.camera, canvas);
     this.controls.enableDamping = true;
-    this.controls.dampingFactor = 0.08;
+    this.controls.dampingFactor = viewerConfig().camera.damping;
     this.controls.screenSpacePanning = true;
     this.controls.zoomToCursor = true;
     this.pointCloudRenderer = new ThreePointCloudRenderer(this.scene, this.renderer, this.camera);
@@ -125,7 +126,7 @@ export class LidarViewer {
     const cloud = this.activePyramid?.tiers[0]?.cloud;
     if (cloud === undefined) return;
     const { center, diagonal } = cloud.bounds;
-    const distance = diagonal > 0 ? diagonal * 1.15 : 1;
+    const distance = diagonal > 0 ? diagonal * viewerConfig().camera.framingDistance : 1;
     this.controls.target.set(...center);
     this.camera.position.set(center[0] + distance, center[1] + distance * 0.55, center[2] + distance);
     this.camera.near = Math.max(0.01, distance / 10_000);
