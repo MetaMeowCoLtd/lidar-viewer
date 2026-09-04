@@ -5,9 +5,9 @@ import type { PointCloudLodPyramid } from "./core/lod-pyramid.js";
 import { ProceduralCloudGenerator } from "./core/procedural-cloud-generator.js";
 import { importPlyFile } from "./import/ply-file-importer.js";
 import { LidarViewer } from "./three/lidar-viewer.js";
+import { viewerConfig } from "./config.js";
 
 const INITIAL_POINT_COUNT = 380_000;
-const DEFAULT_BUDGET = 500_000;
 
 type ViewerStatus = "initializing" | "processing" | "ready" | "error";
 
@@ -18,7 +18,7 @@ export function App() {
   const [pyramid, setPyramid] = useState<PointCloudLodPyramid>();
   const [status, setStatus] = useState<ViewerStatus>("initializing");
   const [statusText, setStatusText] = useState("Booting visualizer");
-  const [pointBudget, setPointBudget] = useState(DEFAULT_BUDGET);
+  const [pointBudget, setPointBudget] = useState(() => viewerConfig().defaultPointBudget);
   const [pointSize, setPointSize] = useState(2.4);
   const [colorMode, setColorMode] = useState<PointCloudColorMode>("rgb");
   const [isDragging, setIsDragging] = useState(false);
@@ -33,7 +33,7 @@ export function App() {
   );
   const supportsRgb = source?.supportsColorMode("rgb") ?? false;
   const supportsIntensity = source?.supportsColorMode("intensity") ?? false;
-  const budgetMaximum = source?.pointCount ?? DEFAULT_BUDGET;
+  const budgetMaximum = source?.pointCount ?? viewerConfig().defaultPointBudget;
 
   const loadProcedural = useCallback((seed = Math.floor(Math.random() * 1_000_000)) => {
     const viewer = viewerRef.current;
@@ -48,7 +48,7 @@ export function App() {
   useEffect(() => {
     const canvas = canvasRef.current;
     if (canvas === null) return;
-    const viewer = new LidarViewer(canvas, { pointBudget: DEFAULT_BUDGET, pointSize });
+    const viewer = new LidarViewer(canvas, { pointBudget: viewerConfig().defaultPointBudget, pointSize });
     viewerRef.current = viewer;
     const unsubscribe = viewer.session.subscribe((nextState) => {
       if (nextState.status === "processing") {
@@ -239,11 +239,12 @@ export function App() {
 
 function createLodSpecs(diagonal: number) {
   const scale = Math.max(diagonal, 1);
+  const { fine, balanced, lean } = viewerConfig().lodDivisors;
   return [
     { id: "full", voxelSize: 0 },
-    { id: "fine", voxelSize: scale / 450 },
-    { id: "balanced", voxelSize: scale / 175 },
-    { id: "lean", voxelSize: scale / 65 },
+    { id: "fine", voxelSize: scale / fine },
+    { id: "balanced", voxelSize: scale / balanced },
+    { id: "lean", voxelSize: scale / lean },
   ];
 }
 

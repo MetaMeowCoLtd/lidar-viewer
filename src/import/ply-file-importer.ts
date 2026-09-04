@@ -1,7 +1,6 @@
 import { PLYLoader } from "three/examples/jsm/loaders/PLYLoader.js";
 import { PointCloud } from "../core/point-cloud.js";
-
-const MAX_IMPORT_SIZE = 250 * 1024 * 1024;
+import { viewerConfig } from "../config.js";
 
 /** Converts a local PLY export into the core's tightly packed point-cloud contract. */
 export async function importPlyFile(file: File): Promise<PointCloud> {
@@ -9,8 +8,9 @@ export async function importPlyFile(file: File): Promise<PointCloud> {
     throw new Error("Select a .ply point-cloud file");
   }
   if (file.size === 0) throw new Error("The selected PLY file is empty");
-  if (file.size > MAX_IMPORT_SIZE) {
-    throw new Error("This demo accepts PLY files up to 250 MB. Larger scans need the planned streaming pipeline.");
+  const maxImportSizeMb = viewerConfig().maxImportSizeMb;
+  if (file.size > maxImportSizeMb * 1024 * 1024) {
+    throw new Error(`This demo accepts PLY files up to ${maxImportSizeMb} MB. Larger scans need the planned streaming pipeline.`);
   }
 
   const geometry = new PLYLoader().parse(await file.arrayBuffer());

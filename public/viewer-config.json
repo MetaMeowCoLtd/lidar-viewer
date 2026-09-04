@@ -1,0 +1,9 @@
+{
+  "maxImportSizeMb": 500,
+  "defaultPointBudget": 1000000,
+  "lodDivisors": {
+    "fine": 900,
+    "balanced": 350,
+    "lean": 130
+  }
+}
