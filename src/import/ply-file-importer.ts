@@ -1,6 +1,7 @@
 import { PLYLoader } from "three/examples/jsm/loaders/PLYLoader.js";
 import { PointCloud } from "../core/point-cloud.js";
 import { viewerConfig } from "../config.js";
+import { readBinaryPly } from "./binary-ply-reader.js";
 
 /** Converts a local PLY export into the core's tightly packed point-cloud contract. */
 export async function importPlyFile(file: File): Promise<PointCloud> {
@@ -13,7 +14,12 @@ export async function importPlyFile(file: File): Promise<PointCloud> {
     throw new Error(`This demo accepts PLY files up to ${maxImportSizeMb} MB. Larger scans need the planned streaming pipeline.`);
   }
 
-  const geometry = new PLYLoader().parse(await file.arrayBuffer());
+  const name = file.name.replace(/\.ply$/i, "");
+  const buffer = await file.arrayBuffer();
+  const fastPath = readBinaryPly(buffer, name);
+  if (fastPath !== undefined) return fastPath;
+
+  const geometry = new PLYLoader().parse(buffer);
   const position = geometry.getAttribute("position");
   if (position === undefined || position.itemSize < 3 || position.count === 0) {
     throw new Error("The PLY file does not contain vertex positions");
@@ -41,7 +47,7 @@ export async function importPlyFile(file: File): Promise<PointCloud> {
     positions,
     ...(colors === undefined ? {} : { colors }),
     ...(intensities === undefined ? {} : { intensity: intensities }),
-    name: file.name.replace(/\.ply$/i, ""),
+    name,
   });
 }
 
