@@ -17,7 +17,9 @@ export interface PointCloudTile {
  * per tile) so LOD can be selected per region instead of for the whole
  * cloud at once. This is a partition, not a resampling: every source point
  * ends up in exactly one tile, and tile clouds keep whatever attributes the
- * source had.
+ * source had. Points are counted into a flat grid first so each tile's
+ * buffers can be allocated at their exact size and filled in one scatter
+ * pass, without a growable array per tile.
  */
 export class PointCloudTiler {
   public tile(source: PointCloud, options: TilingOptions): PointCloudTile[] {
@@ -26,59 +28,68 @@ export class PointCloudTiler {
       throw new Error("tileSize must be a finite number greater than zero");
     }
 
-    const { positions, colors, intensity } = source;
+    const { positions, colors, intensity, pointCount } = source;
     const originX = source.bounds.min[0];
     const originZ = source.bounds.min[2];
+    const columns = Math.max(1, Math.ceil(source.bounds.size[0] / tileSize));
+    const rows = Math.max(1, Math.ceil(source.bounds.size[2] / tileSize));
 
-    const buckets = new Map<string, number[]>();
-    for (let point = 0, offset = 0; point < source.pointCount; point += 1, offset += 3) {
-      const gridX = Math.floor((positions[offset]! - originX) / tileSize);
-      const gridZ = Math.floor((positions[offset + 2]! - originZ) / tileSize);
-      const key = `${gridX},${gridZ}`;
-      let bucket = buckets.get(key);
-      if (bucket === undefined) {
-        bucket = [];
-        buckets.set(key, bucket);
-      }
-      bucket.push(point);
+    const cellOf = (offset: number): number =>
+      Math.min(rows - 1, Math.floor((positions[offset + 2]! - originZ) / tileSize)) * columns +
+      Math.min(columns - 1, Math.floor((positions[offset]! - originX) / tileSize));
+
+    const cellCounts = new Int32Array(columns * rows);
+    for (let offset = 0; offset < positions.length; offset += 3) {
+      const cell = cellOf(offset);
+      cellCounts[cell] = cellCounts[cell]! + 1;
     }
 
-    const tiles: PointCloudTile[] = [];
-    for (const [key, indices] of buckets) {
-      const separator = key.indexOf(",");
-      const gridX = Number(key.slice(0, separator));
-      const gridZ = Number(key.slice(separator + 1));
+    const tileOfCell = new Int32Array(cellCounts.length).fill(-1);
+    const cellOfTile: number[] = [];
+    for (let cell = 0; cell < cellCounts.length; cell += 1) {
+      if (cellCounts[cell] === 0) continue;
+      tileOfCell[cell] = cellOfTile.length;
+      cellOfTile.push(cell);
+    }
 
-      const tilePositions = new Float32Array(indices.length * 3);
-      const tileColors = colors === undefined ? undefined : new Uint8Array(indices.length * 3);
-      const tileIntensity = intensity === undefined ? undefined : new Float32Array(indices.length);
-      for (let i = 0; i < indices.length; i += 1) {
-        const point = indices[i]!;
-        const srcOffset = point * 3;
-        const dstOffset = i * 3;
-        tilePositions[dstOffset] = positions[srcOffset]!;
-        tilePositions[dstOffset + 1] = positions[srcOffset + 1]!;
-        tilePositions[dstOffset + 2] = positions[srcOffset + 2]!;
-        if (tileColors !== undefined) {
-          tileColors[dstOffset] = colors![srcOffset]!;
-          tileColors[dstOffset + 1] = colors![srcOffset + 1]!;
-          tileColors[dstOffset + 2] = colors![srcOffset + 2]!;
-        }
-        if (tileIntensity !== undefined) tileIntensity[i] = intensity![point]!;
+    const tilePositions = cellOfTile.map((cell) => new Float32Array(cellCounts[cell]! * 3));
+    const tileColors = colors === undefined ? undefined : cellOfTile.map((cell) => new Uint8Array(cellCounts[cell]! * 3));
+    const tileIntensity = intensity === undefined ? undefined : cellOfTile.map((cell) => new Float32Array(cellCounts[cell]!));
+    const cursors = new Int32Array(cellOfTile.length);
+
+    for (let point = 0, offset = 0; point < pointCount; point += 1, offset += 3) {
+      const tile = tileOfCell[cellOf(offset)]!;
+      const target = cursors[tile]!;
+      cursors[tile] = target + 1;
+
+      const targetOffset = target * 3;
+      const destination = tilePositions[tile]!;
+      destination[targetOffset] = positions[offset]!;
+      destination[targetOffset + 1] = positions[offset + 1]!;
+      destination[targetOffset + 2] = positions[offset + 2]!;
+      if (tileColors !== undefined) {
+        const destinationColors = tileColors[tile]!;
+        destinationColors[targetOffset] = colors![offset]!;
+        destinationColors[targetOffset + 1] = colors![offset + 1]!;
+        destinationColors[targetOffset + 2] = colors![offset + 2]!;
       }
+      if (tileIntensity !== undefined) tileIntensity[tile]![target] = intensity![point]!;
+    }
 
-      tiles.push({
+    return cellOfTile.map((cell, tile) => {
+      const gridX = cell % columns;
+      const gridZ = (cell - gridX) / columns;
+      return {
         id: `tile-${gridX}-${gridZ}`,
         gridX,
         gridZ,
         cloud: new PointCloud({
-          positions: tilePositions,
-          ...(tileColors === undefined ? {} : { colors: tileColors }),
-          ...(tileIntensity === undefined ? {} : { intensity: tileIntensity }),
+          positions: tilePositions[tile]!,
+          ...(tileColors === undefined ? {} : { colors: tileColors[tile]! }),
+          ...(tileIntensity === undefined ? {} : { intensity: tileIntensity[tile]! }),
           name: `${source.name}-tile-${gridX}-${gridZ}`,
         }),
-      });
-    }
-    return tiles;
+      };
+    });
   }
 }

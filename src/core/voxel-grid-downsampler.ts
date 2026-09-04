@@ -6,21 +6,12 @@ export interface VoxelDownsampleOptions {
   readonly name?: string;
 }
 
-interface VoxelAccumulator {
-  count: number;
-  x: number;
-  y: number;
-  z: number;
-  red: number;
-  green: number;
-  blue: number;
-  intensity: number;
-}
-
 /**
  * Reduces a cloud to one representative point per occupied voxel. Positions and
  * optional attributes are averaged, which avoids the visual bias of retaining
- * the first source point encountered in a voxel.
+ * the first source point encountered in a voxel. Occupied cells live in an
+ * open-addressed typed-array table keyed by the packed grid index, so no string
+ * key or accumulator object is allocated per source point.
  */
 export class VoxelGridDownsampler {
   public downsample(source: PointCloud, options: VoxelDownsampleOptions): PointCloud {
@@ -29,52 +20,102 @@ export class VoxelGridDownsampler {
       throw new Error("voxelSize must be a finite number greater than zero");
     }
 
-    const cells = new Map<string, VoxelAccumulator>();
-    const { positions, colors, intensity } = source;
-    const origin = source.bounds.min;
+    const { positions, colors, intensity, pointCount } = source;
+    const originX = source.bounds.min[0];
+    const originY = source.bounds.min[1];
+    const originZ = source.bounds.min[2];
+    const columns = Math.floor(source.bounds.size[0] / voxelSize) + 1;
+    const rows = Math.floor(source.bounds.size[1] / voxelSize) + 1;
 
-    for (let point = 0, offset = 0; point < source.pointCount; point += 1, offset += 3) {
+    const colorSlot = 4;
+    const intensitySlot = colors === undefined ? 4 : 7;
+    const stride = 4 + (colors === undefined ? 0 : 3) + (intensity === undefined ? 0 : 1);
+
+    let tableSize = 1 << 16;
+    let mask = tableSize - 1;
+    let tableKeys = new Float64Array(tableSize).fill(-1);
+    let tableCells = new Int32Array(tableSize);
+    let cellCapacity = 1 << 15;
+    let sums = new Float64Array(cellCapacity * stride);
+    let cellCount = 0;
+
+    const growTable = (): void => {
+      const previousKeys = tableKeys;
+      const previousCells = tableCells;
+      tableSize <<= 1;
+      mask = tableSize - 1;
+      tableKeys = new Float64Array(tableSize).fill(-1);
+      tableCells = new Int32Array(tableSize);
+      for (let slot = 0; slot < previousKeys.length; slot += 1) {
+        const key = previousKeys[slot]!;
+        if (key < 0) continue;
+        let probe = hashCell(key) & mask;
+        while (tableKeys[probe]! >= 0) probe = (probe + 1) & mask;
+        tableKeys[probe] = key;
+        tableCells[probe] = previousCells[slot]!;
+      }
+    };
+
+    for (let point = 0, offset = 0; point < pointCount; point += 1, offset += 3) {
       const x = positions[offset]!;
       const y = positions[offset + 1]!;
       const z = positions[offset + 2]!;
-      const ix = Math.floor((x - origin[0]) / voxelSize);
-      const iy = Math.floor((y - origin[1]) / voxelSize);
-      const iz = Math.floor((z - origin[2]) / voxelSize);
-      const key = `${ix},${iy},${iz}`;
-      let cell = cells.get(key);
-      if (cell === undefined) {
-        cell = { count: 0, x: 0, y: 0, z: 0, red: 0, green: 0, blue: 0, intensity: 0 };
-        cells.set(key, cell);
+      const key =
+        (Math.floor((z - originZ) / voxelSize) * rows + Math.floor((y - originY) / voxelSize)) * columns +
+        Math.floor((x - originX) / voxelSize);
+
+      let probe = hashCell(key) & mask;
+      let stored = tableKeys[probe]!;
+      while (stored >= 0 && stored !== key) {
+        probe = (probe + 1) & mask;
+        stored = tableKeys[probe]!;
       }
-      cell.count += 1;
-      cell.x += x;
-      cell.y += y;
-      cell.z += z;
+      let cell: number;
+      if (stored < 0) {
+        if (cellCount === cellCapacity) {
+          cellCapacity <<= 1;
+          const grown = new Float64Array(cellCapacity * stride);
+          grown.set(sums);
+          sums = grown;
+        }
+        cell = cellCount;
+        cellCount += 1;
+        tableKeys[probe] = key;
+        tableCells[probe] = cell;
+        if (cellCount * 3 > tableSize * 2) growTable();
+      } else {
+        cell = tableCells[probe]!;
+      }
+
+      const base = cell * stride;
+      sums[base] = sums[base]! + 1;
+      sums[base + 1] = sums[base + 1]! + x;
+      sums[base + 2] = sums[base + 2]! + y;
+      sums[base + 3] = sums[base + 3]! + z;
       if (colors !== undefined) {
-        cell.red += colors[offset]!;
-        cell.green += colors[offset + 1]!;
-        cell.blue += colors[offset + 2]!;
+        sums[base + colorSlot] = sums[base + colorSlot]! + colors[offset]!;
+        sums[base + colorSlot + 1] = sums[base + colorSlot + 1]! + colors[offset + 1]!;
+        sums[base + colorSlot + 2] = sums[base + colorSlot + 2]! + colors[offset + 2]!;
       }
-      if (intensity !== undefined) cell.intensity += intensity[point]!;
+      if (intensity !== undefined) sums[base + intensitySlot] = sums[base + intensitySlot]! + intensity[point]!;
     }
 
-    const outputCount = cells.size;
-    const outputPositions = new Float32Array(outputCount * 3);
-    const outputColors = colors === undefined ? undefined : new Uint8Array(outputCount * 3);
-    const outputIntensity = intensity === undefined ? undefined : new Float32Array(outputCount);
-    let output = 0;
-    for (const cell of cells.values()) {
-      const offset = output * 3;
-      outputPositions[offset] = cell.x / cell.count;
-      outputPositions[offset + 1] = cell.y / cell.count;
-      outputPositions[offset + 2] = cell.z / cell.count;
+    const outputPositions = new Float32Array(cellCount * 3);
+    const outputColors = colors === undefined ? undefined : new Uint8Array(cellCount * 3);
+    const outputIntensity = intensity === undefined ? undefined : new Float32Array(cellCount);
+    for (let cell = 0; cell < cellCount; cell += 1) {
+      const base = cell * stride;
+      const offset = cell * 3;
+      const count = sums[base]!;
+      outputPositions[offset] = sums[base + 1]! / count;
+      outputPositions[offset + 1] = sums[base + 2]! / count;
+      outputPositions[offset + 2] = sums[base + 3]! / count;
       if (outputColors !== undefined) {
-        outputColors[offset] = Math.round(cell.red / cell.count);
-        outputColors[offset + 1] = Math.round(cell.green / cell.count);
-        outputColors[offset + 2] = Math.round(cell.blue / cell.count);
+        outputColors[offset] = Math.round(sums[base + colorSlot]! / count);
+        outputColors[offset + 1] = Math.round(sums[base + colorSlot + 1]! / count);
+        outputColors[offset + 2] = Math.round(sums[base + colorSlot + 2]! / count);
       }
-      if (outputIntensity !== undefined) outputIntensity[output] = cell.intensity / cell.count;
-      output += 1;
+      if (outputIntensity !== undefined) outputIntensity[cell] = sums[base + intensitySlot]! / count;
     }
 
     return new PointCloud({
@@ -84,4 +125,11 @@ export class VoxelGridDownsampler {
       name,
     });
   }
+}
+
+function hashCell(key: number): number {
+  let hash = Math.imul(key >>> 0, 2654435761) ^ Math.imul((key / 4294967296) >>> 0, 2246822519);
+  hash ^= hash >>> 13;
+  hash = Math.imul(hash, 1274126177);
+  return (hash ^ (hash >>> 16)) >>> 0;
 }
