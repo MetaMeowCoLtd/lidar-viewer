@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="scan" x1="0" y1="64" x2="0" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#123f71"/>
+      <stop offset="0.55" stop-color="#72d6ff"/>
+      <stop offset="1" stop-color="#ffe09a"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="32" cy="34" r="30" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#1a8dca" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#1a8dca" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="64" height="64" rx="14" fill="#070b14"/>
+  <circle cx="32" cy="34" r="30" fill="url(#glow)"/>
+
+  <g fill="url(#scan)">
+    <rect x="13" y="34" width="7" height="18" rx="1.4" opacity="0.95"/>
+    <rect x="23" y="22" width="7" height="30" rx="1.4"/>
+    <rect x="33" y="28" width="7" height="24" rx="1.4" opacity="0.97"/>
+    <rect x="43" y="14" width="7" height="38" rx="1.4"/>
+  </g>
+
+  <g fill="#070b14" opacity="0.85">
+    <rect x="13" y="38" width="37" height="1.6"/>
+    <rect x="13" y="43" width="37" height="1.6"/>
+    <rect x="13" y="48" width="37" height="1.6"/>
+    <rect x="24.6" y="14" width="1.6" height="38"/>
+    <rect x="34.6" y="14" width="1.6" height="38"/>
+    <rect x="44.6" y="14" width="1.6" height="38"/>
+    <rect x="14.6" y="14" width="1.6" height="38"/>
+  </g>
+
+  <path d="M8 52h48" stroke="#72d6ff" stroke-width="2.4" stroke-linecap="round" fill="none"/>
+  <circle cx="50" cy="14" r="3.6" fill="#64e9b3"/>
+</svg>
