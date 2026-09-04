@@ -9,7 +9,7 @@ import {
 } from "three";
 import type { PointCloud, PointCloudBounds, PointCloudColorMode, PointCloudPointShape } from "../core/point-cloud.js";
 import type { PointCloudLodTier } from "../core/lod-pyramid.js";
-import { distanceToBounds2D, type TiledPointCloudLodPyramid } from "../core/tiled-lod-pyramid.js";
+import { distanceToBounds, type TiledPointCloudLodPyramid } from "../core/tiled-lod-pyramid.js";
 import { PointCloudShaderMaterial } from "./point-cloud-shader-material.js";
 import { EyeDomeLighting } from "./eye-dome-lighting.js";
 import { viewerConfig } from "../config.js";
@@ -76,19 +76,22 @@ export class ThreePointCloudRenderer {
     for (const selection of tiled.selectForPointBudget(pointBudget)) this.applyTileTier(selection.tile.id, selection.tier);
   }
 
-  /** Applies each tile's tier from its own distance to `(cameraX, cameraZ)`. */
-  public applyCameraDistanceLod(cameraX: number, cameraZ: number, tiled: TiledPointCloudLodPyramid): void {
-    for (const selection of tiled.selectForCameraPosition(cameraX, cameraZ)) this.applyTileTier(selection.tile.id, selection.tier);
+  /** Applies each tile's tier from its own distance to the camera. */
+  public applyCameraDistanceLod(cameraX: number, cameraY: number, cameraZ: number, tiled: TiledPointCloudLodPyramid): void {
+    for (const tile of tiled.tiles) {
+      const distance = distanceToBounds(cameraX, cameraY, cameraZ, tile.bounds);
+      this.applyTileTier(tile.id, tile.pyramid.selectForCameraDistance(distance));
+    }
   }
 
   /** Reports the currently rendered tiers - independent of which apply method was last called. */
-  public getRenderSummary(cameraX: number, cameraZ: number, tiled: TiledPointCloudLodPyramid): LodRenderSummary {
+  public getRenderSummary(cameraX: number, cameraY: number, cameraZ: number, tiled: TiledPointCloudLodPyramid): LodRenderSummary {
     let drawnPointCount = 0;
     let focusTierId: string | undefined;
     let focusDistance = Number.POSITIVE_INFINITY;
     for (const state of this.tileStates.values()) {
       drawnPointCount += state.activeTier.cloud.pointCount;
-      const distance = distanceToBounds2D(cameraX, cameraZ, state.bounds);
+      const distance = distanceToBounds(cameraX, cameraY, cameraZ, state.bounds);
       if (distance < focusDistance) {
         focusDistance = distance;
         focusTierId = state.activeTier.id;

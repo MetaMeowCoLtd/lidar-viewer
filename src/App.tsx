@@ -9,6 +9,7 @@ import { LidarViewer } from "./three/lidar-viewer.js";
 import { viewerConfig } from "./config.js";
 
 const INITIAL_POINT_COUNT = 380_000;
+const budgetStep = 10_000;
 
 type ViewerStatus = "initializing" | "processing" | "ready" | "error";
 
@@ -35,6 +36,7 @@ export function App() {
   const effectivePointBudget = Math.min(pointBudget, source?.pointCount ?? pointBudget);
   const supportsRgb = source?.supportsColorMode("rgb") ?? false;
   const budgetMaximum = source?.pointCount ?? viewerConfig().defaultPointBudget;
+  const budgetSliderMax = Math.max(budgetStep, Math.ceil(budgetMaximum / budgetStep) * budgetStep);
 
   const loadProcedural = useCallback((seed = Math.floor(Math.random() * 1_000_000)) => {
     const viewer = viewerRef.current;
@@ -210,10 +212,10 @@ export function App() {
               <input
                 aria-label="Point budget"
                 type="range"
-                min="10000"
-                max={Math.max(10_000, budgetMaximum)}
-                step="10000"
-                value={Math.min(effectivePointBudget, Math.max(10_000, budgetMaximum))}
+                min={budgetStep}
+                max={budgetSliderMax}
+                step={budgetStep}
+                value={Math.min(effectivePointBudget, budgetSliderMax)}
                 onChange={(event) => setPointBudget(Number(event.target.value))}
               />
               <div className="range-ends"><span>10K</span><span>{formatCount(budgetMaximum)}</span></div>

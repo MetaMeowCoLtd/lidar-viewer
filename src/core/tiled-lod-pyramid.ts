@@ -49,11 +49,11 @@ export class TiledPointCloudLodPyramid {
     return new TiledPointCloudLodPyramid(tiles);
   }
 
-  /** Picks a tier for every tile from its 2D (XZ) distance to the camera. */
-  public selectForCameraPosition(cameraX: number, cameraZ: number): readonly TiledLodSelection[] {
+  /** Picks a tier for every tile from its distance to the camera. */
+  public selectForCameraPosition(cameraX: number, cameraY: number, cameraZ: number): readonly TiledLodSelection[] {
     return this.tiles.map((tile) => ({
       tile,
-      tier: tile.pyramid.selectForCameraDistance(distanceToBounds2D(cameraX, cameraZ, tile.bounds)),
+      tier: tile.pyramid.selectForCameraDistance(distanceToBounds(cameraX, cameraY, cameraZ, tile.bounds)),
     }));
   }
 
@@ -75,9 +75,11 @@ export class TiledPointCloudLodPyramid {
   }
 }
 
-/** Distance from a point to the nearest point on an axis-aligned XZ rectangle; zero when inside it. */
-export function distanceToBounds2D(x: number, z: number, bounds: PointCloudBounds): number {
-  const clampedX = Math.min(Math.max(x, bounds.min[0]), bounds.max[0]);
-  const clampedZ = Math.min(Math.max(z, bounds.min[2]), bounds.max[2]);
-  return Math.hypot(x - clampedX, z - clampedZ);
+/** Distance from a point to the nearest point on an axis-aligned box; zero when inside it. */
+export function distanceToBounds(x: number, y: number, z: number, bounds: PointCloudBounds): number {
+  return Math.hypot(
+    x - Math.min(Math.max(x, bounds.min[0]), bounds.max[0]),
+    y - Math.min(Math.max(y, bounds.min[1]), bounds.max[1]),
+    z - Math.min(Math.max(z, bounds.min[2]), bounds.max[2]),
+  );
 }

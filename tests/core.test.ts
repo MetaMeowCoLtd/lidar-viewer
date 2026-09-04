@@ -6,6 +6,7 @@ import {
   PointCloudTiler,
   ProceduralCloudGenerator,
   TiledPointCloudLodPyramid,
+  distanceToBounds,
   VoxelGridDownsampler,
 } from "../src/index.js";
 
@@ -170,7 +171,7 @@ describe("TiledPointCloudLodPyramid", () => {
     const tiled = TiledPointCloudLodPyramid.build(makeTwoTileCloud(), specs, { enabled: true, tileSize: 10 });
     expect(tiled.tiles.length).toBe(2);
 
-    const selections = tiled.selectForCameraPosition(0, 0);
+    const selections = tiled.selectForCameraPosition(0, 0, 0);
     const nearSelection = selections.find((s) => s.tile.bounds.min[0] < 10)!;
     const farSelection = selections.find((s) => s.tile.bounds.min[0] >= 10)!;
     expect(nearSelection.tier.id).toBe("full");
@@ -187,5 +188,20 @@ describe("TiledPointCloudLodPyramid", () => {
     const tiled = TiledPointCloudLodPyramid.build(makeTwoTileCloud(), specs, { enabled: true, tileSize: 10 });
     const selections = tiled.selectForPointBudget(6);
     for (const selection of selections) expect(selection.tier.id).toBe("full");
+  });
+});
+
+describe("distanceToBounds", () => {
+  const bounds = new PointCloud({
+    positions: new Float32Array([0, 0, 0, 10, 4, 10]),
+  }).bounds;
+
+  it("is zero inside the box and the gap outside it", () => {
+    expect(distanceToBounds(5, 2, 5, bounds)).toBe(0);
+    expect(distanceToBounds(13, 2, 5, bounds)).toBeCloseTo(3);
+  });
+
+  it("counts camera height, so looking straight down is not treated as being on top of a tile", () => {
+    expect(distanceToBounds(5, 104, 5, bounds)).toBeCloseTo(100);
   });
 });

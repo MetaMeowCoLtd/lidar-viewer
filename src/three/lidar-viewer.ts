@@ -48,7 +48,7 @@ export class LidarViewer {
   private frameHandle: number | undefined;
   private disposed = false;
   private distanceBasedLodEnabled: boolean;
-  private lastNotifiedSummaryKey: string | undefined;
+  private lastSummary: LodRenderSummary | undefined;
   private readonly summaryListeners = new Set<(summary: LodRenderSummary) => void>();
 
   public constructor(canvas: HTMLCanvasElement, options: LidarViewerOptions = {}) {
@@ -150,7 +150,7 @@ export class LidarViewer {
     const tick = () => {
       this.controls.update();
       if (this.distanceBasedLodEnabled && this.activeTiledPyramid !== undefined) {
-        this.pointCloudRenderer.applyCameraDistanceLod(this.camera.position.x, this.camera.position.z, this.activeTiledPyramid);
+        this.pointCloudRenderer.applyCameraDistanceLod(this.camera.position.x, this.camera.position.y, this.camera.position.z, this.activeTiledPyramid);
         this.notifySummary();
       }
       this.pointCloudRenderer.render();
@@ -178,7 +178,7 @@ export class LidarViewer {
   private applyLodForCurrentMode(): void {
     if (this.activeTiledPyramid === undefined) return;
     if (this.distanceBasedLodEnabled) {
-      this.pointCloudRenderer.applyCameraDistanceLod(this.camera.position.x, this.camera.position.z, this.activeTiledPyramid);
+      this.pointCloudRenderer.applyCameraDistanceLod(this.camera.position.x, this.camera.position.y, this.camera.position.z, this.activeTiledPyramid);
     } else {
       this.pointCloudRenderer.applyPointBudget(this.pointBudget, this.activeTiledPyramid);
     }
@@ -187,10 +187,17 @@ export class LidarViewer {
 
   private notifySummary(): void {
     if (this.activeTiledPyramid === undefined) return;
-    const summary = this.pointCloudRenderer.getRenderSummary(this.camera.position.x, this.camera.position.z, this.activeTiledPyramid);
-    const key = `${summary.focusTierId ?? ""}:${summary.drawnPointCount}:${summary.tileCount}`;
-    if (key === this.lastNotifiedSummaryKey) return;
-    this.lastNotifiedSummaryKey = key;
+    const summary = this.pointCloudRenderer.getRenderSummary(this.camera.position.x, this.camera.position.y, this.camera.position.z, this.activeTiledPyramid);
+    const previous = this.lastSummary;
+    if (
+      previous !== undefined &&
+      previous.focusTierId === summary.focusTierId &&
+      previous.drawnPointCount === summary.drawnPointCount &&
+      previous.tileCount === summary.tileCount
+    ) {
+      return;
+    }
+    this.lastSummary = summary;
     for (const listener of this.summaryListeners) listener(summary);
   }
 
