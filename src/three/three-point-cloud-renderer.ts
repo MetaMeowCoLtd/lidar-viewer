@@ -49,12 +49,16 @@ export class ThreePointCloudRenderer {
   }
 
   public setPointBudget(pointBudget: number, pyramid: PointCloudLodPyramid): PointCloudLodTier {
-    const nextTier = pyramid.selectForPointBudget(pointBudget);
-    if (this.points !== undefined && this.activeTier?.id !== nextTier.id) {
-      this.points.geometry = this.geometries.get(nextTier.id)!;
-      this.activeTier = nextTier;
-    }
-    return nextTier;
+    return this.applyTier(pyramid.selectForPointBudget(pointBudget));
+  }
+
+  /** Same as {@link setPointBudget} but driven by camera distance instead of a point count target. */
+  public setActiveTierByCameraDistance(distance: number, pyramid: PointCloudLodPyramid): PointCloudLodTier {
+    return this.applyTier(pyramid.selectForCameraDistance(distance));
+  }
+
+  public getActiveTier(): PointCloudLodTier | undefined {
+    return this.activeTier;
   }
 
   public setPointSize(pointSize: number): void {
@@ -95,6 +99,14 @@ export class ThreePointCloudRenderer {
     this.disposeCloudResources();
     this.eyeDome?.dispose();
     this.eyeDome = undefined;
+  }
+
+  private applyTier(nextTier: PointCloudLodTier): PointCloudLodTier {
+    if (this.points !== undefined && this.activeTier?.id !== nextTier.id) {
+      this.points.geometry = this.geometries.get(nextTier.id)!;
+      this.activeTier = nextTier;
+    }
+    return nextTier;
   }
 
   private disposeCloudResources(): void {

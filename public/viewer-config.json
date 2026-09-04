@@ -21,5 +21,14 @@
     "fieldOfView": 55,
     "framingDistance": 1.15,
     "damping": 0.08
+  },
+  "distanceLod": {
+    "enabledByDefault": false,
+    "distanceMultipliers": {
+      "full": 0,
+      "fine": 0.5,
+      "balanced": 1.2,
+      "lean": 2.5
+    }
   }
 }

@@ -71,6 +71,36 @@ describe("PointCloudLodPyramid", () => {
     expect(pyramid.selectForPointBudget(3).id).toBe("reduced");
     expect(pyramid.selectForPointBudget(1).id).toBe("coarse");
   });
+
+  it("chooses coarser tiers as the camera moves further away", () => {
+    const cloud = new PointCloud({
+      positions: new Float32Array([0, 0, 0, 0.2, 0, 0, 2, 0, 0, 4, 0, 0]),
+    });
+    const pyramid = PointCloudLodPyramid.build(cloud, [
+      { id: "full", voxelSize: 0, minCameraDistance: 0 },
+      { id: "reduced", voxelSize: 1, minCameraDistance: 10 },
+      { id: "coarse", voxelSize: 3, minCameraDistance: 25 },
+    ]);
+    expect(pyramid.selectForCameraDistance(0).id).toBe("full");
+    expect(pyramid.selectForCameraDistance(15).id).toBe("reduced");
+    expect(pyramid.selectForCameraDistance(1_000).id).toBe("coarse");
+  });
+
+  it("falls back to the highest-detail tier when no tier declares a distance threshold", () => {
+    const cloud = new PointCloud({ positions: new Float32Array([0, 0, 0, 4, 0, 0]) });
+    const pyramid = PointCloudLodPyramid.build(cloud, [
+      { id: "full", voxelSize: 0 },
+      { id: "coarse", voxelSize: 3 },
+    ]);
+    expect(pyramid.selectForCameraDistance(500).id).toBe("full");
+  });
+
+  it("rejects negative or non-finite distances", () => {
+    const cloud = new PointCloud({ positions: new Float32Array([0, 0, 0, 4, 0, 0]) });
+    const pyramid = PointCloudLodPyramid.build(cloud, [{ id: "full", voxelSize: 0, minCameraDistance: 0 }]);
+    expect(() => pyramid.selectForCameraDistance(-1)).toThrow();
+    expect(() => pyramid.selectForCameraDistance(Number.NaN)).toThrow();
+  });
 });
 
 describe("ProceduralCloudGenerator", () => {

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, DragEvent, ReactNode } from "react";
 import type { PointCloudColorMode, PointCloudPointShape } from "./core/point-cloud.js";
-import type { PointCloudLodPyramid } from "./core/lod-pyramid.js";
+import type { PointCloudLodPyramid, PointCloudLodTier } from "./core/lod-pyramid.js";
 import { ProceduralCloudGenerator } from "./core/procedural-cloud-generator.js";
 import { importPlyFile } from "./import/ply-file-importer.js";
 import { LidarViewer } from "./three/lidar-viewer.js";
@@ -25,12 +25,16 @@ export function App() {
   const [isDragging, setIsDragging] = useState(false);
   const [sourceLabel, setSourceLabel] = useState("Procedural city block");
   const [uiHidden, setUiHidden] = useState(false);
+  const [lodMode, setLodMode] = useState<"manual" | "distance">(
+    () => (viewerConfig().distanceLod.enabledByDefault ? "distance" : "manual"),
+  );
+  const [activeTier, setActiveTier] = useState<PointCloudLodTier>();
 
   const source = pyramid?.tiers[0]?.cloud;
   const effectivePointBudget = Math.min(pointBudget, source?.pointCount ?? pointBudget);
   const selectedTier = useMemo(
-    () => pyramid?.selectForPointBudget(effectivePointBudget),
-    [effectivePointBudget, pyramid],
+    () => (lodMode === "manual" ? pyramid?.selectForPointBudget(effectivePointBudget) : activeTier),
+    [activeTier, effectivePointBudget, lodMode, pyramid],
   );
   const supportsRgb = source?.supportsColorMode("rgb") ?? false;
   const budgetMaximum = source?.pointCount ?? viewerConfig().defaultPointBudget;
@@ -48,8 +52,13 @@ export function App() {
   useEffect(() => {
     const canvas = canvasRef.current;
     if (canvas === null) return;
-    const viewer = new LidarViewer(canvas, { pointBudget: viewerConfig().defaultPointBudget, pointSize });
+    const viewer = new LidarViewer(canvas, {
+      pointBudget: viewerConfig().defaultPointBudget,
+      pointSize,
+      distanceBasedLod: viewerConfig().distanceLod.enabledByDefault,
+    });
     viewerRef.current = viewer;
+    const unsubscribeTier = viewer.onActiveTierChange(setActiveTier);
     const unsubscribe = viewer.session.subscribe((nextState) => {
       if (nextState.status === "processing") {
         setStatus("processing");
@@ -75,11 +84,16 @@ export function App() {
 
     return () => {
       unsubscribe();
+      unsubscribeTier();
       resizeObserver.disconnect();
       viewer.dispose();
       viewerRef.current = undefined;
     };
   }, [loadProcedural]);
+
+  useEffect(() => {
+    viewerRef.current?.setDistanceBasedLodEnabled(lodMode === "distance");
+  }, [lodMode]);
 
   useEffect(() => {
     viewerRef.current?.setPointBudget(effectivePointBudget);
@@ -186,18 +200,30 @@ export function App() {
             </div>
           </div>
 
-          <ControlRow label="Point budget" value={formatCount(effectivePointBudget)}>
-            <input
-              aria-label="Point budget"
-              type="range"
-              min="10000"
-              max={Math.max(10_000, budgetMaximum)}
-              step="10000"
-              value={Math.min(effectivePointBudget, Math.max(10_000, budgetMaximum))}
-              onChange={(event) => setPointBudget(Number(event.target.value))}
-            />
-            <div className="range-ends"><span>10K</span><span>{formatCount(budgetMaximum)}</span></div>
-          </ControlRow>
+          <div className="control-block">
+            <div className="control-label"><span>LOD mode</span></div>
+            <div className="segmented-control" role="group" aria-label="LOD mode">
+              <ModeButton active={lodMode === "manual"} onClick={() => setLodMode("manual")}>Manual budget</ModeButton>
+              <ModeButton active={lodMode === "distance"} onClick={() => setLodMode("distance")}>Camera distance</ModeButton>
+            </div>
+          </div>
+
+          {lodMode === "manual" ? (
+            <ControlRow label="Point budget" value={formatCount(effectivePointBudget)}>
+              <input
+                aria-label="Point budget"
+                type="range"
+                min="10000"
+                max={Math.max(10_000, budgetMaximum)}
+                step="10000"
+                value={Math.min(effectivePointBudget, Math.max(10_000, budgetMaximum))}
+                onChange={(event) => setPointBudget(Number(event.target.value))}
+              />
+              <div className="range-ends"><span>10K</span><span>{formatCount(budgetMaximum)}</span></div>
+            </ControlRow>
+          ) : (
+            <p className="panel-footnote">Detail now follows how far the camera is from the scan — zoom in for full resolution, pull back to save GPU work.</p>
+          )}
 
           <ControlRow label="Point size" value={`${pointSize.toFixed(1)} px`}>
             <input aria-label="Point size" type="range" min={viewerConfig().pointSize.min} max={viewerConfig().pointSize.max} step="0.1" value={pointSize} onChange={(event) => setPointSize(Number(event.target.value))} />
@@ -242,6 +268,7 @@ export function App() {
           <Telemetry label="SOURCE POINTS" value={source === undefined ? "—" : formatCount(source.pointCount)} />
           <Telemetry label="ACTIVE LOD" value={selectedTier?.id.toUpperCase() ?? "—"} />
           <Telemetry label="DRAW BUDGET" value={selectedTier === undefined ? "—" : formatCount(selectedTier.cloud.pointCount)} />
+          <Telemetry label="LOD SOURCE" value={lodMode === "distance" ? "CAMERA DIST." : "MANUAL"} />
           <div className="telemetry-note"><span className="pulse-ring" />EDGE-READY RENDER PATH</div>
         </footer>
       </section>
@@ -252,11 +279,12 @@ export function App() {
 function createLodSpecs(diagonal: number) {
   const scale = Math.max(diagonal, 1);
   const { fine, balanced, lean } = viewerConfig().lodDivisors;
+  const distance = viewerConfig().distanceLod.distanceMultipliers;
   return [
-    { id: "full", voxelSize: 0 },
-    { id: "fine", voxelSize: scale / fine },
-    { id: "balanced", voxelSize: scale / balanced },
-    { id: "lean", voxelSize: scale / lean },
+    { id: "full", voxelSize: 0, minCameraDistance: scale * distance.full },
+    { id: "fine", voxelSize: scale / fine, minCameraDistance: scale * distance.fine },
+    { id: "balanced", voxelSize: scale / balanced, minCameraDistance: scale * distance.balanced },
+    { id: "lean", voxelSize: scale / lean, minCameraDistance: scale * distance.lean },
   ];
 }
 

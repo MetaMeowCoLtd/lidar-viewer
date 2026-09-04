@@ -1,3 +1,5 @@
+import type { PointCloudPointShape } from "./core/point-cloud.js";
+
 export interface LodDivisors {
   readonly fine: number;
   readonly balanced: number;
@@ -21,7 +23,23 @@ export interface CameraConfig {
   readonly damping: number;
 }
 
-import type { PointCloudPointShape } from "./core/point-cloud.js";
+export interface DistanceLodThresholds {
+  readonly full: number;
+  readonly fine: number;
+  readonly balanced: number;
+  readonly lean: number;
+}
+
+export interface DistanceLodConfig {
+  /** Whether camera-distance-driven LOD selection starts enabled instead of the manual point budget. */
+  readonly enabledByDefault: boolean;
+  /**
+   * Multipliers of the cloud's bounding diagonal at which each tier becomes
+   * preferred as the camera moves away. Must be non-decreasing for a sane
+   * near-to-far progression (full detail up close, coarser tiers far away).
+   */
+  readonly distanceMultipliers: DistanceLodThresholds;
+}
 
 export interface ViewerConfig {
   readonly backgroundColor: string;
@@ -32,6 +50,7 @@ export interface ViewerConfig {
   readonly lodDivisors: LodDivisors;
   readonly eyeDomeLighting: EyeDomeLightingConfig;
   readonly camera: CameraConfig;
+  readonly distanceLod: DistanceLodConfig;
 }
 
 const fallback: ViewerConfig = {
@@ -43,6 +62,10 @@ const fallback: ViewerConfig = {
   lodDivisors: { fine: 900, balanced: 350, lean: 130 },
   eyeDomeLighting: { strength: 40, radius: 1.4 },
   camera: { fieldOfView: 55, framingDistance: 1.15, damping: 0.08 },
+  distanceLod: {
+    enabledByDefault: false,
+    distanceMultipliers: { full: 0, fine: 0.5, balanced: 1.2, lean: 2.5 },
+  },
 };
 
 let active: ViewerConfig = fallback;
@@ -63,6 +86,14 @@ export async function loadViewerConfig(): Promise<ViewerConfig> {
         lodDivisors: { ...fallback.lodDivisors, ...parsed.lodDivisors },
         eyeDomeLighting: { ...fallback.eyeDomeLighting, ...parsed.eyeDomeLighting },
         camera: { ...fallback.camera, ...parsed.camera },
+        distanceLod: {
+          ...fallback.distanceLod,
+          ...parsed.distanceLod,
+          distanceMultipliers: {
+            ...fallback.distanceLod.distanceMultipliers,
+            ...parsed.distanceLod?.distanceMultipliers,
+          },
+        },
       };
     }
   } catch {
