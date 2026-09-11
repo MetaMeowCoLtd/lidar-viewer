@@ -17,7 +17,8 @@ export interface PointCloudTile {
  * per tile) so LOD can be selected per region instead of for the whole
  * cloud at once. This is a partition, not a resampling: every source point
  * ends up in exactly one tile, and tile clouds keep whatever attributes the
- * source had. Points are counted into a flat grid first so each tile's
+ * source had along with its local frame, so every tile stays directly
+ * comparable to every other. Points are counted into a flat grid first so each tile's
  * buffers can be allocated at their exact size and filled in one scatter
  * pass, without a growable array per tile.
  */
@@ -87,6 +88,7 @@ export class PointCloudTiler {
           positions: tilePositions[tile]!,
           ...(tileColors === undefined ? {} : { colors: tileColors[tile]! }),
           ...(tileIntensity === undefined ? {} : { intensity: tileIntensity[tile]! }),
+          origin: source.origin,
           name: `${source.name}-tile-${gridX}-${gridZ}`,
         }),
       };

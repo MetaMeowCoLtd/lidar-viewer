@@ -1,12 +1,15 @@
 import type { LodTierSpec } from "./lod-pyramid.js";
-import type { PointCloudBounds } from "./point-cloud.js";
+import type { PointCloudBounds, PointCloudOrigin } from "./point-cloud.js";
 
 export interface LodBuildRequest {
   readonly tileId: string;
   readonly name: string;
+  /** Local coordinates; see `origin`. */
   readonly positions: Float32Array;
   readonly colors?: Uint8Array;
   readonly intensity?: Float32Array;
+  /** The tile's local frame, carried across so decimated tiers stay aligned with it. */
+  readonly origin: PointCloudOrigin;
   readonly specs: readonly LodTierSpec[];
 }
 
@@ -18,6 +21,7 @@ export interface SerializedTier {
   readonly colors?: Uint8Array;
   readonly intensity?: Float32Array;
   readonly bounds: PointCloudBounds;
+  readonly origin: PointCloudOrigin;
   readonly minCameraDistance?: number;
 }
 

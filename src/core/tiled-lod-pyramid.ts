@@ -71,6 +71,7 @@ export class TiledPointCloudLodPyramid {
           positions: tile.cloud.positions,
           ...(tile.cloud.colors === undefined ? {} : { colors: tile.cloud.colors }),
           ...(tile.cloud.intensity === undefined ? {} : { intensity: tile.cloud.intensity }),
+          origin: tile.cloud.origin,
           specs,
         });
         return { id: tile.id, bounds, pyramid: new PointCloudLodPyramid(response.tiers.map(toTier)) };
@@ -123,6 +124,7 @@ function toTier(tier: SerializedTier): PointCloudLodTier {
       ...(tier.colors === undefined ? {} : { colors: tier.colors }),
       ...(tier.intensity === undefined ? {} : { intensity: tier.intensity }),
       bounds: tier.bounds,
+      origin: tier.origin,
       name: tier.name,
     }),
     ...(tier.minCameraDistance === undefined ? {} : { minCameraDistance: tier.minCameraDistance }),

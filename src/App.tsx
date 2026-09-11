@@ -265,6 +265,7 @@ export function App() {
 
         <footer className="telemetry-bar">
           <Telemetry label="SOURCE POINTS" value={source === undefined ? "—" : formatCount(source.pointCount)} />
+          <Telemetry label="GEOREF ORIGIN" value={source === undefined ? "—" : formatOrigin(source)} />
           <Telemetry label="ACTIVE LOD" value={lodSummary?.focusTierId?.toUpperCase() ?? "—"} />
           <Telemetry label="DRAW BUDGET" value={lodSummary === undefined ? "—" : formatCount(lodSummary.drawnPointCount)} />
           <Telemetry label="TILES" value={lodSummary === undefined ? "—" : String(lodSummary.tileCount)} />
@@ -309,6 +310,16 @@ function Icon({ name }: { name: "spark" | "orbit" | "layers" | "upload" | "arrow
     arrow: <path d="M5 12h13m-5-5 5 5-5 5" />,
   };
   return <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>;
+}
+
+/**
+ * Positions are held relative to the cloud's origin so a projected coordinate
+ * never has to survive a narrowing to Float32. Showing that offset is how a
+ * user confirms a scan was recognised as georeferenced rather than local.
+ */
+function formatOrigin(cloud: { origin: readonly [number, number, number]; isGeoreferenced: boolean }): string {
+  if (!cloud.isGeoreferenced) return "LOCAL";
+  return cloud.origin.map((value) => value.toLocaleString("en-US", { maximumFractionDigits: 0 })).join(" / ");
 }
 
 function formatCount(value: number): string {

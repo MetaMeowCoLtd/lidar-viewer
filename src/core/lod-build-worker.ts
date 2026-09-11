@@ -8,11 +8,12 @@ const scope = self as unknown as {
 };
 
 scope.onmessage = (event: MessageEvent<LodBuildRequest>) => {
-  const { tileId, name, positions, colors, intensity, specs } = event.data;
+  const { tileId, name, positions, colors, intensity, origin, specs } = event.data;
   const cloud = new PointCloud({
     positions,
     ...(colors === undefined ? {} : { colors }),
     ...(intensity === undefined ? {} : { intensity }),
+    origin,
     name,
   });
   const pyramid = PointCloudLodPyramid.build(cloud, specs);
@@ -28,6 +29,7 @@ scope.onmessage = (event: MessageEvent<LodBuildRequest>) => {
       name: tier.cloud.name,
       positions: tier.cloud.positions,
       bounds: tier.cloud.bounds,
+      origin: tier.cloud.origin,
       ...(tier.cloud.colors === undefined ? {} : { colors: tier.cloud.colors }),
       ...(tier.cloud.intensity === undefined ? {} : { intensity: tier.cloud.intensity }),
       ...(tier.minCameraDistance === undefined ? {} : { minCameraDistance: tier.minCameraDistance }),

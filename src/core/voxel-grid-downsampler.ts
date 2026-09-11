@@ -122,6 +122,7 @@ export class VoxelGridDownsampler {
       positions: outputPositions,
       ...(outputColors === undefined ? {} : { colors: outputColors }),
       ...(outputIntensity === undefined ? {} : { intensity: outputIntensity }),
+      origin: source.origin,
       name,
     });
   }

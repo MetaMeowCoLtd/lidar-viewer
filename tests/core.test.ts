@@ -8,7 +8,9 @@ import {
   TiledPointCloudLodPyramid,
   distanceToBounds,
   VoxelGridDownsampler,
+  chooseOrigin,
 } from "../src/index.js";
+import { readBinaryPly } from "../src/import/binary-ply-reader.js";
 
 describe("PointCloud", () => {
   it("derives bounds and validates aligned attributes", () => {
@@ -234,3 +236,98 @@ describe("tile sizing", () => {
     expect(tiled.totalPointCount).toBe(cloud.pointCount);
   });
 });
+
+
+describe("georeferenced clouds", () => {
+  it("defaults to the world origin and rejects a malformed one", () => {
+    const positions = new Float32Array([0, 0, 0]);
+    expect(new PointCloud({ positions }).origin).toEqual([0, 0, 0]);
+    expect(new PointCloud({ positions }).isGeoreferenced).toBe(false);
+    expect(() => new PointCloud({ positions, origin: [0, Number.NaN, 0] })).toThrow(/three finite numbers/);
+  });
+
+  it("resolves local positions and bounds back to world coordinates", () => {
+    const cloud = new PointCloud({
+      positions: new Float32Array([0, 0, 0, 10, 4, -6]),
+      origin: [543000, 0, 4179000],
+    });
+    expect(cloud.isGeoreferenced).toBe(true);
+    expect(cloud.worldPosition(1)).toEqual([543010, 4, 4178994]);
+    expect(cloud.worldBounds().min).toEqual([543000, 0, 4178994]);
+    expect(cloud.worldBounds().max).toEqual([543010, 4, 4179000]);
+    expect(() => cloud.worldPosition(2)).toThrow(/address a point/);
+  });
+
+  it("snaps a chosen origin down to a round step near the data centre", () => {
+    expect(chooseOrigin([543200, 10, 4179100], [543400, 30, 4179300])).toEqual([543000, 0, 4179000]);
+    expect(chooseOrigin([-5, -5, -5], [5, 5, 5])).toEqual([0, 0, 0]);
+  });
+
+  it("carries the frame through decimation so tiers stay aligned", () => {
+    const source = new PointCloud({
+      positions: new Float32Array([0, 0, 0, 0.2, 0.2, 0.2, 5, 5, 5]),
+      origin: [543000, 0, 4179000],
+    });
+    expect(new VoxelGridDownsampler().downsample(source, { voxelSize: 1 }).origin).toEqual(source.origin);
+  });
+
+  it("carries the frame onto every tile so tiles stay comparable", () => {
+    const source = new PointCloud({
+      positions: new Float32Array([0, 0, 0, 9, 0, 9]),
+      origin: [543000, 0, 4179000],
+    });
+    const tiles = new PointCloudTiler().tile(source, { tileSize: 5 });
+    expect(tiles.length).toBeGreaterThan(1);
+    for (const tile of tiles) expect(tile.cloud.origin).toEqual(source.origin);
+  });
+});
+
+describe("binary PLY reader precision", () => {
+  const eastings = [543210.001, 543210.002, 543210.003];
+
+  it("keeps millimetre detail that Float32 world coordinates would destroy", () => {
+    const cloud = readBinaryPly(buildDoublePly(eastings), "utm-scan")!;
+    expect(cloud).toBeDefined();
+    expect(cloud.origin).toEqual([543000, 4179000, 0]);
+
+    // The failure this guards against: at UTM magnitude a Float32 step is
+    // about 6cm, so storing these coordinates absolutely collapses all three
+    // onto one value and the scan visibly snaps to a grid.
+    expect(new Set(eastings.map((value) => Math.fround(value))).size).toBe(1);
+
+    const readBack = eastings.map((_, index) => cloud.worldPosition(index)[0]);
+    expect(new Set(readBack).size).toBe(3);
+    for (const [index, expected] of eastings.entries()) {
+      expect(readBack[index]!).toBeCloseTo(expected, 4);
+    }
+  });
+
+  it("reports bounds in the local frame it established", () => {
+    const cloud = readBinaryPly(buildDoublePly(eastings), "utm-scan")!;
+    expect(cloud.bounds.min[0]).toBeCloseTo(210.001, 4);
+    expect(cloud.bounds.max[0]).toBeCloseTo(210.003, 4);
+    expect(cloud.bounds.diagonal).toBeLessThan(1);
+  });
+});
+
+/** A minimal little-endian binary PLY with double xyz, at projected magnitude. */
+function buildDoublePly(eastings: readonly number[]): ArrayBuffer {
+  const header = `ply
+format binary_little_endian 1.0
+element vertex ${eastings.length}
+property double x
+property double y
+property double z
+end_header
+`;
+  const headerBytes = new TextEncoder().encode(header);
+  const buffer = new ArrayBuffer(headerBytes.length + eastings.length * 24);
+  new Uint8Array(buffer).set(headerBytes);
+  const view = new DataView(buffer, headerBytes.length);
+  eastings.forEach((easting, index) => {
+    view.setFloat64(index * 24, easting, true);
+    view.setFloat64(index * 24 + 8, 4179000.5, true);
+    view.setFloat64(index * 24 + 16, 12.25, true);
+  });
+  return buffer;
+}

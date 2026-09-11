@@ -1,4 +1,4 @@
-import { PointCloud } from "../core/point-cloud.js";
+import { PointCloud, boundsFromExtent, chooseOrigin, type PointCloudOrigin } from "../core/point-cloud.js";
 
 interface PlyProperty {
   readonly name: string;
@@ -31,6 +31,9 @@ const readers: Record<string, { size: number; read: (view: DataView, offset: num
  * roughly forty million points; writing into the destination buffers directly
  * removes that ceiling and avoids the intermediate copy. Returns undefined for
  * anything this fast path does not recognise so the caller can fall back.
+ *
+ * This is also the only place that sees a georeferenced coordinate at full
+ * precision, so it is where the cloud's local frame is established.
  */
 export function readBinaryPly(buffer: ArrayBuffer, name: string): PointCloud | undefined {
   const headerLimit = Math.min(buffer.byteLength, 64 * 1024);
@@ -78,16 +81,37 @@ export function readBinaryPly(buffer: ArrayBuffer, name: string): PointCloud | u
   if (buffer.byteLength - start < vertexCount * stride) return undefined;
 
   const view = new DataView(buffer, start);
+  const readX = (base: number) => properties[ix]!.read(view, base + offsets[ix]!);
+  const readY = (base: number) => properties[iy]!.read(view, base + offsets[iy]!);
+  const readZ = (base: number) => properties[iz]!.read(view, base + offsets[iz]!);
+
+  const origin = estimateOrigin(vertexCount, stride, readX, readY, readZ);
+
   const positions = new Float32Array(vertexCount * 3);
   const hasRgb = ir !== -1 && ig !== -1 && ib !== -1;
   const colors = hasRgb ? new Uint8Array(vertexCount * 3) : undefined;
   const intensity = ii !== -1 ? new Float32Array(vertexCount) : undefined;
   const colorScale = hasRgb && properties[ir]!.size > 1 ? 1 / 256 : 1;
 
+  const min: [number, number, number] = [Infinity, Infinity, Infinity];
+  const max: [number, number, number] = [-Infinity, -Infinity, -Infinity];
+
   for (let point = 0, base = 0, target = 0; point < vertexCount; point += 1, base += stride, target += 3) {
-    positions[target] = properties[ix]!.read(view, base + offsets[ix]!);
-    positions[target + 1] = properties[iy]!.read(view, base + offsets[iy]!);
-    positions[target + 2] = properties[iz]!.read(view, base + offsets[iz]!);
+    // Both operands are still doubles here, so the subtraction happens before
+    // anything is narrowed. Assigning into the Float32Array is the only
+    // rounding step, and by then the magnitude is local rather than planetary.
+    const x = readX(base) - origin[0];
+    const y = readY(base) - origin[1];
+    const z = readZ(base) - origin[2];
+    positions[target] = x;
+    positions[target + 1] = y;
+    positions[target + 2] = z;
+    if (x < min[0]) min[0] = x;
+    if (y < min[1]) min[1] = y;
+    if (z < min[2]) min[2] = z;
+    if (x > max[0]) max[0] = x;
+    if (y > max[1]) max[1] = y;
+    if (z > max[2]) max[2] = z;
     if (colors !== undefined) {
       colors[target] = properties[ir]!.read(view, base + offsets[ir]!) * colorScale;
       colors[target + 1] = properties[ig]!.read(view, base + offsets[ig]!) * colorScale;
@@ -102,6 +126,38 @@ export function readBinaryPly(buffer: ArrayBuffer, name: string): PointCloud | u
     positions,
     ...(colors === undefined ? {} : { colors }),
     ...(intensity === undefined ? {} : { intensity }),
+    bounds: boundsFromExtent(min, max),
+    origin,
     name,
   });
+}
+
+/**
+ * Picks the local frame before a single coordinate is narrowed to Float32.
+ *
+ * The anchor only has to land *near* the cloud - what matters is that local
+ * coordinates stay small, and the cloud's own extent already bounds them - so
+ * it is estimated from an evenly spaced sample instead of a second full pass
+ * over every vertex. On a forty-million-point scan that is a thousand reads
+ * rather than a hundred and twenty million.
+ */
+function estimateOrigin(
+  vertexCount: number,
+  stride: number,
+  readX: (base: number) => number,
+  readY: (base: number) => number,
+  readZ: (base: number) => number,
+): PointCloudOrigin {
+  const step = Math.max(1, Math.floor(vertexCount / 1024));
+  const min: [number, number, number] = [Infinity, Infinity, Infinity];
+  const max: [number, number, number] = [-Infinity, -Infinity, -Infinity];
+  for (let point = 0; point < vertexCount; point += step) {
+    const base = point * stride;
+    const sample = [readX(base), readY(base), readZ(base)];
+    for (let axis = 0; axis < 3; axis += 1) {
+      if (sample[axis]! < min[axis]!) min[axis] = sample[axis]!;
+      if (sample[axis]! > max[axis]!) max[axis] = sample[axis]!;
+    }
+  }
+  return chooseOrigin(min, max);
 }
