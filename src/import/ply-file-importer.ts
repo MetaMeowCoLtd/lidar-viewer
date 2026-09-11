@@ -1,21 +1,9 @@
 import { PLYLoader } from "three/examples/jsm/loaders/PLYLoader.js";
 import { PointCloud, chooseOrigin } from "../core/point-cloud.js";
-import { viewerConfig } from "../config.js";
 import { readBinaryPly } from "./binary-ply-reader.js";
 
-/** Converts a local PLY export into the core's tightly packed point-cloud contract. */
-export async function importPlyFile(file: File): Promise<PointCloud> {
-  if (!file.name.toLowerCase().endsWith(".ply")) {
-    throw new Error("Select a .ply point-cloud file");
-  }
-  if (file.size === 0) throw new Error("The selected PLY file is empty");
-  const maxImportSizeMb = viewerConfig().maxImportSizeMb;
-  if (file.size > maxImportSizeMb * 1024 * 1024) {
-    throw new Error(`This demo accepts PLY files up to ${maxImportSizeMb} MB. Larger scans need the planned streaming pipeline.`);
-  }
-
-  const name = file.name.replace(/\.ply$/i, "");
-  const buffer = await file.arrayBuffer();
+/** Parses PLY bytes that a caller has already read. */
+export function parsePlyBuffer(buffer: ArrayBuffer, name: string): PointCloud {
   const fastPath = readBinaryPly(buffer, name);
   if (fastPath !== undefined) return fastPath;
 

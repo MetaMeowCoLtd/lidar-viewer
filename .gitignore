@@ -6,7 +6,8 @@
 ._*
 
 # Custom folder icons
-Icon
+Icon
+
 
 # Volume root files
 .DocumentRevisions-V100
@@ -61,3 +62,11 @@ out/
 .yarn/unplugged
 .yarn/install-state.gz
 .pnp.*
+
+### Local sample scans
+# Test scans are hundreds of megabytes. Keep them beside the app without
+# risking a commit; .git/info/exclude does the same job but never travels
+# with a clone.
+public/*.las
+public/*.laz
+public/*.ply

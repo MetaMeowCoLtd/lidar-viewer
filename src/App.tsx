@@ -4,7 +4,7 @@ import type { PointCloudColorMode, PointCloudPointShape } from "./core/point-clo
 import type { PointCloudLodPyramid } from "./core/lod-pyramid.js";
 import type { LodRenderSummary } from "./three/lidar-viewer.js";
 import { ProceduralCloudGenerator } from "./core/procedural-cloud-generator.js";
-import { importPlyFile } from "./import/ply-file-importer.js";
+import { importScanFile, supportedScanExtensions } from "./import/scan-file-importer.js";
 import { LidarViewer } from "./three/lidar-viewer.js";
 import { viewerConfig } from "./config.js";
 
@@ -133,8 +133,8 @@ export function App() {
     try {
       setSourceLabel(file.name);
       setStatus("processing");
-      setStatusText("Parsing local PLY scan");
-      const cloud = await importPlyFile(file);
+      setStatusText("Reading local scan");
+      const cloud = await importScanFile(file);
       await viewerRef.current?.load(cloud, createLodSpecs(cloud.bounds.diagonal));
     } catch (error) {
       setStatus("error");
@@ -255,10 +255,10 @@ export function App() {
             onDrop={handleDrop}
           >
             <span className="drop-icon"><Icon name="upload" /></span>
-            <span><strong>Import a LiDAR scan</strong><small>Drop a .PLY file or browse your device</small></span>
+            <span><strong>Import a LiDAR scan</strong><small>Drop a .LAS, .LAZ or .PLY file or browse your device</small></span>
             <Icon name="arrow" />
           </button>
-          <input ref={fileInputRef} className="visually-hidden" type="file" accept=".ply" onChange={handleFileInput} />
+          <input ref={fileInputRef} className="visually-hidden" type="file" accept={supportedScanExtensions.join(",")} onChange={handleFileInput} />
 
           <p className="panel-footnote">Everything stays local in your browser. No scan data is uploaded.</p>
         </aside>

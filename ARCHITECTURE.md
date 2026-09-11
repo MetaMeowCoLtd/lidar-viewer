@@ -8,7 +8,7 @@ reconciliation and keeps the data pipeline worker-ready.
 ```
 PointCloud (typed arrays, metadata, bounds)
   ├─ ProceduralCloudGenerator  → development/test source
-  ├─ PLY importer              → local scan source
+  ├─ LAS / LAZ / PLY readers   → local scan sources
   └─ PointCloudLodPyramid
        └─ VoxelGridDownsampler → precomputed tiers
             └─ LidarViewer → one RAF loop, camera and OrbitControls
@@ -19,6 +19,11 @@ PointCloud (typed arrays, metadata, bounds)
 
 - One point is one xyz triplet. Optional RGB and intensity arrays have the same
   point index and are validated when a cloud is created.
+- Positions are local coordinates, offset from a double-precision `origin`.
+  Projected survey coordinates do not survive a narrowing to `Float32`, so the
+  frame is established by the reader while values are still doubles, and every
+  stage downstream works in small numbers. Readers also convert to the viewer's
+  Y-up axes, negating north so the frame stays right-handed.
 - The domain layer is independent of DOM, React, and Three.js, so heavy import
   and decimation work can move to a worker without changing its contract.
 - A LOD pyramid contains complete precomputed tiers. Selecting a point budget
@@ -39,9 +44,9 @@ the shader layout stays stable across all clouds.
 
 ## Intentional next boundaries
 
-1. Move PLY parsing and pyramid construction into a worker for million-point
-   imports, transferring typed-array buffers into the existing `PointCloud`
-   contract.
+1. Move file parsing into a worker for million-point imports, transferring
+   typed-array buffers into the existing `PointCloud` contract. Pyramid
+   construction already runs on a worker pool.
 2. Add retained performance telemetry (FPS, frame time, GPU capability) to the
    React overlay without coupling it to Three.js scene state.
 3. Add accessibility and keyboard navigation refinements to the control panel.

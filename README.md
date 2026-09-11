@@ -6,14 +6,17 @@ only responsible for GPU resources and draw configuration.
 
 ## Current scope
 
+- LAS, LAZ and PLY readers, dispatched on the file's own leading bytes
+- Georeferenced scans held in a local frame with a double-precision origin
 - Immutable typed-array point clouds with bounds and optional RGB/intensity data
 - Deterministic procedural terrain/structure cloud generator
 - Voxel-grid decimation and a precomputed LOD pyramid
 - Point-budget LOD selection and transaction-safe loading session
 - Three.js `Points` adapter using a custom shader material
 - A UI-free `LidarViewer` composition root with one render loop and OrbitControls
+- A React control surface with drag-and-drop import, held outside scene state
 
-React, controls, drag-and-drop and CSS are intentionally not implemented yet.
+Everything runs in the browser. No scan data is uploaded.
 
 ## Development
 

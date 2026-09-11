@@ -12,11 +12,13 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "laz-perf": "^0.0.7",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "three": "^0.180.0"
   },
   "devDependencies": {
+    "@types/emscripten": "^1.41.6",
     "@types/react": "^19.1.12",
     "@types/react-dom": "^19.1.9",
     "@types/three": "^0.180.0",

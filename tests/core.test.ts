@@ -11,6 +11,8 @@ import {
   chooseOrigin,
 } from "../src/index.js";
 import { readBinaryPly } from "../src/import/binary-ply-reader.js";
+import { readLasHeader, layoutForPointFormat } from "../src/import/las-header.js";
+import { readLasPoints } from "../src/import/las-reader.js";
 
 describe("PointCloud", () => {
   it("derives bounds and validates aligned attributes", () => {
@@ -328,6 +330,144 @@ end_header
     view.setFloat64(index * 24, easting, true);
     view.setFloat64(index * 24 + 8, 4179000.5, true);
     view.setFloat64(index * 24 + 16, 12.25, true);
+  });
+  return buffer;
+}
+
+
+describe("LAS header", () => {
+  it("reads scale, offset, extent and record geometry", () => {
+    const header = readLasHeader(buildLas())!;
+    expect(header).toBeDefined();
+    expect([header.versionMajor, header.versionMinor]).toEqual([1, 2]);
+    expect(header.pointFormat).toBe(2);
+    expect(header.pointLength).toBe(26);
+    expect(header.pointCount).toBe(2);
+    expect(header.isCompressed).toBe(false);
+    expect(header.scale).toEqual([0.001, 0.001, 0.001]);
+    expect(header.offset).toEqual([543000, 4179000, 0]);
+    expect(header.min).toEqual([543010.5, 4178900.25, 20.5]);
+    expect(header.max).toEqual([543210.5, 4179100.75, 35.25]);
+  });
+
+  it("recognises the LAZ compression flag without changing the format id", () => {
+    const header = readLasHeader(buildLas({ compressed: true }))!;
+    expect(header.isCompressed).toBe(true);
+    expect(header.pointFormat).toBe(2);
+  });
+
+  it("declines anything it cannot walk", () => {
+    expect(readLasHeader(new ArrayBuffer(8))).toBeUndefined();
+    expect(readLasHeader(buildLas({ signature: "PLYX" }))).toBeUndefined();
+    expect(readLasHeader(buildLas({ scale: 0 }))).toBeUndefined();
+    expect(readLasHeader(buildLas({ pointFormat: 99 }))).toBeUndefined();
+  });
+
+  it("knows the standard record length of every point format", () => {
+    const lengths = [20, 28, 26, 34, 57, 63, 30, 36, 38, 59, 67];
+    lengths.forEach((length, format) => {
+      expect(layoutForPointFormat(format)!.standardLength).toBe(length);
+    });
+    expect(layoutForPointFormat(11)).toBeUndefined();
+  });
+});
+
+describe("LAS point reading", () => {
+  it("rebuilds world coordinates from scaled integers without a Float32 round trip", () => {
+    const cloud = readLasPoints(buildLas(), readLasHeader(buildLas())!, "scan");
+    expect(cloud.pointCount).toBe(2);
+    expect(cloud.origin).toEqual([543000, 0, -4179000]);
+    expect(cloud.worldPosition(0)).toEqual([543010.5, 20.5, -4178900.25]);
+    expect(cloud.worldPosition(1)).toEqual([543210.5, 35.25, -4179100.75]);
+  });
+
+  it("moves elevation onto the viewer's up axis and keeps the frame right-handed", () => {
+    const cloud = readLasPoints(buildLas(), readLasHeader(buildLas())!, "scan");
+    // Elevation spans 14.75m against 200m east and 200.5m north, so the short
+    // span landing on y is what proves the axes were not simply relabelled.
+    expect(cloud.bounds.min).toEqual([10.5, 20.5, -100.75]);
+    expect(cloud.bounds.max).toEqual([210.5, 35.25, 99.75]);
+    // North is negated rather than dropped: the northern point sits at -z.
+    expect(cloud.positions[5]).toBeLessThan(cloud.positions[2]!);
+  });
+
+  it("carries intensity through unscaled", () => {
+    const cloud = readLasPoints(buildLas(), readLasHeader(buildLas())!, "scan");
+    expect([...cloud.intensity!]).toEqual([1234, 5678]);
+  });
+
+  it("normalises colour whether the file stores 16-bit or 8-bit channels", () => {
+    for (const colorMultiplier of [257, 1]) {
+      const buffer = buildLas({ colorMultiplier });
+      const cloud = readLasPoints(buffer, readLasHeader(buffer)!, "scan");
+      expect([...cloud.colors!]).toEqual([10, 20, 30, 40, 50, 60]);
+    }
+  });
+
+  it("reads the records that are present when a file is truncated", () => {
+    const full = buildLas();
+    const cut = full.slice(0, full.byteLength - 26);
+    const cloud = readLasPoints(cut, readLasHeader(cut)!, "scan");
+    expect(cloud.pointCount).toBe(1);
+    expect(cloud.worldPosition(0)).toEqual([543010.5, 20.5, -4178900.25]);
+  });
+});
+
+interface LasFixtureOptions {
+  readonly compressed?: boolean;
+  readonly signature?: string;
+  readonly scale?: number;
+  readonly pointFormat?: number;
+  readonly colorMultiplier?: number;
+}
+
+/**
+ * A minimal LAS 1.2 file with two point-format-2 records, in LAS axes
+ * (east, north, up) at projected magnitude.
+ */
+function buildLas(options: LasFixtureOptions = {}): ArrayBuffer {
+  const { compressed = false, signature = "LASF", scale = 0.001, pointFormat = 2, colorMultiplier = 257 } = options;
+  const headerSize = 227;
+  const recordLength = 26;
+  const points = [
+    { east: 543010.5, north: 4178900.25, up: 20.5, rgb: [10, 20, 30], intensity: 1234 },
+    { east: 543210.5, north: 4179100.75, up: 35.25, rgb: [40, 50, 60], intensity: 5678 },
+  ];
+  const offsets = [543000, 4179000, 0];
+
+  const buffer = new ArrayBuffer(headerSize + points.length * recordLength);
+  const view = new DataView(buffer);
+  for (let index = 0; index < 4; index += 1) view.setUint8(index, signature.charCodeAt(index));
+  view.setUint8(24, 1);
+  view.setUint8(25, 2);
+  view.setUint16(94, headerSize, true);
+  view.setUint32(96, headerSize, true);
+  view.setUint8(104, compressed ? pointFormat | 0x80 : pointFormat);
+  view.setUint16(105, recordLength, true);
+  view.setUint32(107, points.length, true);
+  for (let axis = 0; axis < 3; axis += 1) {
+    view.setFloat64(131 + axis * 8, scale, true);
+    view.setFloat64(155 + axis * 8, offsets[axis]!, true);
+  }
+  const easts = points.map((point) => point.east);
+  const norths = points.map((point) => point.north);
+  const ups = points.map((point) => point.up);
+  const extent = [[easts, 179, 187], [norths, 195, 203], [ups, 211, 219]] as const;
+  for (const [values, maxAt, minAt] of extent) {
+    view.setFloat64(maxAt, Math.max(...values), true);
+    view.setFloat64(minAt, Math.min(...values), true);
+  }
+
+  points.forEach((point, index) => {
+    const base = headerSize + index * recordLength;
+    const safeScale = scale === 0 ? 1 : scale;
+    view.setInt32(base, Math.round((point.east - offsets[0]!) / safeScale), true);
+    view.setInt32(base + 4, Math.round((point.north - offsets[1]!) / safeScale), true);
+    view.setInt32(base + 8, Math.round((point.up - offsets[2]!) / safeScale), true);
+    view.setUint16(base + 12, point.intensity, true);
+    point.rgb.forEach((channel, axis) => {
+      view.setUint16(base + 20 + axis * 2, channel * colorMultiplier, true);
+    });
   });
   return buffer;
 }
