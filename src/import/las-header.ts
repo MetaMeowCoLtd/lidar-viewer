@@ -32,7 +32,26 @@ export interface LasPointLayout {
   readonly standardLength: number;
   /** Byte position of the red channel, when the format carries colour. */
   readonly rgbOffset: number | undefined;
+  /** Byte position of the classification value. */
+  readonly classificationOffset: number;
+  /**
+   * Bits of the classification byte that hold the class itself. Formats 0
+   * through 5 pack synthetic, key-point and withheld flags into the top three
+   * bits, so the class is only five bits wide; formats 6 and up moved those
+   * flags elsewhere and give classification the whole byte.
+   */
+  readonly classificationMask: number;
+  /**
+   * Width of the return-number field inside the byte at
+   * {@link returnByteOffset}. Three bits in the legacy formats, which is why
+   * they cannot express more than five returns per pulse, and four from
+   * format 6 onwards.
+   */
+  readonly returnBits: number;
 }
+
+/** Return number and return count share one byte, in the same place in every format. */
+export const returnByteOffset = 14;
 
 /**
  * Intensity sits immediately after the scaled xyz triple in every point
@@ -41,17 +60,17 @@ export interface LasPointLayout {
 export const intensityOffset = 12;
 
 const layouts: readonly (LasPointLayout | undefined)[] = [
-  { standardLength: 20, rgbOffset: undefined },
-  { standardLength: 28, rgbOffset: undefined },
-  { standardLength: 26, rgbOffset: 20 },
-  { standardLength: 34, rgbOffset: 28 },
-  { standardLength: 57, rgbOffset: undefined },
-  { standardLength: 63, rgbOffset: 28 },
-  { standardLength: 30, rgbOffset: undefined },
-  { standardLength: 36, rgbOffset: 30 },
-  { standardLength: 38, rgbOffset: 30 },
-  { standardLength: 59, rgbOffset: undefined },
-  { standardLength: 67, rgbOffset: 30 },
+  { standardLength: 20, rgbOffset: undefined, classificationOffset: 15, classificationMask: 0x1f, returnBits: 3 },
+  { standardLength: 28, rgbOffset: undefined, classificationOffset: 15, classificationMask: 0x1f, returnBits: 3 },
+  { standardLength: 26, rgbOffset: 20, classificationOffset: 15, classificationMask: 0x1f, returnBits: 3 },
+  { standardLength: 34, rgbOffset: 28, classificationOffset: 15, classificationMask: 0x1f, returnBits: 3 },
+  { standardLength: 57, rgbOffset: undefined, classificationOffset: 15, classificationMask: 0x1f, returnBits: 3 },
+  { standardLength: 63, rgbOffset: 28, classificationOffset: 15, classificationMask: 0x1f, returnBits: 3 },
+  { standardLength: 30, rgbOffset: undefined, classificationOffset: 16, classificationMask: 0xff, returnBits: 4 },
+  { standardLength: 36, rgbOffset: 30, classificationOffset: 16, classificationMask: 0xff, returnBits: 4 },
+  { standardLength: 38, rgbOffset: 30, classificationOffset: 16, classificationMask: 0xff, returnBits: 4 },
+  { standardLength: 59, rgbOffset: undefined, classificationOffset: 16, classificationMask: 0xff, returnBits: 4 },
+  { standardLength: 67, rgbOffset: 30, classificationOffset: 16, classificationMask: 0xff, returnBits: 4 },
 ];
 
 export function layoutForPointFormat(pointFormat: number): LasPointLayout | undefined {

@@ -1,4 +1,4 @@
-import { PointCloud, type PointCloudBounds } from "./point-cloud.js";
+import { PointCloud, definedChannels, type PointCloudBounds } from "./point-cloud.js";
 import { PointCloudLodPyramid, type LodTierSpec, type PointCloudLodTier } from "./lod-pyramid.js";
 import { PointCloudTiler, type PointCloudTile } from "./point-cloud-tiler.js";
 import type { LodBuildPool } from "./lod-build-pool.js";
@@ -69,8 +69,7 @@ export class TiledPointCloudLodPyramid {
           tileId: tile.id,
           name: tile.cloud.name,
           positions: tile.cloud.positions,
-          ...(tile.cloud.colors === undefined ? {} : { colors: tile.cloud.colors }),
-          ...(tile.cloud.intensity === undefined ? {} : { intensity: tile.cloud.intensity }),
+          ...definedChannels(tile.cloud),
           origin: tile.cloud.origin,
           specs,
         });
@@ -121,8 +120,7 @@ function toTier(tier: SerializedTier): PointCloudLodTier {
     voxelSize: tier.voxelSize,
     cloud: new PointCloud({
       positions: tier.positions,
-      ...(tier.colors === undefined ? {} : { colors: tier.colors }),
-      ...(tier.intensity === undefined ? {} : { intensity: tier.intensity }),
+      ...definedChannels(tier),
       bounds: tier.bounds,
       origin: tier.origin,
       name: tier.name,

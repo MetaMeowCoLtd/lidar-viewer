@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, DragEvent, ReactNode } from "react";
 import type { PointCloudColorMode, PointCloudPointShape } from "./core/point-cloud.js";
 import type { PointCloudLodPyramid } from "./core/lod-pyramid.js";
@@ -6,6 +6,7 @@ import type { LodRenderSummary } from "./three/lidar-viewer.js";
 import { ProceduralCloudGenerator } from "./core/procedural-cloud-generator.js";
 import { importScanFile, supportedScanExtensions } from "./import/scan-file-importer.js";
 import { LidarViewer } from "./three/lidar-viewer.js";
+import { classificationColor, classificationName } from "./core/point-cloud-classification.js";
 import { viewerConfig } from "./config.js";
 
 const INITIAL_POINT_COUNT = 380_000;
@@ -35,8 +36,13 @@ export function App() {
   const source = pyramid?.tiers[0]?.cloud;
   const effectivePointBudget = Math.min(pointBudget, source?.pointCount ?? pointBudget);
   const supportsRgb = source?.supportsColorMode("rgb") ?? false;
+  const supportsClassification = source?.supportsColorMode("classification") ?? false;
   const budgetMaximum = source?.pointCount ?? viewerConfig().defaultPointBudget;
   const budgetSliderMax = Math.max(budgetStep, Math.ceil(budgetMaximum / budgetStep) * budgetStep);
+
+  // A full pass over the class channel, so it is computed once per loaded
+  // scan rather than on every render.
+  const classHistogram = useMemo(() => source?.classificationHistogram() ?? [], [source]);
 
   const loadProcedural = useCallback((seed = Math.floor(Math.random() * 1_000_000)) => {
     const viewer = viewerRef.current;
@@ -243,8 +249,25 @@ export function App() {
               <ModeButton active={colorMode === "height"} onClick={() => setColorMode("height")}>Height</ModeButton>
               <ModeButton active={colorMode === "rgb"} disabled={!supportsRgb} onClick={() => setColorMode("rgb")}>RGB</ModeButton>
               <ModeButton active={colorMode === "relief"} onClick={() => setColorMode("relief")}>Relief</ModeButton>
+              <ModeButton active={colorMode === "classification"} disabled={!supportsClassification} onClick={() => setColorMode("classification")}>Classes</ModeButton>
             </div>
           </div>
+
+          {colorMode === "classification" && classHistogram.length > 0 ? (
+            <div className="control-block">
+              <div className="control-label"><span>Classes in scan</span><strong>{classHistogram.length}</strong></div>
+              <ul className="class-legend">
+                {classHistogram.slice(0, 8).map(({ code, count }) => (
+                  <li key={code}>
+                    <span className="class-swatch" style={{ background: classificationColor(code) }} />
+                    <span className="class-name" title={`Code ${code}`}>{classificationName(code)}</span>
+                    <span className="class-share">{formatShare(count, source?.pointCount ?? 1)}</span>
+                  </li>
+                ))}
+              </ul>
+              {classHistogram.length > 8 ? <p className="panel-footnote">{classHistogram.length - 8} more classes not shown.</p> : null}
+            </div>
+          ) : null}
 
           <button
             className={`drop-zone${isDragging ? " is-dragging" : ""}`}
@@ -310,6 +333,13 @@ function Icon({ name }: { name: "spark" | "orbit" | "layers" | "upload" | "arrow
     arrow: <path d="M5 12h13m-5-5 5 5-5 5" />,
   };
   return <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>;
+}
+
+function formatShare(count: number, total: number): string {
+  const share = (count / total) * 100;
+  if (share >= 10) return `${Math.round(share)}%`;
+  if (share >= 1) return `${share.toFixed(1)}%`;
+  return share > 0 ? "<1%" : "0%";
 }
 
 /**

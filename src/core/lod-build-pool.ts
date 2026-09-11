@@ -1,4 +1,5 @@
 import type { LodBuildRequest, LodBuildResponse } from "./lod-build-protocol.js";
+import { pointCloudChannelNames } from "./point-cloud.js";
 
 interface PendingTask {
   readonly request: LodBuildRequest;
@@ -29,8 +30,10 @@ export class LodBuildPool {
   public run(request: LodBuildRequest): Promise<LodBuildResponse> {
     if (this.disposed) return Promise.reject(new Error("The LOD build pool has been disposed"));
     const transfer: ArrayBuffer[] = [request.positions.buffer as ArrayBuffer];
-    if (request.colors !== undefined) transfer.push(request.colors.buffer as ArrayBuffer);
-    if (request.intensity !== undefined) transfer.push(request.intensity.buffer as ArrayBuffer);
+    for (const name of pointCloudChannelNames) {
+      const channel = request[name];
+      if (channel !== undefined) transfer.push(channel.buffer as ArrayBuffer);
+    }
     return new Promise<LodBuildResponse>((resolve, reject) => {
       this.queue.push({ request, transfer, resolve, reject });
       this.pump();

@@ -29,15 +29,20 @@ export class PointCloudTiler {
       throw new Error("tileSize must be a finite number greater than zero");
     }
 
-    const { positions, colors, intensity, pointCount } = source;
+    const { positions, colors, intensity, classification, returnNumber, numberOfReturns, pointCount } = source;
     const originX = source.bounds.min[0];
     const originZ = source.bounds.min[2];
     const columns = Math.max(1, Math.ceil(source.bounds.size[0] / tileSize));
     const rows = Math.max(1, Math.ceil(source.bounds.size[2] / tileSize));
 
+    // Clamped at both ends. A point fractionally outside the declared bounds
+    // would otherwise produce a negative index, which a typed array accepts
+    // silently on write and reports as undefined on read - a partition that
+    // loses points rather than one that fails.
+    const clamp = (value: number, limit: number): number => (value < 0 ? 0 : value > limit ? limit : value);
     const cellOf = (offset: number): number =>
-      Math.min(rows - 1, Math.floor((positions[offset + 2]! - originZ) / tileSize)) * columns +
-      Math.min(columns - 1, Math.floor((positions[offset]! - originX) / tileSize));
+      clamp(Math.floor((positions[offset + 2]! - originZ) / tileSize), rows - 1) * columns +
+      clamp(Math.floor((positions[offset]! - originX) / tileSize), columns - 1);
 
     const cellCounts = new Int32Array(columns * rows);
     for (let offset = 0; offset < positions.length; offset += 3) {
@@ -56,6 +61,17 @@ export class PointCloudTiler {
     const tilePositions = cellOfTile.map((cell) => new Float32Array(cellCounts[cell]! * 3));
     const tileColors = colors === undefined ? undefined : cellOfTile.map((cell) => new Uint8Array(cellCounts[cell]! * 3));
     const tileIntensity = intensity === undefined ? undefined : cellOfTile.map((cell) => new Float32Array(cellCounts[cell]!));
+    // Per-point categorical channels are partitioned exactly like the rest;
+    // nothing about them is combined or reinterpreted by tiling.
+    const perPoint = ([
+      ["classification", classification],
+      ["returnNumber", returnNumber],
+      ["numberOfReturns", numberOfReturns],
+    ] as const).flatMap(([key, channel]) =>
+      channel === undefined
+        ? []
+        : [{ key, channel, tiles: cellOfTile.map((cell) => new Uint8Array(cellCounts[cell]!)) }],
+    );
     const cursors = new Int32Array(cellOfTile.length);
 
     for (let point = 0, offset = 0; point < pointCount; point += 1, offset += 3) {
@@ -75,6 +91,7 @@ export class PointCloudTiler {
         destinationColors[targetOffset + 2] = colors![offset + 2]!;
       }
       if (tileIntensity !== undefined) tileIntensity[tile]![target] = intensity![point]!;
+      for (const entry of perPoint) entry.tiles[tile]![target] = entry.channel[point]!;
     }
 
     return cellOfTile.map((cell, tile) => {
@@ -88,6 +105,7 @@ export class PointCloudTiler {
           positions: tilePositions[tile]!,
           ...(tileColors === undefined ? {} : { colors: tileColors[tile]! }),
           ...(tileIntensity === undefined ? {} : { intensity: tileIntensity[tile]! }),
+          ...Object.fromEntries(perPoint.map((entry) => [entry.key, entry.tiles[tile]!])),
           origin: source.origin,
           name: `${source.name}-tile-${gridX}-${gridZ}`,
         }),

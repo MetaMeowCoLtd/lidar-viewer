@@ -1,5 +1,11 @@
 import { PointCloud, boundsFromExtent, chooseOrigin, type PointCloudOrigin } from "../core/point-cloud.js";
-import { intensityOffset, hasUsableExtent, layoutForPointFormat, type LasHeader } from "./las-header.js";
+import {
+  intensityOffset,
+  returnByteOffset,
+  hasUsableExtent,
+  layoutForPointFormat,
+  type LasHeader,
+} from "./las-header.js";
 
 /**
  * Turns LAS point records into the core's point-cloud contract.
@@ -22,6 +28,12 @@ import { intensityOffset, hasUsableExtent, layoutForPointFormat, type LasHeader 
  * viewer's (x east, y up, z south). Negating north rather than simply
  * relabelling the axes keeps the frame right-handed, so a scan does not come
  * out mirrored.
+ *
+ * Classification and the two return fields are read out of their bit packing
+ * here as well. Return structure is the strongest single cue for telling
+ * vegetation from a roof - a pulse passes through a canopy and comes back
+ * several times, and bounces off a roof once - so it is worth carrying even
+ * though nothing consumes it yet.
  */
 export class LasPointBuilder {
   public readonly origin: PointCloudOrigin;
@@ -29,7 +41,14 @@ export class LasPointBuilder {
   private readonly positions: Float32Array;
   private readonly colors: Uint8Array | undefined;
   private readonly intensity: Float32Array;
+  private readonly classification: Uint8Array;
+  private readonly returnNumber: Uint8Array;
+  private readonly numberOfReturns: Uint8Array;
   private readonly rgbOffset: number | undefined;
+  private readonly classificationOffset: number;
+  private readonly classificationMask: number;
+  private readonly returnMask: number;
+  private readonly returnBits: number;
   private readonly colorScale: number;
   private readonly scale: readonly [number, number, number];
   private readonly bias: readonly [number, number, number];
@@ -51,6 +70,10 @@ export class LasPointBuilder {
 
     this.origin = chooseLocalFrame(header);
     this.rgbOffset = layout.rgbOffset;
+    this.classificationOffset = layout.classificationOffset;
+    this.classificationMask = layout.classificationMask;
+    this.returnBits = layout.returnBits;
+    this.returnMask = (1 << layout.returnBits) - 1;
     this.colorScale = colorScale;
 
     const [scaleX, scaleY, scaleZ] = header.scale;
@@ -65,6 +88,9 @@ export class LasPointBuilder {
     this.positions = new Float32Array(header.pointCount * 3);
     this.colors = layout.rgbOffset === undefined ? undefined : new Uint8Array(header.pointCount * 3);
     this.intensity = new Float32Array(header.pointCount);
+    this.classification = new Uint8Array(header.pointCount);
+    this.returnNumber = new Uint8Array(header.pointCount);
+    this.numberOfReturns = new Uint8Array(header.pointCount);
   }
 
   /** Reads one record starting at `base` within `view`. */
@@ -72,12 +98,17 @@ export class LasPointBuilder {
     if (this.written >= this.header.pointCount) return;
     const target = this.written * 3;
 
-    const x = view.getInt32(base, true) * this.scale[0] + this.bias[0];
-    const y = view.getInt32(base + 8, true) * this.scale[1] + this.bias[1];
-    const z = view.getInt32(base + 4, true) * this.scale[2] + this.bias[2];
-    this.positions[target] = x;
-    this.positions[target + 1] = y;
-    this.positions[target + 2] = z;
+    this.positions[target] = view.getInt32(base, true) * this.scale[0] + this.bias[0];
+    this.positions[target + 1] = view.getInt32(base + 8, true) * this.scale[1] + this.bias[1];
+    this.positions[target + 2] = view.getInt32(base + 4, true) * this.scale[2] + this.bias[2];
+
+    // Read the coordinates back out rather than measuring the doubles that
+    // went in. Storing rounds to the nearest Float32, which can land a hair
+    // outside the double's own value, and bounds that do not bracket their own
+    // points put a point in a tile that was never counted.
+    const x = this.positions[target]!;
+    const y = this.positions[target + 1]!;
+    const z = this.positions[target + 2]!;
     if (x < this.min[0]) this.min[0] = x;
     if (y < this.min[1]) this.min[1] = y;
     if (z < this.min[2]) this.min[2] = z;
@@ -86,6 +117,10 @@ export class LasPointBuilder {
     if (z > this.max[2]) this.max[2] = z;
 
     this.intensity[this.written] = view.getUint16(base + intensityOffset, true);
+    this.classification[this.written] = view.getUint8(base + this.classificationOffset) & this.classificationMask;
+    const returns = view.getUint8(base + returnByteOffset);
+    this.returnNumber[this.written] = returns & this.returnMask;
+    this.numberOfReturns[this.written] = (returns >> this.returnBits) & this.returnMask;
 
     if (this.colors !== undefined && this.rgbOffset !== undefined) {
       const rgb = base + this.rgbOffset;
@@ -110,6 +145,9 @@ export class LasPointBuilder {
         ? {}
         : { colors: truncate ? this.colors.subarray(0, this.written * 3) : this.colors }),
       intensity: truncate ? this.intensity.subarray(0, this.written) : this.intensity,
+      classification: truncate ? this.classification.subarray(0, this.written) : this.classification,
+      returnNumber: truncate ? this.returnNumber.subarray(0, this.written) : this.returnNumber,
+      numberOfReturns: truncate ? this.numberOfReturns.subarray(0, this.written) : this.numberOfReturns,
       bounds: boundsFromExtent(this.min, this.max),
       origin: this.origin,
       name: this.name,

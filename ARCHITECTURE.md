@@ -19,6 +19,16 @@ PointCloud (typed arrays, metadata, bounds)
 
 - One point is one xyz triplet. Optional RGB and intensity arrays have the same
   point index and are validated when a cloud is created.
+- Channels split into two kinds. Position, colour and intensity are
+  continuous and are averaged when a tier is decimated. Classification and the
+  return fields are categorical: a voxel holding ground and building points has
+  no meaningful mean class, and rounding one would invent a code describing
+  neither, so those take a streaming majority vote that can only return a value
+  the voxel actually contained.
+- A cloud's `bounds` must bracket its own points. Readers measure the stored
+  `Float32`, not the double that produced it, because that narrowing can move a
+  coordinate just outside its own source value and spatial indexing then
+  addresses a cell that was never counted.
 - Positions are local coordinates, offset from a double-precision `origin`.
   Projected survey coordinates do not survive a narrowing to `Float32`, so the
   frame is established by the reader while values are still doubles, and every

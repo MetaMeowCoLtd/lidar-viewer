@@ -9,10 +9,12 @@ import {
   distanceToBounds,
   VoxelGridDownsampler,
   chooseOrigin,
+  calculateBounds,
 } from "../src/index.js";
 import { readBinaryPly } from "../src/import/binary-ply-reader.js";
 import { readLasHeader, layoutForPointFormat } from "../src/import/las-header.js";
 import { readLasPoints } from "../src/import/las-reader.js";
+import { classificationName, classificationColor, classificationPaletteBytes } from "../src/core/point-cloud-classification.js";
 
 describe("PointCloud", () => {
   it("derives bounds and validates aligned attributes", () => {
@@ -430,8 +432,8 @@ function buildLas(options: LasFixtureOptions = {}): ArrayBuffer {
   const headerSize = 227;
   const recordLength = 26;
   const points = [
-    { east: 543010.5, north: 4178900.25, up: 20.5, rgb: [10, 20, 30], intensity: 1234 },
-    { east: 543210.5, north: 4179100.75, up: 35.25, rgb: [40, 50, 60], intensity: 5678 },
+    { east: 543010.5, north: 4178900.25, up: 20.5, rgb: [10, 20, 30], intensity: 1234, classification: 2, returnNumber: 1, numberOfReturns: 1 },
+    { east: 543210.5, north: 4179100.75, up: 35.25, rgb: [40, 50, 60], intensity: 5678, classification: 6, returnNumber: 2, numberOfReturns: 3 },
   ];
   const offsets = [543000, 4179000, 0];
 
@@ -465,9 +467,163 @@ function buildLas(options: LasFixtureOptions = {}): ArrayBuffer {
     view.setInt32(base + 4, Math.round((point.north - offsets[1]!) / safeScale), true);
     view.setInt32(base + 8, Math.round((point.up - offsets[2]!) / safeScale), true);
     view.setUint16(base + 12, point.intensity, true);
+    view.setUint8(base + 14, point.returnNumber | (point.numberOfReturns << 3));
+    // Top three bits are the synthetic, key-point and withheld flags in this
+    // format family; setting them proves the reader masks them off.
+    view.setUint8(base + 15, point.classification | 0xe0);
     point.rgb.forEach((channel, axis) => {
       view.setUint16(base + 20 + axis * 2, channel * colorMultiplier, true);
     });
   });
   return buffer;
+}
+
+
+describe("classification and return fields", () => {
+  it("unpacks the class from a legacy record without its flag bits", () => {
+    const buffer = buildLas();
+    const cloud = readLasPoints(buffer, readLasHeader(buffer)!, "scan");
+    expect([...cloud.classification!]).toEqual([2, 6]);
+  });
+
+  it("unpacks return number and return count from the byte they share", () => {
+    const buffer = buildLas();
+    const cloud = readLasPoints(buffer, readLasHeader(buffer)!, "scan");
+    expect([...cloud.returnNumber!]).toEqual([1, 2]);
+    expect([...cloud.numberOfReturns!]).toEqual([1, 3]);
+  });
+
+  it("gives formats 6 and up the whole classification byte and a wider return field", () => {
+    expect(layoutForPointFormat(3)!.classificationMask).toBe(0x1f);
+    expect(layoutForPointFormat(3)!.returnBits).toBe(3);
+    expect(layoutForPointFormat(7)!.classificationOffset).toBe(16);
+    expect(layoutForPointFormat(7)!.classificationMask).toBe(0xff);
+    expect(layoutForPointFormat(7)!.returnBits).toBe(4);
+  });
+
+  it("counts points per class, most populated first", () => {
+    const cloud = new PointCloud({
+      positions: new Float32Array([0, 0, 0, 1, 0, 0, 2, 0, 0, 3, 0, 0]),
+      classification: new Uint8Array([6, 2, 6, 6]),
+    });
+    expect(cloud.classificationHistogram()).toEqual([
+      { code: 6, count: 3 },
+      { code: 2, count: 1 },
+    ]);
+    expect(cloud.supportsColorMode("classification")).toBe(true);
+    expect(new PointCloud({ positions: new Float32Array([0, 0, 0]) }).supportsColorMode("classification")).toBe(false);
+  });
+
+  it("rejects a class channel that does not match the point count", () => {
+    expect(
+      () => new PointCloud({ positions: new Float32Array([0, 0, 0, 1, 1, 1]), classification: new Uint8Array([2]) }),
+    ).toThrow(/classification must contain one value per point/);
+  });
+
+  it("names the standard classes and falls back for vendor codes", () => {
+    expect(classificationName(2)).toBe("Ground");
+    expect(classificationName(6)).toBe("Building");
+    expect(classificationName(14)).toBe("Wire, conductor");
+    expect(classificationName(200)).toBe("Class 200");
+    expect(classificationColor(200)).toBe(classificationColor(201));
+    expect(classificationPaletteBytes()).toHaveLength(256 * 3);
+  });
+});
+
+describe("decimating categorical channels", () => {
+  const positions = new Float32Array([0, 0, 0, 0.2, 0.2, 0.2, 0.4, 0.4, 0.4, 5, 5, 5]);
+
+  it("takes the majority class in a voxel instead of averaging codes", () => {
+    const cloud = new PointCloud({
+      positions,
+      // Averaging 2, 6 and 6 would give 4.67, rounding to Medium vegetation:
+      // a class that describes none of the three source points.
+      classification: new Uint8Array([2, 6, 6, 9]),
+    });
+    const decimated = new VoxelGridDownsampler().downsample(cloud, { voxelSize: 1 });
+    expect(decimated.pointCount).toBe(2);
+    expect([...decimated.classification!]).toEqual([6, 9]);
+  });
+
+  it("only ever emits a code that was present in the voxel", () => {
+    const cloud = new PointCloud({ positions, classification: new Uint8Array([2, 6, 9, 11]) });
+    const decimated = new VoxelGridDownsampler().downsample(cloud, { voxelSize: 1 });
+    for (const code of decimated.classification!) expect([2, 6, 9, 11]).toContain(code);
+  });
+
+  it("votes on the return fields too, and still averages the continuous ones", () => {
+    const cloud = new PointCloud({
+      positions,
+      intensity: new Float32Array([10, 20, 30, 99]),
+      returnNumber: new Uint8Array([1, 1, 2, 4]),
+      numberOfReturns: new Uint8Array([3, 3, 3, 4]),
+    });
+    const decimated = new VoxelGridDownsampler().downsample(cloud, { voxelSize: 1 });
+    expect([...decimated.returnNumber!]).toEqual([1, 4]);
+    expect([...decimated.numberOfReturns!]).toEqual([3, 4]);
+    expect(decimated.intensity![0]).toBeCloseTo(20, 6);
+  });
+
+  it("leaves a cloud without those channels without them", () => {
+    const cloud = new PointCloud({ positions });
+    const decimated = new VoxelGridDownsampler().downsample(cloud, { voxelSize: 1 });
+    expect(decimated.classification).toBeUndefined();
+    expect(decimated.returnNumber).toBeUndefined();
+  });
+
+  it("partitions the channels across tiles without losing a point", () => {
+    const cloud = new PointCloud({
+      positions: new Float32Array([0, 0, 0, 9, 0, 9, 1, 0, 1, 8, 0, 8]),
+      classification: new Uint8Array([2, 6, 2, 6]),
+      returnNumber: new Uint8Array([1, 2, 3, 4]),
+    });
+    const tiles = new PointCloudTiler().tile(cloud, { tileSize: 5 });
+    const classes: number[] = [];
+    const returns: number[] = [];
+    for (const tile of tiles) {
+      expect(tile.cloud.classification).toBeDefined();
+      classes.push(...tile.cloud.classification!);
+      returns.push(...tile.cloud.returnNumber!);
+    }
+    expect(classes.sort()).toEqual([2, 2, 6, 6]);
+    expect(returns.sort()).toEqual([1, 2, 3, 4]);
+  });
+});
+
+
+describe("bounds bracket their own points", () => {
+  it("measures the stored Float32, so no point falls outside a LAS cloud's bounds", () => {
+    const buffer = buildLas();
+    const cloud = readLasPoints(buffer, readLasHeader(buffer)!, "scan");
+    expectEveryPointInsideBounds(cloud);
+  });
+
+  it("does the same for the binary PLY path", () => {
+    const cloud = readBinaryPly(buildDoublePly([543210.001, 543210.002, 543210.003]), "scan")!;
+    expectEveryPointInsideBounds(cloud);
+  });
+
+  it("keeps every point when one sits fractionally outside the declared bounds", () => {
+    // A cloud whose bounds under-report its own extent, which is what
+    // narrowing to Float32 can produce. The partition must still be total.
+    const positions = new Float32Array([0, 0, 0, 4, 0, 4, 9, 0, 9]);
+    const honest = calculateBounds(positions);
+    const shrunk = {
+      ...honest,
+      min: [honest.min[0] + 0.001, honest.min[1], honest.min[2] + 0.001] as [number, number, number],
+    };
+    const cloud = new PointCloud({ positions, bounds: shrunk });
+    const tiles = new PointCloudTiler().tile(cloud, { tileSize: 5 });
+    expect(tiles.reduce((sum, tile) => sum + tile.cloud.pointCount, 0)).toBe(3);
+  });
+});
+
+function expectEveryPointInsideBounds(cloud: PointCloud): void {
+  for (let point = 0; point < cloud.pointCount; point += 1) {
+    for (let axis = 0; axis < 3; axis += 1) {
+      const value = cloud.positions[point * 3 + axis]!;
+      expect(value).toBeGreaterThanOrEqual(cloud.bounds.min[axis]!);
+      expect(value).toBeLessThanOrEqual(cloud.bounds.max[axis]!);
+    }
+  }
 }

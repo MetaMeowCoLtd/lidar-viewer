@@ -1,4 +1,4 @@
-import { PointCloud } from "./point-cloud.js";
+import { PointCloud, definedChannels, pointCloudChannelNames } from "./point-cloud.js";
 import { PointCloudLodPyramid } from "./lod-pyramid.js";
 import type { LodBuildRequest, LodBuildResponse, SerializedTier } from "./lod-build-protocol.js";
 
@@ -8,21 +8,17 @@ const scope = self as unknown as {
 };
 
 scope.onmessage = (event: MessageEvent<LodBuildRequest>) => {
-  const { tileId, name, positions, colors, intensity, origin, specs } = event.data;
-  const cloud = new PointCloud({
-    positions,
-    ...(colors === undefined ? {} : { colors }),
-    ...(intensity === undefined ? {} : { intensity }),
-    origin,
-    name,
-  });
+  const { tileId, name, positions, origin, specs } = event.data;
+  const cloud = new PointCloud({ positions, ...definedChannels(event.data), origin, name });
   const pyramid = PointCloudLodPyramid.build(cloud, specs);
 
   const transfer: ArrayBuffer[] = [];
   const tiers: SerializedTier[] = pyramid.tiers.map((tier) => {
     transfer.push(tier.cloud.positions.buffer as ArrayBuffer);
-    if (tier.cloud.colors !== undefined) transfer.push(tier.cloud.colors.buffer as ArrayBuffer);
-    if (tier.cloud.intensity !== undefined) transfer.push(tier.cloud.intensity.buffer as ArrayBuffer);
+    for (const name of pointCloudChannelNames) {
+      const channel = tier.cloud[name];
+      if (channel !== undefined) transfer.push(channel.buffer as ArrayBuffer);
+    }
     return {
       id: tier.id,
       voxelSize: tier.voxelSize,
@@ -30,8 +26,7 @@ scope.onmessage = (event: MessageEvent<LodBuildRequest>) => {
       positions: tier.cloud.positions,
       bounds: tier.cloud.bounds,
       origin: tier.cloud.origin,
-      ...(tier.cloud.colors === undefined ? {} : { colors: tier.cloud.colors }),
-      ...(tier.cloud.intensity === undefined ? {} : { intensity: tier.cloud.intensity }),
+      ...definedChannels(tier.cloud),
       ...(tier.minCameraDistance === undefined ? {} : { minCameraDistance: tier.minCameraDistance }),
     };
   });

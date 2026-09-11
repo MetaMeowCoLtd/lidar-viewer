@@ -70,6 +70,11 @@ export function readBinaryPly(buffer: ArrayBuffer, name: string): PointCloud | u
   const ig = index("green");
   const ib = index("blue");
   const ii = properties.findIndex((p) => p.name === "intensity" || p.name === "scalar_Intensity");
+  // PLY has no notion of a classification field, so exporters invent one.
+  // These are the spellings the common desktop tools write.
+  const ic = properties.findIndex(
+    (p) => p.name === "classification" || p.name === "scalar_Classification" || p.name === "class",
+  );
 
   const offsets: number[] = [];
   let stride = 0;
@@ -91,6 +96,7 @@ export function readBinaryPly(buffer: ArrayBuffer, name: string): PointCloud | u
   const hasRgb = ir !== -1 && ig !== -1 && ib !== -1;
   const colors = hasRgb ? new Uint8Array(vertexCount * 3) : undefined;
   const intensity = ii !== -1 ? new Float32Array(vertexCount) : undefined;
+  const classification = ic !== -1 ? new Uint8Array(vertexCount) : undefined;
   const colorScale = hasRgb && properties[ir]!.size > 1 ? 1 / 256 : 1;
 
   const min: [number, number, number] = [Infinity, Infinity, Infinity];
@@ -100,12 +106,16 @@ export function readBinaryPly(buffer: ArrayBuffer, name: string): PointCloud | u
     // Both operands are still doubles here, so the subtraction happens before
     // anything is narrowed. Assigning into the Float32Array is the only
     // rounding step, and by then the magnitude is local rather than planetary.
-    const x = readX(base) - origin[0];
-    const y = readY(base) - origin[1];
-    const z = readZ(base) - origin[2];
-    positions[target] = x;
-    positions[target + 1] = y;
-    positions[target + 2] = z;
+    positions[target] = readX(base) - origin[0];
+    positions[target + 1] = readY(base) - origin[1];
+    positions[target + 2] = readZ(base) - origin[2];
+
+    // Measure what was stored, not what was computed: that rounding can move a
+    // coordinate just outside the double it came from, and bounds must bracket
+    // their own points for spatial indexing to be sound.
+    const x = positions[target]!;
+    const y = positions[target + 1]!;
+    const z = positions[target + 2]!;
     if (x < min[0]) min[0] = x;
     if (y < min[1]) min[1] = y;
     if (z < min[2]) min[2] = z;
@@ -120,12 +130,16 @@ export function readBinaryPly(buffer: ArrayBuffer, name: string): PointCloud | u
     if (intensity !== undefined) {
       intensity[point] = properties[ii]!.read(view, base + offsets[ii]!);
     }
+    if (classification !== undefined) {
+      classification[point] = properties[ic]!.read(view, base + offsets[ic]!);
+    }
   }
 
   return new PointCloud({
     positions,
     ...(colors === undefined ? {} : { colors }),
     ...(intensity === undefined ? {} : { intensity }),
+    ...(classification === undefined ? {} : { classification }),
     bounds: boundsFromExtent(min, max),
     origin,
     name,

@@ -1,4 +1,4 @@
-export type PointCloudColorMode = "height" | "rgb" | "relief";
+export type PointCloudColorMode = "height" | "rgb" | "relief" | "classification";
 export type PointCloudPointShape = "circle" | "square";
 
 export interface PointCloudBounds {
@@ -14,6 +14,47 @@ export interface PointCloudAttributes {
   readonly colors?: Uint8Array;
   /** One normalized or raw scalar value per point. */
   readonly intensity?: Float32Array;
+  /** ASPRS class code per point; see {@link classificationName}. */
+  readonly classification?: Uint8Array;
+  /** Which return of its laser pulse a point came from, counting from one. */
+  readonly returnNumber?: Uint8Array;
+  /** How many returns that pulse produced in total. */
+  readonly numberOfReturns?: Uint8Array;
+}
+
+/**
+ * Every optional per-point channel, in one place. Code that forwards a cloud
+ * across a boundary - tiling, the worker protocol, the GPU adapter - walks
+ * this list instead of naming each channel again, so adding a channel does not
+ * mean hunting for the places that quietly drop it.
+ */
+export const pointCloudChannelNames = [
+  "colors",
+  "intensity",
+  "classification",
+  "returnNumber",
+  "numberOfReturns",
+] as const;
+
+export type PointCloudChannelName = (typeof pointCloudChannelNames)[number];
+
+/**
+ * A cloud, a worker message, or anything else holding the optional channels.
+ * Each is allowed to be explicitly undefined, which is how a class field that
+ * is always present but sometimes empty is typed.
+ */
+export type PointCloudChannelSource = {
+  readonly [Name in PointCloudChannelName]?: PointCloudAttributes[Name] | undefined;
+};
+
+/** The channels a source actually carries, ready to spread into a `PointCloudInit`. */
+export function definedChannels(source: PointCloudChannelSource): PointCloudAttributes {
+  const channels: Record<string, unknown> = {};
+  for (const name of pointCloudChannelNames) {
+    const channel = source[name];
+    if (channel !== undefined) channels[name] = channel;
+  }
+  return channels as PointCloudAttributes;
 }
 
 /**
@@ -54,12 +95,25 @@ export class PointCloud {
   public readonly positions: Float32Array;
   public readonly colors: Uint8Array | undefined;
   public readonly intensity: Float32Array | undefined;
+  public readonly classification: Uint8Array | undefined;
+  public readonly returnNumber: Uint8Array | undefined;
+  public readonly numberOfReturns: Uint8Array | undefined;
   public readonly name: string;
   public readonly pointCount: number;
   public readonly bounds: PointCloudBounds;
   public readonly origin: PointCloudOrigin;
 
-  public constructor({ positions, colors, intensity, bounds, origin = zeroOrigin, name = "point-cloud" }: PointCloudInit) {
+  public constructor({
+    positions,
+    colors,
+    intensity,
+    classification,
+    returnNumber,
+    numberOfReturns,
+    bounds,
+    origin = zeroOrigin,
+    name = "point-cloud",
+  }: PointCloudInit) {
     if (positions.length === 0 || positions.length % 3 !== 0) {
       throw new Error("positions must contain at least one complete xyz triplet");
     }
@@ -71,6 +125,15 @@ export class PointCloud {
     if (intensity !== undefined && intensity.length !== pointCount) {
       throw new Error("intensity must contain one value per point");
     }
+    for (const [label, channel] of [
+      ["classification", classification],
+      ["returnNumber", returnNumber],
+      ["numberOfReturns", numberOfReturns],
+    ] as const) {
+      if (channel !== undefined && channel.length !== pointCount) {
+        throw new Error(`${label} must contain one value per point`);
+      }
+    }
     if (origin.length !== 3 || !origin.every((value) => Number.isFinite(value))) {
       throw new Error("origin must be three finite numbers");
     }
@@ -78,6 +141,9 @@ export class PointCloud {
     this.positions = positions;
     this.colors = colors;
     this.intensity = intensity;
+    this.classification = classification;
+    this.returnNumber = returnNumber;
+    this.numberOfReturns = numberOfReturns;
     this.name = name;
     this.pointCount = pointCount;
     this.bounds = bounds ?? calculateBounds(positions);
@@ -85,8 +151,28 @@ export class PointCloud {
   }
 
   public supportsColorMode(mode: PointCloudColorMode): boolean {
-    return mode === "height" || (mode === "rgb" && this.colors !== undefined) ||
-      mode === "relief";
+    if (mode === "rgb") return this.colors !== undefined;
+    if (mode === "classification") return this.classification !== undefined;
+    return mode === "height" || mode === "relief";
+  }
+
+  /**
+   * Counts points per ASPRS class, for a readout or an export summary. Returned
+   * in descending order of population so the classes that dominate a scan come
+   * first.
+   */
+  public classificationHistogram(): { code: number; count: number }[] {
+    if (this.classification === undefined) return [];
+    const counts = new Int32Array(256);
+    for (let point = 0; point < this.pointCount; point += 1) {
+      const code = this.classification[point]!;
+      counts[code] = counts[code]! + 1;
+    }
+    const histogram: { code: number; count: number }[] = [];
+    for (let code = 0; code < counts.length; code += 1) {
+      if (counts[code]! > 0) histogram.push({ code, count: counts[code]! });
+    }
+    return histogram.sort((a, b) => b.count - a.count);
   }
 
   /** True when this cloud carries a non-zero georeferencing offset. */

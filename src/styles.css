@@ -37,3 +37,42 @@ button { color: inherit; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; clip-path: inset(50%); }
 @media (max-width: 850px) { .app-shell { padding: 0; }.viewer-shell { min-height: 100vh; border: 0; border-radius: 0; }.topbar { height: 66px; padding: 0 22px; }.topbar-center { display: none; }.view-copy { top: 105px; left: 24px; width: 305px; }.view-copy h1 { font-size: 39px; }.lead { font-size: 12px; }.command-panel { position: relative; top: auto; right: auto; width: auto; margin: 310px 18px 104px; }.orbit-hint { display: none; }.telemetry-bar { padding-left: 20px; overflow-x: auto; }.telemetry { min-width: 112px; padding-right: 18px; }.telemetry-note { display: none; } }
 @media (max-width: 440px) { .subtle-button { font-size: 0; }.subtle-button svg { width: 18px; }.command-panel { margin: 285px 12px 93px; padding: 18px; }.view-copy { top: 94px; }.source-card strong { max-width: 190px; }.telemetry { min-width: 105px; }.telemetry strong { font-size: 12px; } }
+
+/* Classification legend: a swatch, a name and the share of the scan. The
+   swatch colour is the same one the shader paints, so the panel reads as a
+   key to the render rather than as decoration. */
+.class-legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.class-legend li {
+  display: grid;
+  grid-template-columns: 0.7rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.55rem;
+  font-size: 0.78rem;
+}
+
+.class-swatch {
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 2px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22);
+}
+
+.class-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.85;
+}
+
+.class-share {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.6;
+}

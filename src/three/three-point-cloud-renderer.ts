@@ -52,6 +52,7 @@ export class ThreePointCloudRenderer {
   private eyeDome: EyeDomeLighting | undefined;
   private reliefEnabled = false;
   private hasRgb = false;
+  private hasClassification = false;
 
   public constructor(
     private readonly scene: Scene,
@@ -68,6 +69,7 @@ export class ThreePointCloudRenderer {
     });
     this.material.setHasRgb(source.supportsColorMode("rgb"));
     this.hasRgb = source.supportsColorMode("rgb");
+    this.hasClassification = source.supportsColorMode("classification");
 
     for (const tile of tiled.tiles) {
       const points = new Points(this.emptyGeometry, this.material);
@@ -114,7 +116,8 @@ export class ThreePointCloudRenderer {
   }
 
   public setColorMode(mode: PointCloudColorMode): void {
-    const supportedMode = mode === "rgb" && !this.hasRgb ? "height" : mode;
+    const unsupported = (mode === "rgb" && !this.hasRgb) || (mode === "classification" && !this.hasClassification);
+    const supportedMode = unsupported ? "height" : mode;
     this.reliefEnabled = supportedMode === "relief";
     this.material?.setColorMode(supportedMode);
   }
@@ -196,6 +199,7 @@ export class ThreePointCloudRenderer {
     this.material?.dispose();
     this.material = undefined;
     this.hasRgb = false;
+    this.hasClassification = false;
   }
 }
 
@@ -204,6 +208,11 @@ function createGeometry(cloud: PointCloud): BufferGeometry {
   geometry.setAttribute("position", new BufferAttribute(cloud.positions, 3));
   if (cloud.colors !== undefined) {
     geometry.setAttribute("color", new BufferAttribute(cloud.colors, 3, true));
+  }
+  if (cloud.classification !== undefined) {
+    // Not normalized: the shader wants the class code itself, 0 to 255, not a
+    // fraction of the byte range.
+    geometry.setAttribute("classification", new BufferAttribute(cloud.classification, 1, false));
   }
   geometry.computeBoundingSphere();
   return geometry;
