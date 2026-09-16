@@ -206,10 +206,14 @@ export class PointCloud {
 
 /**
  * Picks a local frame for a cloud whose extent in world coordinates is known.
- * The anchor is snapped down to a round multiple so it stays readable in a
- * coordinate readout and stable across reloads of the same scan; `step` is
- * chosen small enough that the snapping never pushes the data far from its
- * own frame.
+ * The anchor is the nearest round multiple of `step` to the centre, so it stays
+ * readable in a coordinate readout and stable across reloads of the same scan,
+ * and no point starts more than half a step further from it than from the
+ * centre itself.
+ *
+ * Rounding to the nearest multiple, not down, matters for scans that are
+ * already local. A cloud centred a few metres below zero would otherwise be
+ * anchored a whole step away and reported as georeferenced when it is not.
  */
 export function chooseOrigin(
   min: readonly [number, number, number],
@@ -218,7 +222,8 @@ export function chooseOrigin(
 ): PointCloudOrigin {
   const snap = (low: number, high: number): number => {
     const center = (low + high) / 2;
-    return Number.isFinite(center) ? Math.floor(center / step) * step : 0;
+    // Adding zero folds a negative zero into zero, so it reads as unshifted.
+    return Number.isFinite(center) ? Math.round(center / step) * step + 0 : 0;
   };
   return [snap(min[0], max[0]), snap(min[1], max[1]), snap(min[2], max[2])];
 }

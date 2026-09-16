@@ -262,9 +262,19 @@ describe("georeferenced clouds", () => {
     expect(() => cloud.worldPosition(2)).toThrow(/address a point/);
   });
 
-  it("snaps a chosen origin down to a round step near the data centre", () => {
+  it("snaps a chosen origin to the round step nearest the data centre", () => {
     expect(chooseOrigin([543200, 10, 4179100], [543400, 30, 4179300])).toEqual([543000, 0, 4179000]);
+    expect(chooseOrigin([543600, 10, 4179600], [543800, 30, 4179800])).toEqual([544000, 0, 4180000]);
     expect(chooseOrigin([-5, -5, -5], [5, 5, 5])).toEqual([0, 0, 0]);
+  });
+
+  it("leaves a local scan centred just below zero in its own frame", () => {
+    // The shape of the Shinjuku sample scans: a few hundred metres across,
+    // centred slightly negative on two axes.
+    const origin = chooseOrigin([-199, 6, -150], [201, 40, 126]);
+    expect(origin).toEqual([0, 0, 0]);
+    expect(Object.is(origin[2], -0)).toBe(false);
+    expect(new PointCloud({ positions: new Float32Array([0, 0, 0]), origin }).isGeoreferenced).toBe(false);
   });
 
   it("carries the frame through decimation so tiers stay aligned", () => {
