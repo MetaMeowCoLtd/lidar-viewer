@@ -9,6 +9,7 @@ reconciliation and keeps the data pipeline worker-ready.
 PointCloud (typed arrays, metadata, bounds)
   ├─ ProceduralCloudGenerator  → development/test source
   ├─ LAS / LAZ / PLY readers   → local scan sources
+  ├─ detectGround (worker)     → ground class + height above ground
   └─ PointCloudLodPyramid
        └─ VoxelGridDownsampler → precomputed tiers
             └─ LidarViewer → one RAF loop, camera and OrbitControls
@@ -19,8 +20,8 @@ PointCloud (typed arrays, metadata, bounds)
 
 - One point is one xyz triplet. Optional RGB and intensity arrays have the same
   point index and are validated when a cloud is created.
-- Channels split into two kinds. Position, colour and intensity are
-  continuous and are averaged when a tier is decimated. Classification and the
+- Channels split into two kinds. Position, colour, intensity and height
+  above ground are continuous and are averaged when a tier is decimated. Classification and the
   return fields are categorical: a voxel holding ground and building points has
   no meaningful mean class, and rounding one would invent a code describing
   neither, so those take a streaming majority vote that can only return a value
@@ -43,6 +44,42 @@ PointCloud (typed arrays, metadata, bounds)
   is unable to overwrite the newest successful load.
 - `ThreePointCloudRenderer` is an explicit resource owner. It disposes geometry
   and material resources when a cloud is replaced or the host unmounts.
+
+## Ground detection
+
+`detectGround` implements the Simple Morphological Filter (Pingel, Clarke and
+McBride, 2013) with PDAL's `filters.smrf` defaults, so results are directly
+comparable with the standard desktop tooling. It lowest-surfaces the scan onto
+a grid, opens that surface with a window growing one cell at a time to strip
+off anything narrower than the window, rebuilds terrain under what was removed,
+and accepts points within a slope-scaled tolerance of it.
+
+Three departures from the paper, each for real scan data:
+
+- The window is square. Openings then separate into row and column passes
+  using the van Herk / Gil-Werman method, so each costs the same at every
+  radius instead of growing with its square.
+- Openings extend the terrain past the edge of the grid instead of clipping.
+  A clipped window cannot see a slope rising beyond the uphill edge of a tile
+  and marks real ground there as an object.
+- Pits of one or two cells are lifted from the lowest surface before filtering,
+  because an opening removes bumps but not pits, and a single low outlier would
+  otherwise crater the ground around it. Candidates are grouped into connected
+  patches first so a ditch or a hollow is never mistaken for one.
+
+Only points that are unclassified, never classified, or already ground are
+reassigned; a class someone else assigned is never overwritten. Detection runs
+on its own worker with the positions copied rather than transferred, so the
+cloud stays drawable while it works, and `LidarViewer.replaceCloud` swaps the
+enriched cloud in without moving the camera.
+
+On a synthetic 240 m suburb with rolling terrain, buildings, trees and deep
+outliers, the filter rejects no ground, accepts under 0.5% of object points as
+ground, and labels every outlier as noise. A square kilometre at eight points
+per square metre takes about 2.5 seconds. Synthetic scores are an upper bound:
+real scans with dense vegetation, embankments and very large flat roofs will do
+worse, and roofs wider than twice the largest window are indistinguishable from
+terrain to any filter of this kind.
 
 ## Rendering approach
 

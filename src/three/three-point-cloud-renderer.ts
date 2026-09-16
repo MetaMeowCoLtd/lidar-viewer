@@ -13,6 +13,7 @@ import { distanceToBounds, type TiledPointCloudLodPyramid } from "../core/tiled-
 import { PointCloudShaderMaterial } from "./point-cloud-shader-material.js";
 import { EyeDomeLighting } from "./eye-dome-lighting.js";
 import { viewerConfig } from "../config.js";
+import { heightAboveGroundRampTop } from "../core/statistics.js";
 
 export interface LodRenderSummary {
   readonly tileCount: number;
@@ -53,6 +54,7 @@ export class ThreePointCloudRenderer {
   private reliefEnabled = false;
   private hasRgb = false;
   private hasClassification = false;
+  private hasHeightAboveGround = false;
 
   public constructor(
     private readonly scene: Scene,
@@ -66,10 +68,12 @@ export class ThreePointCloudRenderer {
       worldScale: source.bounds.diagonal,
       minHeight: source.bounds.min[1],
       maxHeight: source.bounds.max[1],
+      ...(source.heightAboveGround === undefined ? {} : { maxAboveGround: heightAboveGroundRampTop(source.heightAboveGround) }),
     });
     this.material.setHasRgb(source.supportsColorMode("rgb"));
     this.hasRgb = source.supportsColorMode("rgb");
     this.hasClassification = source.supportsColorMode("classification");
+    this.hasHeightAboveGround = source.supportsColorMode("heightAboveGround");
 
     for (const tile of tiled.tiles) {
       const points = new Points(this.emptyGeometry, this.material);
@@ -116,7 +120,10 @@ export class ThreePointCloudRenderer {
   }
 
   public setColorMode(mode: PointCloudColorMode): void {
-    const unsupported = (mode === "rgb" && !this.hasRgb) || (mode === "classification" && !this.hasClassification);
+    const unsupported =
+      (mode === "rgb" && !this.hasRgb) ||
+      (mode === "classification" && !this.hasClassification) ||
+      (mode === "heightAboveGround" && !this.hasHeightAboveGround);
     const supportedMode = unsupported ? "height" : mode;
     this.reliefEnabled = supportedMode === "relief";
     this.material?.setColorMode(supportedMode);
@@ -200,6 +207,7 @@ export class ThreePointCloudRenderer {
     this.material = undefined;
     this.hasRgb = false;
     this.hasClassification = false;
+    this.hasHeightAboveGround = false;
   }
 }
 
@@ -213,6 +221,9 @@ function createGeometry(cloud: PointCloud): BufferGeometry {
     // Not normalized: the shader wants the class code itself, 0 to 255, not a
     // fraction of the byte range.
     geometry.setAttribute("classification", new BufferAttribute(cloud.classification, 1, false));
+  }
+  if (cloud.heightAboveGround !== undefined) {
+    geometry.setAttribute("heightAboveGround", new BufferAttribute(cloud.heightAboveGround, 1));
   }
   geometry.computeBoundingSphere();
   return geometry;

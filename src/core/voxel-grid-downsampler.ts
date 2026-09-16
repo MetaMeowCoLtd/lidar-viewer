@@ -11,7 +11,8 @@ export interface VoxelDownsampleOptions {
  * cells live in an open-addressed typed-array table keyed by the packed grid
  * index, so no string key or accumulator object is allocated per source point.
  *
- * Continuous channels - position, colour, intensity - are averaged, which
+ * Continuous channels - position, colour, intensity, height above ground -
+ * are averaged, which
  * avoids the visual bias of retaining the first source point encountered in a
  * voxel.
  *
@@ -28,7 +29,7 @@ export class VoxelGridDownsampler {
       throw new Error("voxelSize must be a finite number greater than zero");
     }
 
-    const { positions, colors, intensity, classification, returnNumber, numberOfReturns, pointCount } = source;
+    const { positions, colors, intensity, classification, returnNumber, numberOfReturns, heightAboveGround, pointCount } = source;
     const originX = source.bounds.min[0];
     const originY = source.bounds.min[1];
     const originZ = source.bounds.min[2];
@@ -42,6 +43,8 @@ export class VoxelGridDownsampler {
     if (colors !== undefined) stride += 3;
     const intensitySlot = stride;
     if (intensity !== undefined) stride += 1;
+    const heightAboveGroundSlot = stride;
+    if (heightAboveGround !== undefined) stride += 1;
     const classificationSlot = stride;
     if (classification !== undefined) stride += 2;
     const returnNumberSlot = stride;
@@ -116,6 +119,9 @@ export class VoxelGridDownsampler {
         sums[base + colorSlot + 2] = sums[base + colorSlot + 2]! + colors[offset + 2]!;
       }
       if (intensity !== undefined) sums[base + intensitySlot] = sums[base + intensitySlot]! + intensity[point]!;
+      if (heightAboveGround !== undefined) {
+        sums[base + heightAboveGroundSlot] = sums[base + heightAboveGroundSlot]! + heightAboveGround[point]!;
+      }
       if (classification !== undefined) castVote(sums, base + classificationSlot, classification[point]!);
       if (returnNumber !== undefined) castVote(sums, base + returnNumberSlot, returnNumber[point]!);
       if (numberOfReturns !== undefined) castVote(sums, base + numberOfReturnsSlot, numberOfReturns[point]!);
@@ -124,6 +130,7 @@ export class VoxelGridDownsampler {
     const outputPositions = new Float32Array(cellCount * 3);
     const outputColors = colors === undefined ? undefined : new Uint8Array(cellCount * 3);
     const outputIntensity = intensity === undefined ? undefined : new Float32Array(cellCount);
+    const outputHeightAboveGround = heightAboveGround === undefined ? undefined : new Float32Array(cellCount);
     const outputClassification = classification === undefined ? undefined : new Uint8Array(cellCount);
     const outputReturnNumber = returnNumber === undefined ? undefined : new Uint8Array(cellCount);
     const outputNumberOfReturns = numberOfReturns === undefined ? undefined : new Uint8Array(cellCount);
@@ -140,6 +147,7 @@ export class VoxelGridDownsampler {
         outputColors[offset + 2] = Math.round(sums[base + colorSlot + 2]! / count);
       }
       if (outputIntensity !== undefined) outputIntensity[cell] = sums[base + intensitySlot]! / count;
+      if (outputHeightAboveGround !== undefined) outputHeightAboveGround[cell] = sums[base + heightAboveGroundSlot]! / count;
       if (outputClassification !== undefined) outputClassification[cell] = sums[base + classificationSlot]!;
       if (outputReturnNumber !== undefined) outputReturnNumber[cell] = sums[base + returnNumberSlot]!;
       if (outputNumberOfReturns !== undefined) outputNumberOfReturns[cell] = sums[base + numberOfReturnsSlot]!;
@@ -149,6 +157,7 @@ export class VoxelGridDownsampler {
       positions: outputPositions,
       ...(outputColors === undefined ? {} : { colors: outputColors }),
       ...(outputIntensity === undefined ? {} : { intensity: outputIntensity }),
+      ...(outputHeightAboveGround === undefined ? {} : { heightAboveGround: outputHeightAboveGround }),
       ...(outputClassification === undefined ? {} : { classification: outputClassification }),
       ...(outputReturnNumber === undefined ? {} : { returnNumber: outputReturnNumber }),
       ...(outputNumberOfReturns === undefined ? {} : { numberOfReturns: outputNumberOfReturns }),

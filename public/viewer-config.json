@@ -36,5 +36,14 @@
     "targetPointsPerTile": 2000000,
     "buildWorkers": 16
   },
-  "gpuPointBudget": 40000000
+  "gpuPointBudget": 40000000,
+  "groundDetection": {
+    "cellSize": 1,
+    "slope": 0.15,
+    "maxWindow": 18,
+    "elevationThreshold": 0.5,
+    "elevationScaler": 1.25,
+    "lowNoiseDepth": 2,
+    "maxGridCells": 4000000
+  }
 }

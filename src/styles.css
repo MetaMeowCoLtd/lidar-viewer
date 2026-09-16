@@ -76,3 +76,119 @@ button { color: inherit; }
   font-variant-numeric: tabular-nums;
   opacity: 0.6;
 }
+
+/* Five colour treatments do not fit one row at this panel width, so the
+   control wraps to three over two, each row filling the full width. */
+.segmented-control-wrap {
+  grid-auto-flow: row;
+  grid-template-columns: repeat(6, 1fr);
+}
+
+.segmented-control-wrap button {
+  grid-column: span 2;
+}
+
+.segmented-control-wrap button:nth-child(n + 4) {
+  grid-column: span 3;
+}
+
+/* The same stops the shader uses, so the key matches the render: a violet
+   sliver below ground, earth for ground itself, then teal through orange.
+   The ramp occupies the key from 12% to 100%, which is where its labels are
+   placed from. */
+.height-ramp {
+  height: 8px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #33245f 0%, #6b57b3 6%, #a2764a 6%, #a2764a 12%, #216b80 12%, #4da85c 41%, #ebd14d 70%, #ed6b3d 100%);
+}
+
+.height-ramp-labels {
+  position: relative;
+  height: 12px;
+  margin-top: 5px;
+  color: #6c8294;
+  font-family: "DM Mono", monospace;
+  font-size: 8px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.height-ramp-labels span {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+.height-ramp-labels span:last-child {
+  transform: translateX(-100%);
+}
+
+.analysis-button {
+  width: 100%;
+  cursor: pointer;
+  border: 1px solid rgba(106, 204, 244, .32);
+  border-radius: 7px;
+  padding: 9px 10px;
+  background: rgba(58, 152, 194, .12);
+  color: #dff6ff;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .02em;
+  transition: .18s ease;
+}
+
+.analysis-button:hover:not(:disabled) {
+  border-color: #75dcff;
+  background: rgba(66, 181, 229, .2);
+}
+
+.analysis-button:focus-visible {
+  outline: 2px solid #75dcff;
+  outline-offset: 2px;
+}
+
+.analysis-button:disabled {
+  cursor: not-allowed;
+  opacity: .55;
+}
+
+.analysis-progress {
+  height: 3px;
+  margin-top: 8px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: rgba(132, 171, 205, .14);
+}
+
+.analysis-progress i {
+  display: block;
+  height: 100%;
+  background: #64d4ff;
+  transition: width .2s ease;
+}
+
+.analysis-error {
+  color: #f0a58f;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .analysis-button,
+  .analysis-progress i {
+    transition: none;
+  }
+}
+
+/* The panel grows with the analysis it reports. On a shorter desktop screen
+   it scrolls within the space above the telemetry bar rather than running
+   underneath it. Narrow layouts put the panel in the page flow, where the
+   page itself scrolls, so the cap only applies to the floating panel. */
+@media (min-width: 851px) {
+  .command-panel {
+    max-height: calc(100% - 118px - 84px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(132, 171, 205, .32) transparent;
+  }
+}

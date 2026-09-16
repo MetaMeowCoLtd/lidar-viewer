@@ -1,4 +1,5 @@
 import type { PointCloudPointShape } from "./core/point-cloud.js";
+import { defaultGroundDetectionOptions, type GroundDetectionOptions } from "./core/ground-detection.js";
 
 export interface LodDivisors {
   readonly fine: number;
@@ -63,6 +64,8 @@ export interface ViewerConfig {
   readonly tiling: TilingConfig;
   /** Points allowed to stay resident in GPU buffers before unused tiers are released. */
   readonly gpuPointBudget: number;
+  /** Ground detection tuning, in the scan's units; see {@link GroundDetectionOptions}. */
+  readonly groundDetection: GroundDetectionOptions;
 }
 
 const fallback: ViewerConfig = {
@@ -80,6 +83,7 @@ const fallback: ViewerConfig = {
   },
   tiling: { enabled: true, targetPointsPerTile: 2_000_000, buildWorkers: 16 },
   gpuPointBudget: 40_000_000,
+  groundDetection: defaultGroundDetectionOptions,
 };
 
 let active: ViewerConfig = fallback;
@@ -109,6 +113,7 @@ export async function loadViewerConfig(): Promise<ViewerConfig> {
           },
         },
         tiling: { ...fallback.tiling, ...parsed.tiling },
+        groundDetection: { ...fallback.groundDetection, ...parsed.groundDetection },
       };
     }
   } catch {

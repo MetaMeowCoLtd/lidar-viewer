@@ -52,6 +52,8 @@ export class LidarViewer {
   private lastSummary: LodRenderSummary | undefined;
   private readonly summaryListeners = new Set<(summary: LodRenderSummary) => void>();
   private buildPool: LodBuildPool | undefined;
+  /** Set by {@link LidarViewer.replaceCloud}, so the next ready cloud keeps the current view. */
+  private keepCameraOnNextReady = false;
 
   public constructor(canvas: HTMLCanvasElement, options: LidarViewerOptions = {}) {
     this.pointBudget = options.pointBudget ?? 500_000;
@@ -77,7 +79,8 @@ export class LidarViewer {
       const source = state.pyramid.tiers[0]!.cloud;
       this.activeTiledPyramid = state.tiled;
       this.pointCloudRenderer.setTiledPyramid(source, this.activeTiledPyramid);
-      this.frameActiveCloud();
+      if (this.keepCameraOnNextReady) this.keepCameraOnNextReady = false;
+      else this.frameActiveCloud();
       this.applyLodForCurrentMode();
       this.pointCloudRenderer.setPointSize(this.pointSize);
       this.pointCloudRenderer.setColorMode(this.colorMode);
@@ -87,6 +90,24 @@ export class LidarViewer {
 
   public async load(source: PointCloud | Promise<PointCloud>, specs: readonly LodTierSpec[]): Promise<void> {
     this.assertNotDisposed();
+    this.keepCameraOnNextReady = false;
+    await this.build(source, specs);
+  }
+
+  /**
+   * Swaps in a new version of the scan already on screen - the same points
+   * with channels an analysis has added - and rebuilds its detail levels with
+   * the same tiers, leaving the camera where the user put it. Reframing would
+   * throw away the view the user was studying at the moment the answer arrives.
+   */
+  public async replaceCloud(cloud: PointCloud): Promise<void> {
+    this.assertNotDisposed();
+    if (this.lastSpecs.length === 0) throw new Error("replaceCloud needs a cloud to have been loaded first");
+    this.keepCameraOnNextReady = true;
+    await this.build(cloud, this.lastSpecs);
+  }
+
+  private async build(source: PointCloud | Promise<PointCloud>, specs: readonly LodTierSpec[]): Promise<void> {
     this.lastSpecs = specs;
     const tiling = viewerConfig().tiling;
     this.buildPool ??= new LodBuildPool(Math.min(navigator.hardwareConcurrency || 4, tiling.buildWorkers));

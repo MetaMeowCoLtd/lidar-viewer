@@ -29,7 +29,7 @@ export class PointCloudTiler {
       throw new Error("tileSize must be a finite number greater than zero");
     }
 
-    const { positions, colors, intensity, classification, returnNumber, numberOfReturns, pointCount } = source;
+    const { positions, colors, intensity, classification, returnNumber, numberOfReturns, heightAboveGround, pointCount } = source;
     const originX = source.bounds.min[0];
     const originZ = source.bounds.min[2];
     const columns = Math.max(1, Math.ceil(source.bounds.size[0] / tileSize));
@@ -61,16 +61,17 @@ export class PointCloudTiler {
     const tilePositions = cellOfTile.map((cell) => new Float32Array(cellCounts[cell]! * 3));
     const tileColors = colors === undefined ? undefined : cellOfTile.map((cell) => new Uint8Array(cellCounts[cell]! * 3));
     const tileIntensity = intensity === undefined ? undefined : cellOfTile.map((cell) => new Float32Array(cellCounts[cell]!));
-    // Per-point categorical channels are partitioned exactly like the rest;
+    // Remaining single-value channels are partitioned exactly like the rest;
     // nothing about them is combined or reinterpreted by tiling.
     const perPoint = ([
       ["classification", classification],
       ["returnNumber", returnNumber],
       ["numberOfReturns", numberOfReturns],
+      ["heightAboveGround", heightAboveGround],
     ] as const).flatMap(([key, channel]) =>
       channel === undefined
         ? []
-        : [{ key, channel, tiles: cellOfTile.map((cell) => new Uint8Array(cellCounts[cell]!)) }],
+        : [{ key, channel, tiles: cellOfTile.map((cell) => allocateLike(channel, cellCounts[cell]!)) }],
     );
     const cursors = new Int32Array(cellOfTile.length);
 
@@ -112,4 +113,9 @@ export class PointCloudTiler {
       };
     });
   }
+}
+
+/** A new, empty typed array of the same kind as `source`. */
+function allocateLike<T extends Uint8Array | Float32Array>(source: T, length: number): T {
+  return new (source.constructor as new (length: number) => T)(length);
 }

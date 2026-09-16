@@ -1,18 +1,27 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, DragEvent, ReactNode } from "react";
-import type { PointCloudColorMode, PointCloudPointShape } from "./core/point-cloud.js";
+import { PointCloud, definedChannels, type PointCloudColorMode, type PointCloudPointShape } from "./core/point-cloud.js";
 import type { PointCloudLodPyramid } from "./core/lod-pyramid.js";
 import type { LodRenderSummary } from "./three/lidar-viewer.js";
 import { ProceduralCloudGenerator } from "./core/procedural-cloud-generator.js";
 import { importScanFile, supportedScanExtensions } from "./import/scan-file-importer.js";
 import { LidarViewer } from "./three/lidar-viewer.js";
 import { classificationColor, classificationName } from "./core/point-cloud-classification.js";
+import { GroundDetectionCancelled, startGroundDetection, type GroundDetectionJob } from "./core/ground-detection-job.js";
+import type { GroundDetectionStats } from "./core/ground-detection.js";
+import { heightAboveGroundRampTop } from "./core/statistics.js";
 import { viewerConfig } from "./config.js";
 
 const INITIAL_POINT_COUNT = 380_000;
 const budgetStep = 10_000;
 
 type ViewerStatus = "initializing" | "processing" | "ready" | "error";
+
+type GroundState =
+  | { readonly status: "idle" }
+  | { readonly status: "running"; readonly stage: string; readonly fraction: number }
+  | { readonly status: "done"; readonly stats: GroundDetectionStats; readonly seconds: number }
+  | { readonly status: "failed"; readonly message: string };
 
 export function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -32,27 +41,47 @@ export function App() {
     () => (viewerConfig().distanceLod.enabledByDefault ? "distance" : "manual"),
   );
   const [lodSummary, setLodSummary] = useState<LodRenderSummary>();
+  const [ground, setGround] = useState<GroundState>({ status: "idle" });
+  const groundJobRef = useRef<GroundDetectionJob | undefined>(undefined);
+  const sourceRef = useRef<PointCloud | undefined>(undefined);
 
   const source = pyramid?.tiers[0]?.cloud;
   const effectivePointBudget = Math.min(pointBudget, source?.pointCount ?? pointBudget);
   const supportsRgb = source?.supportsColorMode("rgb") ?? false;
   const supportsClassification = source?.supportsColorMode("classification") ?? false;
+  const supportsHeightAboveGround = source?.supportsColorMode("heightAboveGround") ?? false;
   const budgetMaximum = source?.pointCount ?? viewerConfig().defaultPointBudget;
   const budgetSliderMax = Math.max(budgetStep, Math.ceil(budgetMaximum / budgetStep) * budgetStep);
 
   // A full pass over the class channel, so it is computed once per loaded
   // scan rather than on every render.
   const classHistogram = useMemo(() => source?.classificationHistogram() ?? [], [source]);
+  const aboveGroundTop = useMemo(
+    () => (source?.heightAboveGround === undefined ? 0 : heightAboveGroundRampTop(source.heightAboveGround)),
+    [source],
+  );
+
+  useEffect(() => {
+    sourceRef.current = source;
+  }, [source]);
+
+  /** Abandons any ground detection in flight, for when the scan it was working on is replaced. */
+  const resetGround = useCallback(() => {
+    groundJobRef.current?.cancel();
+    groundJobRef.current = undefined;
+    setGround({ status: "idle" });
+  }, []);
 
   const loadProcedural = useCallback((seed = Math.floor(Math.random() * 1_000_000)) => {
     const viewer = viewerRef.current;
     if (viewer === undefined) return;
+    resetGround();
     setSourceLabel("Procedural city block");
     void viewer.load(
       new ProceduralCloudGenerator().generate({ pointCount: INITIAL_POINT_COUNT, seed }),
       createLodSpecs(115),
     );
-  }, []);
+  }, [resetGround]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -137,6 +166,7 @@ export function App() {
 
   const loadFile = useCallback(async (file: File) => {
     try {
+      resetGround();
       setSourceLabel(file.name);
       setStatus("processing");
       setStatusText("Reading local scan");
@@ -146,7 +176,46 @@ export function App() {
       setStatus("error");
       setStatusText(error instanceof Error ? error.message : "Unable to load that scan");
     }
+  }, [resetGround]);
+
+  const detectGround = useCallback(async () => {
+    const viewer = viewerRef.current;
+    const cloud = sourceRef.current;
+    if (viewer === undefined || cloud === undefined) return;
+    groundJobRef.current?.cancel();
+    const started = performance.now();
+    setGround({ status: "running", stage: "Starting", fraction: 0 });
+    const job = startGroundDetection(cloud, viewerConfig().groundDetection, (stage, fraction) => {
+      if (groundJobRef.current === job) setGround({ status: "running", stage, fraction });
+    });
+    groundJobRef.current = job;
+    try {
+      const result = await job.result;
+      // The user may have opened another scan while this one was analysed.
+      if (groundJobRef.current !== job || sourceRef.current !== cloud) return;
+      await viewer.replaceCloud(
+        new PointCloud({
+          positions: cloud.positions,
+          ...definedChannels(cloud),
+          classification: result.classification,
+          heightAboveGround: result.heightAboveGround,
+          bounds: cloud.bounds,
+          origin: cloud.origin,
+          name: cloud.name,
+        }),
+      );
+      if (groundJobRef.current !== job) return;
+      groundJobRef.current = undefined;
+      setColorMode("heightAboveGround");
+      setGround({ status: "done", stats: result.stats, seconds: (performance.now() - started) / 1000 });
+    } catch (error) {
+      if (error instanceof GroundDetectionCancelled || groundJobRef.current !== job) return;
+      groundJobRef.current = undefined;
+      setGround({ status: "failed", message: error instanceof Error ? error.message : "Ground detection failed" });
+    }
   }, []);
+
+  useEffect(() => () => groundJobRef.current?.cancel(), []);
 
   const handleFileInput = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -245,13 +314,26 @@ export function App() {
 
           <div className="control-block color-control">
             <div className="control-label"><span>Color treatment</span></div>
-            <div className="segmented-control" role="group" aria-label="Color treatment">
+            <div className="segmented-control segmented-control-wrap" role="group" aria-label="Color treatment">
               <ModeButton active={colorMode === "height"} onClick={() => setColorMode("height")}>Height</ModeButton>
               <ModeButton active={colorMode === "rgb"} disabled={!supportsRgb} onClick={() => setColorMode("rgb")}>RGB</ModeButton>
               <ModeButton active={colorMode === "relief"} onClick={() => setColorMode("relief")}>Relief</ModeButton>
               <ModeButton active={colorMode === "classification"} disabled={!supportsClassification} onClick={() => setColorMode("classification")}>Classes</ModeButton>
+              <ModeButton active={colorMode === "heightAboveGround"} disabled={!supportsHeightAboveGround} onClick={() => setColorMode("heightAboveGround")}>Above ground</ModeButton>
             </div>
           </div>
+
+          {colorMode === "heightAboveGround" && supportsHeightAboveGround ? (
+            <div className="control-block">
+              <div className="control-label"><span>Height above ground</span><strong>0 to {aboveGroundTop} m</strong></div>
+              <div className="height-ramp" aria-hidden="true" />
+              <div className="height-ramp-labels">
+                <span style={{ left: "9%" }}>Ground</span>
+                <span style={{ left: "56%" }}>{formatRampHeight(aboveGroundTop / 4)}</span>
+                <span style={{ left: "100%" }}>{formatRampHeight(aboveGroundTop)}</span>
+              </div>
+            </div>
+          ) : null}
 
           {colorMode === "classification" && classHistogram.length > 0 ? (
             <div className="control-block">
@@ -268,6 +350,27 @@ export function App() {
               {classHistogram.length > 8 ? <p className="panel-footnote">{classHistogram.length - 8} more classes not shown.</p> : null}
             </div>
           ) : null}
+
+          <div className="control-block">
+            <div className="control-label">
+              <span>Ground detection</span>
+              <strong>{groundHeadline(ground)}</strong>
+            </div>
+            <button
+              className="analysis-button"
+              type="button"
+              disabled={source === undefined || status !== "ready" || ground.status === "running"}
+              onClick={() => void detectGround()}
+            >
+              {ground.status === "running" ? `${ground.stage}\u2026` : ground.status === "done" ? "Detect ground again" : "Detect ground"}
+            </button>
+            {ground.status === "running" ? (
+              <div className="analysis-progress" role="progressbar" aria-label="Ground detection progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(ground.fraction * 100)}>
+                <i style={{ width: `${Math.round(ground.fraction * 100)}%` }} />
+              </div>
+            ) : null}
+            <p className={ground.status === "failed" ? "panel-footnote analysis-error" : "panel-footnote"}>{groundFootnote(ground)}</p>
+          </div>
 
           <button
             className={`drop-zone${isDragging ? " is-dragging" : ""}`}
@@ -333,6 +436,33 @@ function Icon({ name }: { name: "spark" | "orbit" | "layers" | "upload" | "arrow
     arrow: <path d="M5 12h13m-5-5 5 5-5 5" />,
   };
   return <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>;
+}
+
+/**
+ * A label on the height key. The ramp is square-root scaled, so its midpoint
+ * sits at a quarter of the top height rather than half of it.
+ */
+function formatRampHeight(metres: number): string {
+  return `${metres < 10 ? metres.toFixed(1) : Math.round(metres)} m`;
+}
+
+function groundHeadline(ground: GroundState): string {
+  if (ground.status === "running") return `${Math.round(ground.fraction * 100)}%`;
+  if (ground.status === "done") return formatShare(ground.stats.groundPoints, ground.stats.pointCount);
+  return "\u2014";
+}
+
+function groundFootnote(ground: GroundState): string {
+  if (ground.status === "failed") return ground.message;
+  if (ground.status !== "done") {
+    return "Finds the terrain under buildings and trees, and measures how high everything stands above it.";
+  }
+  const { stats, seconds } = ground;
+  const parts = [`${formatShare(stats.groundPoints, stats.pointCount)} of points are ground`];
+  if (stats.lowNoisePoints > 0) parts.push(`${formatCount(stats.lowNoisePoints)} flagged as low noise`);
+  if (stats.preservedPoints > 0) parts.push(`existing classes kept on ${formatCount(stats.preservedPoints)}`);
+  const cell = stats.cellSize < 10 ? stats.cellSize.toFixed(1) : String(Math.round(stats.cellSize));
+  return `${parts.join(", ")}. Surface built on a ${cell} m grid in ${seconds.toFixed(1)} s.`;
 }
 
 function formatShare(count: number, total: number): string {
