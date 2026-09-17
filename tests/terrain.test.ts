@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildTerrainModel, calculateBounds, sampleSurface } from "../src/index.js";
+import { buildTerrainModel, calculateBounds, contourInterval, sampleSurface, traceContours, type TerrainModel } from "../src/index.js";
 import { buildAerialScene, truth } from "./support/aerial-scene.js";
 
 /** Ground points on a grid over `size` by `size`, at heights from `height`, all classed as ground. */
@@ -62,5 +62,63 @@ describe("terrain model", () => {
     const cloud = groundCloud(10, 1, () => 0);
     cloud.classification.fill(1);
     expect(() => buildTerrainModel(cloud)).toThrow(/Detect ground first/);
+  });
+});
+
+describe("contour lines", () => {
+  const model = (size: number, height: (x: number, z: number) => number): TerrainModel => {
+    const cloud = groundCloud(size, 0.5, height);
+    return buildTerrainModel(cloud, { cellSize: 1, maxGridCells: 1_000_000 });
+  };
+
+  it("picks a round interval from the relief, with index contours at a round multiple", () => {
+    expect(contourInterval(24)).toEqual({ interval: 1, majorEvery: 5 });
+    expect(contourInterval(60)).toEqual({ interval: 2.5, majorEvery: 4 });
+    expect(contourInterval(3)).toEqual({ interval: 0.2, majorEvery: 5 });
+    expect(contourInterval(90_000).interval).toBeGreaterThanOrEqual(3_600);
+  });
+
+  it("traces a slope as one straight line per level at round elevations of the scan", () => {
+    // Local heights 0 to 10 over 100 units of x; the frame's origin is 30.25 m up.
+    const slope = model(100, (x) => 0.1 * x);
+    const contours = traceContours(slope, 30.25, { interval: 1, smoothingPasses: 0 });
+    const levels = contours.lines.map((line) => line.level + 30.25);
+    expect(levels).toEqual([31, 32, 33, 34, 35, 36, 37, 38, 39, 40]);
+    for (const line of contours.lines) {
+      expect(line.closed).toBe(false);
+      const xs = line.points.filter((_, index) => index % 3 === 0);
+      const expectedX = (line.level * 10);
+      for (const x of xs) expect(Math.abs(x - expectedX)).toBeLessThan(0.6);
+      // It runs the length of the grid in z.
+      const zs = line.points.filter((_, index) => index % 3 === 2);
+      expect(Math.max(...zs) - Math.min(...zs)).toBeGreaterThan(95);
+    }
+    expect(contours.lines.filter((line) => line.major).map((line) => line.level + 30.25)).toEqual([35, 40]);
+  });
+
+  it("closes the rings around a hill and drops rings too small to be landforms", () => {
+    const hill = model(80, (x, z) => Math.max(0, 12 - Math.hypot(x - 40, z - 40) / 3));
+    const contours = traceContours(hill, 0, { interval: 2, smoothingPasses: 0 });
+    const rings = contours.lines.filter((line) => line.closed);
+    // Levels 2 to 10; the summit itself, at exactly 12, is a point rather than a ring.
+    expect(rings.map((ring) => ring.level)).toEqual([2, 4, 6, 8, 10]);
+    for (const ring of rings) {
+      const radius = (12 - ring.level) * 3;
+      for (let index = 0; index < ring.points.length; index += 3) {
+        // A cell's height is the mean of the points in it, which sit a quarter
+        // cell from its centre, so the hill appears centred at 40.25.
+        expect(Math.abs(Math.hypot(ring.points[index]! - 40.25, ring.points[index + 2]! - 40.25) - radius)).toBeLessThan(0.75);
+      }
+    }
+    // A lump in a single cell, the size of a car or a noise spike, not of a landform.
+    const bump = model(40, (x, z) => (Math.hypot(x - 20.25, z - 20.25) < 0.4 ? 1 : 0));
+    expect(traceContours(bump, 0, { interval: 0.5, smoothingPasses: 0 }).lines).toHaveLength(0);
+  });
+
+  it("leaves lines open where they reach the edge of the scan", () => {
+    const tilted = model(60, (x, z) => 0.05 * (x + z));
+    const contours = traceContours(tilted, 0, { interval: 1 });
+    expect(contours.lines.length).toBeGreaterThan(3);
+    expect(contours.lines.every((line) => !line.closed)).toBe(true);
   });
 });
