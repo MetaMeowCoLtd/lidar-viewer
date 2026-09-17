@@ -36,6 +36,8 @@ export interface LidarViewerOptions {
    * default so existing integrations keep their current behavior.
    */
   readonly distanceBasedLod?: boolean;
+  /** How far from the scan the camera starts, in multiples of its diagonal. Defaults to the configured framing distance. */
+  readonly framingDistance?: number;
 }
 
 /**
@@ -71,6 +73,7 @@ export class LidarViewer {
   private readonly clickListeners = new Set<(hit: PointHit | undefined) => void>();
   private readonly frameListeners = new Set<() => void>();
   private pointsVisible = true;
+  private readonly framingDistance: number | undefined;
   private pressed: { x: number; y: number; time: number; pointerId: number } | undefined;
   private readonly onPointerDown = (event: PointerEvent) => {
     this.pressed = event.isPrimary && event.button === 0 ? { x: event.clientX, y: event.clientY, time: event.timeStamp, pointerId: event.pointerId } : undefined;
@@ -93,6 +96,7 @@ export class LidarViewer {
     this.pointBudget = options.pointBudget ?? 500_000;
     this.pointSize = options.pointSize ?? 2.4;
     this.distanceBasedLodEnabled = options.distanceBasedLod ?? false;
+    this.framingDistance = options.framingDistance;
     this.renderer = new WebGLRenderer({
       canvas,
       antialias: false,
@@ -441,7 +445,7 @@ export class LidarViewer {
     const cloud = this.activePyramid?.tiers[0]?.cloud;
     if (cloud === undefined) return;
     const { center, diagonal } = cloud.bounds;
-    const distance = diagonal > 0 ? diagonal * viewerConfig().camera.framingDistance : 1;
+    const distance = diagonal > 0 ? diagonal * (this.framingDistance ?? viewerConfig().camera.framingDistance) : 1;
     this.controls.target.set(...center);
     this.camera.position.set(center[0] + distance, center[1] + distance * 0.55, center[2] + distance);
     this.camera.near = Math.max(0.01, distance / 10_000);
