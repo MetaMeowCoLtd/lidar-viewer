@@ -1,563 +1,40 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useState } from "react";
 import type { ChangeEvent, DragEvent, ReactNode } from "react";
-import { PointCloud, definedChannels, type PointCloudColorMode, type PointCloudPointShape } from "./core/point-cloud.js";
-import type { PointCloudLodPyramid } from "./core/lod-pyramid.js";
-import type { LodRenderSummary } from "./three/lidar-viewer.js";
-import { ProceduralCloudGenerator } from "./core/procedural-cloud-generator.js";
 import { supportedScanExtensions } from "./import/scan-file-importer.js";
-import { ScanImportCancelled, startScanImport, type ScanImportJob } from "./import/scan-import-job.js";
-import { LidarViewer } from "./three/lidar-viewer.js";
 import { classificationColor, classificationName } from "./core/point-cloud-classification.js";
-import { GroundDetectionCancelled, startGroundDetection, type GroundDetectionJob } from "./core/ground-detection-job.js";
-import type { GroundDetectionStats } from "./core/ground-detection.js";
-import { ObjectDetectionCancelled, startObjectDetection, type ObjectDetectionJob } from "./core/object-detection-job.js";
-import type { DetectedObject, ObjectDetectionStats } from "./core/object-detection.js";
-import { heightAboveGroundRampTop } from "./core/statistics.js";
+import type { DetectedObject } from "./core/object-detection.js";
+import { measureBetween, type PointDetails } from "./core/point-inspection.js";
 import { viewerConfig } from "./config.js";
-import { writeLas } from "./export/las-writer.js";
-import { classSummaryCsv, objectInventoryCsv, objectsGeoJson } from "./export/object-inventory.js";
-import { fileStem, saveFile } from "./export/save-file.js";
-import { describePoint, measureBetween, type PointDetails } from "./core/point-inspection.js";
-import { TerrainCancelled, startTerrainBuild, type TerrainJob, type TerrainResult } from "./core/terrain-job.js";
-import { contoursGeoJson, terrainGeoTiff } from "./export/terrain-export.js";
+import { formatCoordinate, formatCount, formatLength, formatNumber, formatOrigin, formatRampHeight, formatShare, ordinalSuffix } from "./ui/format.js";
+import { countSummary, groundSummary, progressHeadline, terrainSummary } from "./ui/workspace/analysis-text.js";
+import type { ImportProgress } from "./ui/workspace/types.js";
+import { useWorkspace } from "./ui/workspace/use-workspace.js";
 
-const INITIAL_POINT_COUNT = 380_000;
 const budgetStep = 10_000;
 
-type ViewerStatus = "initializing" | "processing" | "ready" | "error";
-
-type ExportKind = "inventory" | "geojson" | "las" | "classes" | "elevation" | "contours";
-
-type TerrainState =
-  | { readonly status: "idle" }
-  | { readonly status: "running"; readonly stage: string; readonly fraction: number }
-  | { readonly status: "done"; readonly result: TerrainResult; readonly seconds: number }
-  | { readonly status: "failed"; readonly message: string };
-
-type ClickTool = "inspect" | "measure";
-
-/** How far an import has got: reading the file on its worker, then building its detail levels. */
-interface ImportProgress {
-  readonly stage: "reading" | "building";
-  readonly fraction: number;
-}
-
-interface Picks {
-  readonly inspected?: PointDetails | undefined;
-  readonly from?: PointDetails | undefined;
-  readonly to?: PointDetails | undefined;
-}
-
-type GroundState =
-  | { readonly status: "idle" }
-  | { readonly status: "running"; readonly stage: string; readonly fraction: number }
-  | { readonly status: "done"; readonly stats: GroundDetectionStats; readonly seconds: number }
-  | { readonly status: "failed"; readonly message: string };
-
-type CountState =
-  | { readonly status: "idle" }
-  | { readonly status: "running"; readonly stage: string; readonly fraction: number }
-  | {
-      readonly status: "done";
-      readonly stats: ObjectDetectionStats;
-      readonly objects: readonly DetectedObject[];
-      readonly tallestBuilding: number;
-      readonly treeHeights: readonly [number, number];
-      readonly seconds: number;
-    }
-  | { readonly status: "failed"; readonly message: string };
-
 export function App() {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const viewerRef = useRef<LidarViewer | undefined>(undefined);
-  const [pyramid, setPyramid] = useState<PointCloudLodPyramid>();
-  const [status, setStatus] = useState<ViewerStatus>("initializing");
-  const [statusText, setStatusText] = useState("Booting visualizer");
-  const [pointBudget, setPointBudget] = useState(() => viewerConfig().defaultPointBudget);
-  const [pointSize, setPointSize] = useState(() => viewerConfig().pointSize.default);
-  const [colorMode, setColorMode] = useState<PointCloudColorMode>("rgb");
-  const [pointShape, setPointShape] = useState<PointCloudPointShape>(() => viewerConfig().pointShape);
+  const workspace = useWorkspace({ loadSampleOnStart: true });
+  const { canvasRef, fileInputRef, measureLabelRef, status, statusText, source, sourceLabel, sampling, importProgress, uiHidden } = workspace;
+  const { colorMode, setColorMode, pointSize, setPointSize, pointShape, setPointShape, classHistogram, aboveGroundTop } = workspace.view;
+  const { showBuildingOutlines, setShowBuildingOutlines, showTreeOutlines, setShowTreeOutlines, showSurface, setShowSurface, showContours, setShowContours, showPoints, setShowPoints } = workspace.view;
+  const supportsRgb = workspace.view.supports.rgb;
+  const supportsClassification = workspace.view.supports.classification;
+  const supportsHeightAboveGround = workspace.view.supports.heightAboveGround;
+  const supportsObjects = workspace.view.supports.objects;
+  const { lodMode, setLodMode, pointBudget: effectivePointBudget, setPointBudget, budgetMaximum, lodSummary } = workspace.detail;
+  const { analysing, hasGround, ground, detectGround, terrain, buildTerrain, count, countObjects } = workspace.analysis;
+  const { clickTool, setClickTool, picks } = workspace.picking;
+  const setPicks = (update: (current: typeof picks) => typeof picks) => {
+    const next = update(picks);
+    if (next.inspected === undefined && picks.inspected !== undefined) workspace.picking.clearInspected();
+    if (next.from === undefined && picks.from !== undefined) workspace.picking.clearMeasurement();
+  };
+  const { exporting, exportError, exportBlocked, counted, exportScan } = workspace.exports;
+  const loadProcedural = () => workspace.actions.loadSample();
+  const loadFile = workspace.actions.loadFile;
   const [isDragging, setIsDragging] = useState(false);
-  const [sourceLabel, setSourceLabel] = useState("Procedural city block");
-  const [uiHidden, setUiHidden] = useState(false);
-  const [lodMode, setLodMode] = useState<"manual" | "distance">(
-    () => (viewerConfig().distanceLod.enabledByDefault ? "distance" : "manual"),
-  );
-  const [lodSummary, setLodSummary] = useState<LodRenderSummary>();
-  const [ground, setGround] = useState<GroundState>({ status: "idle" });
-  const groundJobRef = useRef<GroundDetectionJob | undefined>(undefined);
-  const [count, setCount] = useState<CountState>({ status: "idle" });
-  const countJobRef = useRef<ObjectDetectionJob | undefined>(undefined);
-  const importJobRef = useRef<ScanImportJob | undefined>(undefined);
-  const [importProgress, setImportProgress] = useState<ImportProgress>();
-  // Counts imports, so progress from one that was superseded never lands on the bar of the next.
-  const importRunRef = useRef(0);
-  const [sampling, setSampling] = useState<{ readonly loaded: number; readonly total: number }>();
-  const [showBuildingOutlines, setShowBuildingOutlines] = useState(true);
-  const [showTreeOutlines, setShowTreeOutlines] = useState(true);
-  const sourceRef = useRef<PointCloud | undefined>(undefined);
-  const [exporting, setExporting] = useState<ExportKind>();
-  const [exportError, setExportError] = useState<string>();
-  const [terrain, setTerrain] = useState<TerrainState>({ status: "idle" });
-  const terrainJobRef = useRef<TerrainJob | undefined>(undefined);
-  const [showSurface, setShowSurface] = useState(true);
-  const [showContours, setShowContours] = useState(true);
-  const [showPoints, setShowPoints] = useState(true);
-  const [clickTool, setClickTool] = useState<ClickTool>("inspect");
-  const clickToolRef = useRef(clickTool);
-  const [picks, setPicks] = useState<Picks>({});
-  const measureLabelRef = useRef<HTMLDivElement>(null);
-
-  const source = pyramid?.tiers[0]?.cloud;
-  // The budget the user chose is kept as chosen and only capped here, per scan.
-  // Writing the cap back into it would shrink the budget to the size of a small
-  // scan and leave the next, larger one drawn at a fraction of its detail.
-  const effectivePointBudget = Math.min(pointBudget, source?.pointCount ?? pointBudget);
-  const supportsRgb = source?.supportsColorMode("rgb") ?? false;
-  const supportsClassification = source?.supportsColorMode("classification") ?? false;
-  const supportsHeightAboveGround = source?.supportsColorMode("heightAboveGround") ?? false;
-  const supportsObjects = source?.supportsColorMode("objects") ?? false;
-  const analysing = ground.status === "running" || count.status === "running" || terrain.status === "running";
-  const exportBlocked = source === undefined || status !== "ready" || analysing || exporting !== undefined;
-  const counted = count.status === "done" && source?.objectId !== undefined;
-  const showsPickCard = (clickTool === "inspect" && picks.inspected !== undefined) || (clickTool === "measure" && picks.from !== undefined);
-  const budgetMaximum = source?.pointCount ?? viewerConfig().defaultPointBudget;
   const budgetSliderMax = Math.max(budgetStep, Math.ceil(budgetMaximum / budgetStep) * budgetStep);
-
-  // A full pass over the class channel, so it is computed once per loaded
-  // scan rather than on every render.
-  const classHistogram = useMemo(() => source?.classificationHistogram() ?? [], [source]);
-  const hasGround = classHistogram.some(({ code, count: points }) => code === 2 && points >= 100);
-  const aboveGroundTop = useMemo(
-    () => (source?.heightAboveGround === undefined ? 0 : heightAboveGroundRampTop(source.heightAboveGround)),
-    [source],
-  );
-
-  // A layout effect runs before the browser paints, so the moment a new scan
-  // appears on screen, a click on an analysis button already works on it. A
-  // plain effect runs after the paint, and a click in between would start work
-  // on the scan that was just replaced.
-  useLayoutEffect(() => {
-    sourceRef.current = source;
-  }, [source]);
-
-  // Exports read the objects of the count now on screen, not of the render that created the handler.
-  const countRef = useRef(count);
-  useLayoutEffect(() => {
-    countRef.current = count;
-  }, [count]);
-
-  useLayoutEffect(() => {
-    clickToolRef.current = clickTool;
-  }, [clickTool]);
-
-  const terrainRef = useRef(terrain);
-  useLayoutEffect(() => {
-    terrainRef.current = terrain;
-  }, [terrain]);
-
-  /** Drops the terrain, for when the ground it was built from is replaced. */
-  const clearTerrain = useCallback(() => {
-    terrainJobRef.current?.cancel();
-    terrainJobRef.current = undefined;
-    setTerrain({ status: "idle" });
-    setShowPoints(true);
-    viewerRef.current?.setTerrain(undefined, undefined);
-  }, []);
-
-  /** Abandons any analysis in flight and its results, for when the scan it was working on is replaced. */
-  const resetAnalysis = useCallback(() => {
-    setPicks({});
-    importJobRef.current?.cancel();
-    importJobRef.current = undefined;
-    importRunRef.current += 1;
-    setImportProgress(undefined);
-    groundJobRef.current?.cancel();
-    groundJobRef.current = undefined;
-    countJobRef.current?.cancel();
-    countJobRef.current = undefined;
-    setGround({ status: "idle" });
-    setCount({ status: "idle" });
-    clearTerrain();
-  }, [clearTerrain]);
-
-  const loadProcedural = useCallback((seed = Math.floor(Math.random() * 1_000_000)) => {
-    const viewer = viewerRef.current;
-    if (viewer === undefined) return;
-    resetAnalysis();
-    setSampling(undefined);
-    setSourceLabel("Procedural city block");
-    void viewer.load(
-      new ProceduralCloudGenerator().generate({ pointCount: INITIAL_POINT_COUNT, seed }),
-      createLodSpecs(115),
-    );
-  }, [resetAnalysis]);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (canvas === null) return;
-    const viewer = new LidarViewer(canvas, {
-      pointBudget: viewerConfig().defaultPointBudget,
-      pointSize,
-      distanceBasedLod: viewerConfig().distanceLod.enabledByDefault,
-    });
-    viewerRef.current = viewer;
-    const unsubscribeTier = viewer.onLodSummaryChange(setLodSummary);
-    const unsubscribeClick = viewer.onPointClick((hit) => {
-      const details = hit === undefined ? undefined : describePoint(hit.cloud, hit.index);
-      if (clickToolRef.current === "inspect") {
-        setPicks((current) => ({ ...current, inspected: details }));
-        return;
-      }
-      // A miss while measuring is most likely a slip, so it keeps what was measured.
-      if (details === undefined) return;
-      setPicks((current) =>
-        current.from === undefined || current.to !== undefined ? { inspected: current.inspected, from: details } : { ...current, to: details },
-      );
-    });
-    // The measurement label follows its line as the camera moves, written
-    // straight to the element each frame rather than through React state.
-    const unsubscribeFrame = viewer.onFrame(() => {
-      const label = measureLabelRef.current;
-      const anchor = label?.dataset.anchor;
-      if (label === null || anchor === undefined) return;
-      const spot = viewer.projectToCanvas(JSON.parse(anchor) as [number, number, number]);
-      label.style.visibility = spot.visible ? "visible" : "hidden";
-      label.style.transform = `translate(${spot.x.toFixed(1)}px, ${spot.y.toFixed(1)}px) translate(-50%, -140%)`;
-    });
-    const unsubscribe = viewer.session.subscribe((nextState) => {
-      if (nextState.status === "processing") {
-        setStatus("processing");
-        setStatusText("Building detail levels");
-      }
-      if (nextState.status === "ready") {
-        setPyramid(nextState.pyramid);
-        setStatus("ready");
-        setStatusText("Interactive render ready");
-      }
-      if (nextState.status === "error") {
-        setStatus("error");
-        setStatusText(nextState.error.message);
-      }
-    });
-    const resizeObserver = new ResizeObserver((entries) => {
-      const entry = entries[0];
-      if (entry !== undefined) viewer.resize(entry.contentRect.width, entry.contentRect.height);
-    });
-    resizeObserver.observe(canvas.parentElement!);
-    viewer.start();
-    loadProcedural(21);
-
-    return () => {
-      unsubscribe();
-      unsubscribeTier();
-      unsubscribeClick();
-      unsubscribeFrame();
-      resizeObserver.disconnect();
-      viewer.dispose();
-      viewerRef.current = undefined;
-    };
-  }, [loadProcedural]);
-
-  useEffect(() => {
-    viewerRef.current?.setDistanceBasedLodEnabled(lodMode === "distance");
-  }, [lodMode]);
-
-  useEffect(() => {
-    viewerRef.current?.setPointBudget(effectivePointBudget);
-  }, [effectivePointBudget]);
-
-  useEffect(() => {
-    viewerRef.current?.setPointSize(pointSize);
-  }, [pointSize]);
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key.toLowerCase() !== "h" || event.metaKey || event.ctrlKey || event.altKey) return;
-      setUiHidden((hidden) => !hidden);
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
-
-  useEffect(() => {
-    viewerRef.current?.setPointShape(pointShape);
-  }, [pointShape]);
-
-  useEffect(() => {
-    if (source !== undefined && !source.supportsColorMode(colorMode)) {
-      setColorMode("height");
-      return;
-    }
-    viewerRef.current?.setColorMode(colorMode);
-  }, [colorMode, source]);
-
-  const loadFile = useCallback(async (file: File) => {
-    resetAnalysis();
-    const run = importRunRef.current;
-    try {
-      const report = (stage: ImportProgress["stage"], fraction: number) => {
-        if (importRunRef.current === run) setImportProgress({ stage, fraction });
-      };
-      setSourceLabel(file.name);
-      setStatus("processing");
-      setStatusText("Reading local scan");
-      setSampling(undefined);
-      report("reading", 0);
-      const job = startScanImport(file, viewerConfig().maxImportPoints, (fraction) => {
-        if (importJobRef.current !== job) return;
-        setStatusText(`Reading local scan · ${Math.round(fraction * 100)}%`);
-        report("reading", fraction);
-      });
-      importJobRef.current = job;
-      const { cloud, sourcePointCount } = await job.result;
-      // Another scan was chosen while this one was being read.
-      if (importJobRef.current !== job) return;
-      importJobRef.current = undefined;
-      if (sourcePointCount > cloud.pointCount) setSampling({ loaded: cloud.pointCount, total: sourcePointCount });
-      report("building", 0);
-      await viewerRef.current?.load(cloud, createLodSpecs(cloud.bounds.diagonal), (fraction) => report("building", fraction));
-      if (importRunRef.current === run) setImportProgress(undefined);
-    } catch (error) {
-      if (error instanceof ScanImportCancelled || importRunRef.current !== run) return;
-      setImportProgress(undefined);
-      setStatus("error");
-      setStatusText(error instanceof Error ? error.message : "Unable to load that scan");
-    }
-  }, [resetAnalysis]);
-
-  const detectGround = useCallback(async () => {
-    const viewer = viewerRef.current;
-    const cloud = sourceRef.current;
-    if (viewer === undefined || cloud === undefined) return;
-    groundJobRef.current?.cancel();
-    const started = performance.now();
-    setGround({ status: "running", stage: "Starting", fraction: 0 });
-    const job = startGroundDetection(cloud, viewerConfig().groundDetection, (stage, fraction) => {
-      if (groundJobRef.current === job) setGround({ status: "running", stage, fraction });
-    });
-    groundJobRef.current = job;
-    try {
-      const result = await job.result;
-      if (groundJobRef.current !== job) return;
-      // The user may have opened another scan while this one was analysed;
-      // the result is for a scan no longer on screen, so it is dropped.
-      if (sourceRef.current !== cloud) {
-        groundJobRef.current = undefined;
-        setGround({ status: "idle" });
-        return;
-      }
-      // Rebuilding every detail level with the new labels takes seconds on a
-      // large scan, and saying so beats a progress bar stuck at its end.
-      setGround({ status: "running", stage: "Updating the view", fraction: 1 });
-      await viewer.replaceCloud(
-        new PointCloud({
-          positions: cloud.positions,
-          ...channelsWithoutObjects(cloud),
-          classification: result.classification,
-          heightAboveGround: result.heightAboveGround,
-          bounds: cloud.bounds,
-          origin: cloud.origin,
-          spatialReference: cloud.spatialReference,
-          name: cloud.name,
-        }),
-      );
-      if (groundJobRef.current !== job) return;
-      groundJobRef.current = undefined;
-      setCount({ status: "idle" });
-      // New ground means a new terrain; the old one describes ground that is gone.
-      clearTerrain();
-      setColorMode("heightAboveGround");
-      setGround({ status: "done", stats: result.stats, seconds: (performance.now() - started) / 1000 });
-    } catch (error) {
-      if (error instanceof GroundDetectionCancelled || groundJobRef.current !== job) return;
-      groundJobRef.current = undefined;
-      setGround({ status: "failed", message: error instanceof Error ? error.message : "Ground detection failed" });
-    }
-  }, [clearTerrain]);
-
-  const buildTerrain = useCallback(async () => {
-    const viewer = viewerRef.current;
-    const cloud = sourceRef.current;
-    if (viewer === undefined || cloud === undefined) return;
-    terrainJobRef.current?.cancel();
-    const started = performance.now();
-    setTerrain({ status: "running", stage: "Starting", fraction: 0 });
-    const job = startTerrainBuild(cloud, viewerConfig().terrain, (stage, fraction) => {
-      if (terrainJobRef.current === job) setTerrain({ status: "running", stage, fraction });
-    });
-    terrainJobRef.current = job;
-    try {
-      const result = await job.result;
-      if (terrainJobRef.current !== job) return;
-      terrainJobRef.current = undefined;
-      viewer.setTerrain(result.model, result.contours);
-      setTerrain({ status: "done", result, seconds: (performance.now() - started) / 1000 });
-    } catch (error) {
-      if (error instanceof TerrainCancelled || terrainJobRef.current !== job) return;
-      terrainJobRef.current = undefined;
-      setTerrain({ status: "failed", message: error instanceof Error ? error.message : "Building the terrain failed" });
-    }
-  }, []);
-
-  const countObjects = useCallback(async () => {
-    const viewer = viewerRef.current;
-    const cloud = sourceRef.current;
-    if (viewer === undefined || cloud === undefined) return;
-    countJobRef.current?.cancel();
-    const started = performance.now();
-    // The worker spends the first 45% of its progress on ground detection when
-    // it has to run it; noting when progress passes that point times it.
-    let groundFinished = started;
-    setCount({ status: "running", stage: "Starting", fraction: 0 });
-    const job = startObjectDetection(cloud, viewerConfig().groundDetection, viewerConfig().objectDetection, (stage, fraction) => {
-      if (fraction <= 0.45) groundFinished = performance.now();
-      if (countJobRef.current === job) setCount({ status: "running", stage, fraction });
-    });
-    countJobRef.current = job;
-    try {
-      const result = await job.result;
-      if (countJobRef.current !== job) return;
-      if (sourceRef.current !== cloud) {
-        countJobRef.current = undefined;
-        setCount({ status: "idle" });
-        return;
-      }
-      setCount({ status: "running", stage: "Updating the view", fraction: 1 });
-      await viewer.replaceCloud(
-        new PointCloud({
-          positions: cloud.positions,
-          ...definedChannels(cloud),
-          classification: result.classification,
-          heightAboveGround: result.heightAboveGround,
-          objectId: result.objectId,
-          bounds: cloud.bounds,
-          origin: cloud.origin,
-          spatialReference: cloud.spatialReference,
-          name: cloud.name,
-        }),
-      );
-      if (countJobRef.current !== job) return;
-      countJobRef.current = undefined;
-      // Outlines belong to the cloud now on screen, so they go in after it.
-      viewer.setObjects(result.objects);
-      const seconds = (performance.now() - started) / 1000;
-      if (result.groundSource === "detected") clearTerrain();
-      if (result.groundStats !== undefined) {
-        setGround({ status: "done", stats: result.groundStats, seconds: (groundFinished - started) / 1000 });
-      }
-      let tallestBuilding = 0;
-      let shortestTree = Infinity;
-      let tallestTree = 0;
-      for (const object of result.objects) {
-        if (object.kind === "building") tallestBuilding = Math.max(tallestBuilding, object.height);
-        else {
-          shortestTree = Math.min(shortestTree, object.height);
-          tallestTree = Math.max(tallestTree, object.height);
-        }
-      }
-      setColorMode("objects");
-      setCount({
-        status: "done",
-        stats: result.stats,
-        objects: result.objects,
-        tallestBuilding,
-        treeHeights: [Number.isFinite(shortestTree) ? shortestTree : 0, tallestTree],
-        seconds,
-      });
-    } catch (error) {
-      if (error instanceof ObjectDetectionCancelled || countJobRef.current !== job) return;
-      countJobRef.current = undefined;
-      setCount({ status: "failed", message: error instanceof Error ? error.message : "Counting buildings and trees failed" });
-    }
-  }, [clearTerrain]);
-
-  const exportScan = useCallback(async (kind: ExportKind) => {
-    const cloud = sourceRef.current;
-    if (cloud === undefined) return;
-    setExporting(kind);
-    setExportError(undefined);
-    try {
-      // Writing a large LAS file holds the main thread for a moment, so the
-      // button's "Preparing" label is given time to paint first. A timer rather
-      // than an animation frame, which never arrives in a hidden tab.
-      await new Promise((resolve) => setTimeout(resolve, 50));
-      const stem = fileStem(cloud.name);
-      if (kind === "las") {
-        saveFile(writeLas(cloud) as BlobPart[], `${stem}-classified.las`, "application/vnd.las");
-      } else if (kind === "classes") {
-        saveFile([classSummaryCsv(cloud)], `${stem}-classes.csv`, "text/csv");
-      } else if (kind === "elevation" || kind === "contours") {
-        const built = terrainRef.current;
-        if (built.status !== "done") return;
-        if (kind === "elevation") saveFile([terrainGeoTiff(built.result.model, cloud.origin, cloud.spatialReference) as BlobPart], `${stem}-terrain.tif`, "image/tiff");
-        else saveFile([contoursGeoJson(built.result.contours, cloud.origin, cloud.name, cloud.spatialReference)], `${stem}-contours.geojson`, "application/geo+json");
-      } else {
-        const objects = countRef.current.status === "done" ? countRef.current.objects : [];
-        if (kind === "inventory") saveFile([objectInventoryCsv(cloud, objects)], `${stem}-inventory.csv`, "text/csv");
-        else saveFile([objectsGeoJson(cloud, objects)], `${stem}-objects.geojson`, "application/geo+json");
-      }
-    } catch (error) {
-      setExportError(error instanceof Error ? error.message : "The export could not be written");
-    } finally {
-      setExporting(undefined);
-    }
-  }, []);
-
-  // A point's class, height and object change when an analysis replaces the
-  // cloud, so what was inspected is dropped; a measurement is only positions,
-  // which no analysis moves, so it stays.
-  useEffect(() => {
-    setPicks((current) => (current.inspected === undefined ? current : { from: current.from, to: current.to }));
-  }, [source]);
-
-  useEffect(() => {
-    const viewer = viewerRef.current;
-    if (viewer === undefined) return;
-    if (clickTool === "inspect") {
-      viewer.setAnnotations({ markers: picks.inspected === undefined ? [] : [{ position: picks.inspected.local, tone: "inspect" }] });
-      return;
-    }
-    viewer.setAnnotations({
-      markers: [
-        ...(picks.from === undefined ? [] : [{ position: picks.from.local, tone: "from" as const }]),
-        ...(picks.to === undefined ? [] : [{ position: picks.to.local, tone: "to" as const }]),
-      ],
-      ...(picks.from === undefined || picks.to === undefined ? {} : { measurement: { from: picks.from.local, to: picks.to.local } }),
-    });
-  }, [clickTool, picks]);
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setPicks({});
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
-
-  useEffect(() => {
-    viewerRef.current?.setOutlineVisibility(showBuildingOutlines, showTreeOutlines);
-  }, [showBuildingOutlines, showTreeOutlines]);
-
-  useEffect(() => {
-    viewerRef.current?.setTerrainVisibility(showSurface, showContours);
-  }, [showSurface, showContours]);
-
-  useEffect(() => {
-    viewerRef.current?.setPointsVisible(showPoints);
-  }, [showPoints]);
-
-  useEffect(
-    () => () => {
-      terrainJobRef.current?.cancel();
-      importJobRef.current?.cancel();
-      groundJobRef.current?.cancel();
-      countJobRef.current?.cancel();
-    },
-    [],
-  );
-
+  const showsPickCard = (clickTool === "inspect" && picks.inspected !== undefined) || (clickTool === "measure" && picks.from !== undefined);
   const handleFileInput = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file !== undefined) void loadFile(file);
@@ -736,7 +213,7 @@ export function App() {
           <div className="control-block">
             <div className="control-label">
               <span>Ground detection</span>
-              <strong>{groundHeadline(ground)}</strong>
+              <strong>{progressHeadline(ground) || "\u2014"}</strong>
             </div>
             <button
               className="analysis-button"
@@ -751,13 +228,13 @@ export function App() {
                 <i style={{ width: `${Math.round(ground.fraction * 100)}%` }} />
               </div>
             ) : null}
-            <p className={ground.status === "failed" ? "panel-footnote analysis-error" : "panel-footnote"}>{groundFootnote(ground)}</p>
+            <p className={ground.status === "failed" ? "panel-footnote analysis-error" : "panel-footnote"}>{groundSummary(ground)}</p>
           </div>
 
           <div className="control-block">
             <div className="control-label">
               <span>Terrain</span>
-              <strong>{terrainHeadline(terrain)}</strong>
+              <strong>{progressHeadline(terrain) || "\u2014"}</strong>
             </div>
             <button
               className="analysis-button"
@@ -772,7 +249,7 @@ export function App() {
                 <i style={{ width: `${Math.round(terrain.fraction * 100)}%` }} />
               </div>
             ) : null}
-            <p className={terrain.status === "failed" ? "panel-footnote analysis-error" : "panel-footnote"}>{terrainFootnote(terrain, hasGround, source?.origin[1] ?? 0)}</p>
+            <p className={terrain.status === "failed" ? "panel-footnote analysis-error" : "panel-footnote"}>{terrainSummary(terrain, hasGround, source?.origin[1] ?? 0)}</p>
             {terrain.status === "done" ? (
               <div className="segmented-control outline-toggles" role="group" aria-label="Terrain layers">
                 <ToggleButton pressed={showSurface} onClick={() => setShowSurface((shown) => !shown)}>Surface</ToggleButton>
@@ -785,7 +262,7 @@ export function App() {
           <div className="control-block">
             <div className="control-label">
               <span>Buildings and trees</span>
-              <strong>{countHeadline(count)}</strong>
+              <strong>{progressHeadline(count) || "\u2014"}</strong>
             </div>
             <button
               className="analysis-button"
@@ -812,7 +289,7 @@ export function App() {
                 </div>
               </div>
             ) : null}
-            <p className={count.status === "failed" ? "panel-footnote analysis-error" : "panel-footnote"}>{countFootnote(count)}</p>
+            <p className={count.status === "failed" ? "panel-footnote analysis-error" : "panel-footnote"}>{countSummary(count)}</p>
             {count.status === "done" ? (
               <div className="segmented-control outline-toggles" role="group" aria-label="Outlines">
                 <ToggleButton pressed={showBuildingOutlines} onClick={() => setShowBuildingOutlines((shown) => !shown)}>Building outlines</ToggleButton>
@@ -871,18 +348,6 @@ export function App() {
       </section>
     </main>
   );
-}
-
-function createLodSpecs(diagonal: number) {
-  const scale = Math.max(diagonal, 1);
-  const { fine, balanced, lean } = viewerConfig().lodDivisors;
-  const distance = viewerConfig().distanceLod.distanceMultipliers;
-  return [
-    { id: "full", voxelSize: 0, minCameraDistance: scale * distance.full },
-    { id: "fine", voxelSize: scale / fine, minCameraDistance: scale * distance.fine },
-    { id: "balanced", voxelSize: scale / balanced, minCameraDistance: scale * distance.balanced },
-    { id: "lean", voxelSize: scale / lean, minCameraDistance: scale * distance.lean },
-  ];
 }
 
 function ControlRow({ label, value, children }: { label: string; value: string; children: ReactNode }) {
@@ -954,21 +419,9 @@ function MeasureCard({ from, to, onClose }: { from: PointDetails; to: PointDetai
   );
 }
 
-function midpoint(a: readonly [number, number, number], b: readonly [number, number, number]): [number, number, number] {
-  return [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2];
-}
 
-function formatNumber(value: number, digits: number): string {
-  return value.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
-}
 
-function formatCoordinate(value: number): string {
-  return formatNumber(value, 2);
-}
 
-function formatLength(metres: number): string {
-  return `${formatNumber(metres, 2)} m`;
-}
 
 function ImportProgressBar({ progress }: { progress: ImportProgress }) {
   const percent = Math.round(progress.fraction * 100);
@@ -1015,18 +468,8 @@ function Icon({ name }: { name: "spark" | "orbit" | "layers" | "upload" | "arrow
   return <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>;
 }
 
-/**
- * A label on the height key. The ramp is square-root scaled, so its midpoint
- * sits at a quarter of the top height rather than half of it.
- */
-function formatRampHeight(metres: number): string {
-  return `${metres < 10 ? metres.toFixed(1) : Math.round(metres)} m`;
-}
-
-/** A cloud's channels without its object ids, which a new classification makes stale. */
-function channelsWithoutObjects(cloud: PointCloud) {
-  const { objectId: _stale, ...channels } = definedChannels(cloud);
-  return channels;
+function midpoint(a: readonly [number, number, number], b: readonly [number, number, number]): [number, number, number] {
+  return [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2];
 }
 
 function exportFootnote(counted: boolean, classified: boolean): string {
@@ -1036,98 +479,4 @@ function exportFootnote(counted: boolean, classified: boolean): string {
   const las = "LAS files are uncompressed; the browser cannot write LAZ.";
   if (!counted) return `Classes can be exported now; the inventory and map layer need a count first. ${las}`;
   return `Positions are in the scan's own coordinate system. ${las}`;
-}
-
-function countHeadline(count: CountState): string {
-  if (count.status === "running") return `${Math.round(count.fraction * 100)}%`;
-  if (count.status === "done") return `${count.seconds.toFixed(1)} s`;
-  return "\u2014";
-}
-
-function countFootnote(count: CountState): string {
-  if (count.status === "failed") return count.message;
-  if (count.status !== "done") {
-    return "Finds each building and tree standing on the ground, outlines it and counts it. Detects ground first when the scan needs it.";
-  }
-  const { stats, tallestBuilding, treeHeights } = count;
-  const buildings =
-    stats.buildings === 0
-      ? "No buildings found."
-      : `Footprints cover ${Math.round(stats.footprintArea).toLocaleString("en-US")} m\u00b2, the tallest building rising ${formatRampHeight(tallestBuilding)}.`;
-  const trees =
-    stats.trees === 0
-      ? "No trees found."
-      : stats.trees === 1
-        ? `The tree stands ${formatRampHeight(treeHeights[1])} tall.`
-        : `Trees stand ${formatRampHeight(treeHeights[0])} to ${formatRampHeight(treeHeights[1])} tall.`;
-  return `${buildings} ${trees}`;
-}
-
-function terrainHeadline(terrain: TerrainState): string {
-  if (terrain.status === "running") return `${Math.round(terrain.fraction * 100)}%`;
-  if (terrain.status === "done") return `${terrain.seconds.toFixed(1)} s`;
-  return "\u2014";
-}
-
-function terrainFootnote(terrain: TerrainState, hasGround: boolean, originY: number): string {
-  if (terrain.status === "failed") return terrain.message;
-  if (terrain.status !== "done") {
-    return hasGround
-      ? "Turns the ground points into a 3D terrain surface with contour lines, ready to export for GIS and CAD."
-      : "Needs ground points. Detect ground first, or load a scan whose file already marks its ground.";
-  }
-  const { model, contours } = terrain.result;
-  const cell = model.grid.cellSize < 10 ? model.grid.cellSize.toFixed(1) : String(Math.round(model.grid.cellSize));
-  const low = formatRampHeight(originY + model.minElevation);
-  const high = formatRampHeight(originY + model.maxElevation);
-  const measured = formatShare(model.measuredCells, model.coveredCells);
-  return `Ground from ${low} to ${high} on a ${cell} m grid; ${measured} measured, the rest filled in under buildings and trees. Contours every ${contours.interval} m, bold every ${contours.majorInterval} m.`;
-}
-
-function groundHeadline(ground: GroundState): string {
-  if (ground.status === "running") return `${Math.round(ground.fraction * 100)}%`;
-  if (ground.status === "done") return formatShare(ground.stats.groundPoints, ground.stats.pointCount);
-  return "\u2014";
-}
-
-function groundFootnote(ground: GroundState): string {
-  if (ground.status === "failed") return ground.message;
-  if (ground.status !== "done") {
-    return "Finds the terrain under buildings and trees, and measures how high everything stands above it.";
-  }
-  const { stats, seconds } = ground;
-  const parts = [`${formatShare(stats.groundPoints, stats.pointCount)} of points are ground`];
-  if (stats.lowNoisePoints > 0) parts.push(`${formatCount(stats.lowNoisePoints)} flagged as low noise`);
-  if (stats.preservedPoints > 0) parts.push(`existing classes kept on ${formatCount(stats.preservedPoints)}`);
-  const cell = stats.cellSize < 10 ? stats.cellSize.toFixed(1) : String(Math.round(stats.cellSize));
-  return `${parts.join(", ")}. Surface built on a ${cell} m grid in ${seconds.toFixed(1)} s.`;
-}
-
-function formatShare(count: number, total: number): string {
-  const share = (count / total) * 100;
-  if (share >= 10) return `${Math.round(share)}%`;
-  if (share >= 1) return `${share.toFixed(1)}%`;
-  return share > 0 ? "<1%" : "0%";
-}
-
-/**
- * Positions are held relative to the cloud's origin so a projected coordinate
- * never has to survive a narrowing to Float32. Showing that offset is how a
- * user confirms a scan was recognised as georeferenced rather than local.
- */
-function formatOrigin(cloud: { origin: readonly [number, number, number]; isGeoreferenced: boolean }): string {
-  if (!cloud.isGeoreferenced) return "LOCAL";
-  return cloud.origin.map((value) => value.toLocaleString("en-US", { maximumFractionDigits: 0 })).join(" / ");
-}
-
-function ordinalSuffix(value: number): string {
-  const lastTwo = value % 100;
-  if (lastTwo >= 11 && lastTwo <= 13) return "th";
-  return ["th", "st", "nd", "rd"][value % 10] ?? "th";
-}
-
-function formatCount(value: number): string {
-  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(value % 1_000_000 === 0 ? 0 : 1)}M`;
-  if (value >= 1_000) return `${Math.round(value / 1_000)}K`;
-  return String(value);
 }
