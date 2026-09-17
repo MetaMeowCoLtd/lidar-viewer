@@ -4,7 +4,8 @@ import { PointCloud, definedChannels, type PointCloudColorMode, type PointCloudP
 import type { PointCloudLodPyramid } from "./core/lod-pyramid.js";
 import type { LodRenderSummary } from "./three/lidar-viewer.js";
 import { ProceduralCloudGenerator } from "./core/procedural-cloud-generator.js";
-import { importScanFile, supportedScanExtensions } from "./import/scan-file-importer.js";
+import { supportedScanExtensions } from "./import/scan-file-importer.js";
+import { ScanImportCancelled, startScanImport, type ScanImportJob } from "./import/scan-import-job.js";
 import { LidarViewer } from "./three/lidar-viewer.js";
 import { classificationColor, classificationName } from "./core/point-cloud-classification.js";
 import { GroundDetectionCancelled, startGroundDetection, type GroundDetectionJob } from "./core/ground-detection-job.js";
@@ -74,6 +75,7 @@ export function App() {
   const groundJobRef = useRef<GroundDetectionJob | undefined>(undefined);
   const [count, setCount] = useState<CountState>({ status: "idle" });
   const countJobRef = useRef<ObjectDetectionJob | undefined>(undefined);
+  const importJobRef = useRef<ScanImportJob | undefined>(undefined);
   const [showBuildingOutlines, setShowBuildingOutlines] = useState(true);
   const [showTreeOutlines, setShowTreeOutlines] = useState(true);
   const sourceRef = useRef<PointCloud | undefined>(undefined);
@@ -126,6 +128,8 @@ export function App() {
   /** Abandons any analysis in flight and its results, for when the scan it was working on is replaced. */
   const resetAnalysis = useCallback(() => {
     setPicks({});
+    importJobRef.current?.cancel();
+    importJobRef.current = undefined;
     groundJobRef.current?.cancel();
     groundJobRef.current = undefined;
     countJobRef.current?.cancel();
@@ -256,9 +260,17 @@ export function App() {
       setSourceLabel(file.name);
       setStatus("processing");
       setStatusText("Reading local scan");
-      const cloud = await importScanFile(file);
+      const job = startScanImport(file, (fraction) => {
+        if (importJobRef.current === job) setStatusText(`Reading local scan · ${Math.round(fraction * 100)}%`);
+      });
+      importJobRef.current = job;
+      const cloud = await job.result;
+      // Another scan was chosen while this one was being read.
+      if (importJobRef.current !== job) return;
+      importJobRef.current = undefined;
       await viewerRef.current?.load(cloud, createLodSpecs(cloud.bounds.diagonal));
     } catch (error) {
+      if (error instanceof ScanImportCancelled) return;
       setStatus("error");
       setStatusText(error instanceof Error ? error.message : "Unable to load that scan");
     }
@@ -447,6 +459,7 @@ export function App() {
 
   useEffect(
     () => () => {
+      importJobRef.current?.cancel();
       groundJobRef.current?.cancel();
       countJobRef.current?.cancel();
     },
