@@ -18,6 +18,8 @@ only responsible for GPU resources and draw configuration.
 - Building and tree counting on a worker: finds each building and tree,
   labels its points, traces its footprint or crown, and draws the outlines
 - Colour by height, RGB, relief, ASPRS class, height above ground or object
+- A 3D terrain model built from the ground points: a shaded surface with
+  contour lines, exported as a GeoTIFF elevation model and GeoJSON contours
 - Click any point to read its map coordinates, class, height above ground and
   the building or tree it belongs to; click two points to measure the
   straight-line, horizontal and vertical distance and slope between them

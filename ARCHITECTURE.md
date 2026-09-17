@@ -11,6 +11,7 @@ PointCloud (typed arrays, metadata, bounds)
   ├─ LAS / LAZ / PLY readers   → local scan sources
   ├─ detectGround (worker)     → ground class + height above ground
   ├─ detectObjects (worker)    → buildings, trees, object ids and outlines
+  ├─ buildTerrainModel (worker) → terrain grid and contour lines
   ├─ writeLas / inventory      → LAS 1.4, CSV and GeoJSON exports
   └─ PointCloudLodPyramid
        └─ VoxelGridDownsampler → precomputed tiers
@@ -130,6 +131,41 @@ whose crowns merge without a dip between them count as one; a tree pressed
 against a wall can be absorbed by the building; and scans that see walls but
 not roofs, such as purely street-level ones, are outside what a top-down method
 can separate.
+
+## Terrain
+
+`buildTerrainModel` turns classified ground into a digital terrain model: a
+grid, one metre by default, holding the mean height of the ground points in
+each cell - the same surface height above ground is measured from, so the two
+never disagree. Cells without ground points of their own, under a building or
+a dense canopy, are filled by the push-pull inpainting ground detection uses,
+which blends a hole smoothly from its rim. Filling stops at the edge of the
+scan: only cells within one cell of some point have a height, so the model
+never invents ground outside what was surveyed. On the synthetic neighbourhood
+the rebuilt ground under every building and tree is within a quarter of a metre
+of the true terrain (root mean square).
+
+`traceContours` runs marching squares over the model after two passes of a 3
+by 3 mean, which removes the kerbs and bumps that would otherwise break a
+one-metre grid's contours into a litter of rings; rings too small to be a
+landform are dropped too. Levels fall on round elevations of the scan, not of
+the viewer's local frame, and the interval is picked from the relief so there
+are about 25 lines, with an index contour every fourth or fifth. Saddles are
+resolved by the mean of the square's corners. Segments are chained into
+polylines through the grid edges they cross, so the export holds whole lines
+rather than fragments.
+
+Both run on a worker. The surface is drawn as a mesh in the points' own scene
+at up to a million vertices, pushed back a hair in depth so ground points lying
+on it do not flicker, with hypsometric tints and a north-west hillshade.
+Contours are wide lines depth tested like the building outlines.
+
+Exports: the model as a single-band 32-bit float GeoTIFF, north up, with pixel
+scale, tie point, GeoTIFF keys naming the EPSG system when known, and a GDAL
+no-data value for cells outside the scan - written without a library and
+checked against Pillow's reader; and the contours as GeoJSON LineStrings with
+their elevation and index flag. A contour's elevation and the GeoTIFF's values
+are in the scan's own vertical units.
 
 ## Inspecting and measuring
 
