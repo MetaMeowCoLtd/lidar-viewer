@@ -5,6 +5,7 @@ export interface ScanImportRequest {
   /** Posting a `File` to a worker shares a handle to it; no bytes are copied. */
   readonly file: File;
   readonly name: string;
+  readonly maxPoints: number;
 }
 
 export type ScanImportMessage =
@@ -16,5 +17,6 @@ export type ScanImportMessage =
       readonly bounds: PointCloudBounds;
       readonly origin: PointCloudOrigin;
       readonly spatialReference?: SpatialReference;
+      readonly sourcePointCount: number;
     } & PointCloudAttributes)
   | { readonly kind: "failed"; readonly message: string };

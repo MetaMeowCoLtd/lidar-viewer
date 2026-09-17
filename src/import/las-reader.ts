@@ -3,9 +3,7 @@ import type { ByteSource } from "./byte-source.js";
 import { layoutForPointFormat, type LasHeader } from "./las-header.js";
 import { LasPointBuilder, colorScaleFromSamples } from "./las-point-builder.js";
 import { readLasSpatialReference } from "./las-records.js";
-
-/** Reports how much of a scan has been read, from zero to one. */
-export type ReadProgress = (fraction: number) => void;
+import { keptCount, type ReadOptions } from "./read-options.js";
 
 /** Bytes of point records decoded per read; small enough to stay cheap, large enough to keep reads few. */
 const blockBytes = 16 * 1024 * 1024;
@@ -18,7 +16,8 @@ const blockBytes = 16 * 1024 * 1024;
  * the next. Memory holds the points being built and one block of the file,
  * never the file itself.
  */
-export async function readLasPoints(source: ByteSource, header: LasHeader, name: string, onProgress?: ReadProgress): Promise<PointCloud> {
+export async function readLasPoints(source: ByteSource, header: LasHeader, name: string, options: ReadOptions = {}): Promise<PointCloud> {
+  const { onProgress, keepEvery = 1 } = options;
   const layout = layoutForPointFormat(header.pointFormat);
   if (layout === undefined) throw new Error(`Unsupported LAS point format ${header.pointFormat}`);
 
@@ -34,14 +33,16 @@ export async function readLasPoints(source: ByteSource, header: LasHeader, name:
       ? 1
       : colorScaleFromSamples(await sampleMaximumChannel(source, header, readable, layout.rgbOffset));
 
-  const builder = new LasPointBuilder(header, name, colorScale, await readLasSpatialReference(source, header));
+  const spatialReference = await readLasSpatialReference(source, header);
+  const builder = new LasPointBuilder(header, name, colorScale, spatialReference, keptCount(readable, keepEvery));
   const recordsPerBlock = Math.max(1, Math.floor(blockBytes / header.pointLength));
   for (let first = 0; first < readable; first += recordsPerBlock) {
     const count = Math.min(recordsPerBlock, readable - first);
     const block = await source.read(header.pointDataOffset + first * header.pointLength, count * header.pointLength);
     const view = new DataView(block.buffer, block.byteOffset, block.byteLength);
-    for (let record = 0, base = 0; record < count; record += 1, base += header.pointLength) {
-      builder.add(view, base);
+    // The first record in this block that falls on the stride.
+    for (let record = (keepEvery - (first % keepEvery)) % keepEvery; record < count; record += keepEvery) {
+      builder.add(view, record * header.pointLength);
     }
     onProgress?.((first + count) / readable);
   }

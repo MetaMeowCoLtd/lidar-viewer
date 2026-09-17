@@ -1,9 +1,10 @@
 import { PointCloud, definedChannels } from "../core/point-cloud.js";
 import type { ScanImportMessage, ScanImportRequest } from "./scan-import-protocol.js";
 import { scanName, validateScanFile } from "./scan-file-importer.js";
+import type { ImportedScan } from "./read-options.js";
 
 export interface ScanImportJob {
-  readonly result: Promise<PointCloud>;
+  readonly result: Promise<ImportedScan>;
   /** Stops reading at once. The result promise rejects with {@link ScanImportCancelled}. */
   cancel(): void;
 }
@@ -26,10 +27,10 @@ export class ScanImportCancelled extends Error {
  * the finished arrays back without copying them. It is terminated the moment
  * the job settles or is cancelled, which also frees everything it was holding.
  */
-export function startScanImport(file: File, onProgress?: (fraction: number) => void): ScanImportJob {
+export function startScanImport(file: File, maxPoints: number, onProgress?: (fraction: number) => void): ScanImportJob {
   let cancel: () => void = () => undefined;
 
-  const result = new Promise<PointCloud>((resolve, reject) => {
+  const result = new Promise<ImportedScan>((resolve, reject) => {
     validateScanFile(file);
     const worker = new Worker(new URL("./scan-import-worker.ts", import.meta.url), { type: "module" });
     let settled = false;
@@ -56,8 +57,8 @@ export function startScanImport(file: File, onProgress?: (fraction: number) => v
         reject(new Error(message.message));
         return;
       }
-      resolve(
-        new PointCloud({
+      resolve({
+        cloud: new PointCloud({
           positions: message.positions,
           ...definedChannels(message),
           bounds: message.bounds,
@@ -65,7 +66,8 @@ export function startScanImport(file: File, onProgress?: (fraction: number) => v
           spatialReference: message.spatialReference,
           name: message.name,
         }),
-      );
+        sourcePointCount: message.sourcePointCount,
+      });
     };
     worker.onerror = (event) => {
       // A worker that dies outright - most often by running out of memory
@@ -73,7 +75,7 @@ export function startScanImport(file: File, onProgress?: (fraction: number) => v
       if (settle()) reject(new Error(event.message || "Reading the scan stopped unexpectedly, most likely for lack of memory"));
     };
 
-    const request: ScanImportRequest = { file, name: scanName(file) };
+    const request: ScanImportRequest = { file, name: scanName(file), maxPoints };
     worker.postMessage(request);
   });
 

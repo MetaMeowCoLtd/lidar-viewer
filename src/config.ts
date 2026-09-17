@@ -54,7 +54,13 @@ export interface TilingConfig {
 
 export interface ViewerConfig {
   readonly backgroundColor: string;
-  readonly maxImportSizeMb: number;
+  /**
+   * The most points a scan loads with. Larger scans are thinned evenly to this
+   * many, because every loaded point costs memory several times over - the
+   * cloud, its tiles and their detail levels - and a tab that runs out of
+   * memory simply crashes.
+   */
+  readonly maxImportPoints: number;
   readonly defaultPointBudget: number;
   readonly pointShape: PointCloudPointShape;
   readonly pointSize: PointSizeConfig;
@@ -73,7 +79,7 @@ export interface ViewerConfig {
 
 const fallback: ViewerConfig = {
   backgroundColor: "#000000",
-  maxImportSizeMb: 1200,
+  maxImportPoints: 60_000_000,
   defaultPointBudget: 1_000_000,
   pointShape: "circle",
   pointSize: { default: 2.4, min: 1, max: 7 },

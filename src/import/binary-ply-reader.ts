@@ -1,6 +1,14 @@
 import { PointCloud, boundsFromExtent, chooseOrigin, type PointCloudOrigin } from "../core/point-cloud.js";
 import type { ByteSource } from "./byte-source.js";
-import type { ReadProgress } from "./las-reader.js";
+import { keptCount, type ReadOptions } from "./read-options.js";
+
+/** The vertex count a PLY header declares, or undefined when the bytes are no PLY header. */
+export function plyVertexCount(leading: Uint8Array): number | undefined {
+  const headerText = new TextDecoder().decode(leading);
+  if (!headerText.startsWith("ply")) return undefined;
+  const match = /^element\s+vertex\s+(\d+)\s*$/m.exec(headerText.slice(0, headerText.indexOf("end_header")));
+  return match === null ? undefined : Number(match[1]);
+}
 
 /** Bytes searched for the end of the header. */
 const headerLimit = 64 * 1024;
@@ -44,7 +52,8 @@ const readers: Record<string, { size: number; read: (view: DataView, offset: num
  * This is also the only place that sees a georeferenced coordinate at full
  * precision, so it is where the cloud's local frame is established.
  */
-export async function readBinaryPly(source: ByteSource, name: string, onProgress?: ReadProgress): Promise<PointCloud | undefined> {
+export async function readBinaryPly(source: ByteSource, name: string, options: ReadOptions = {}): Promise<PointCloud | undefined> {
+  const { onProgress, keepEvery = 1 } = options;
   const headerText = new TextDecoder().decode(await source.read(0, headerLimit));
   const terminator = headerText.indexOf("end_header\n");
   if (!headerText.startsWith("ply") || terminator === -1) return undefined;
@@ -100,11 +109,12 @@ export async function readBinaryPly(source: ByteSource, name: string, onProgress
 
   const origin = await estimateOrigin(source, start, vertexCount, stride, readX, readY, readZ);
 
-  const positions = new Float32Array(vertexCount * 3);
+  const kept = keptCount(vertexCount, keepEvery);
+  const positions = new Float32Array(kept * 3);
   const hasRgb = ir !== -1 && ig !== -1 && ib !== -1;
-  const colors = hasRgb ? new Uint8Array(vertexCount * 3) : undefined;
-  const intensity = ii !== -1 ? new Float32Array(vertexCount) : undefined;
-  const classification = ic !== -1 ? new Uint8Array(vertexCount) : undefined;
+  const colors = hasRgb ? new Uint8Array(kept * 3) : undefined;
+  const intensity = ii !== -1 ? new Float32Array(kept) : undefined;
+  const classification = ic !== -1 ? new Uint8Array(kept) : undefined;
   const colorScale = hasRgb && properties[ir]!.size > 1 ? 1 / 256 : 1;
 
   const min: [number, number, number] = [Infinity, Infinity, Infinity];
@@ -112,13 +122,17 @@ export async function readBinaryPly(source: ByteSource, name: string, onProgress
 
   const recordsPerBlock = Math.max(1, Math.floor(blockBytes / stride));
   let view: DataView<ArrayBufferLike> = new DataView(new ArrayBuffer(0));
-  for (let point = 0, base = 0, target = 0; point < vertexCount; point += 1, base += stride, target += 3) {
-    if (point % recordsPerBlock === 0) {
+  let blockStart = 0;
+  let blockEnd = 0;
+  for (let point = 0, index = 0, target = 0; point < vertexCount; point += keepEvery, index += 1, target += 3) {
+    if (point >= blockEnd) {
       if (point > 0) onProgress?.(point / vertexCount);
-      const block = await source.read(start + point * stride, Math.min(recordsPerBlock, vertexCount - point) * stride);
+      blockStart = point;
+      blockEnd = Math.min(vertexCount, point + recordsPerBlock);
+      const block = await source.read(start + blockStart * stride, (blockEnd - blockStart) * stride);
       view = new DataView(block.buffer, block.byteOffset, block.byteLength);
-      base = 0;
     }
+    const base = (point - blockStart) * stride;
     // Both operands are still doubles here, so the subtraction happens before
     // anything is narrowed. Assigning into the Float32Array is the only
     // rounding step, and by then the magnitude is local rather than planetary.
@@ -144,10 +158,10 @@ export async function readBinaryPly(source: ByteSource, name: string, onProgress
       colors[target + 2] = properties[ib]!.read(view, base + offsets[ib]!) * colorScale;
     }
     if (intensity !== undefined) {
-      intensity[point] = properties[ii]!.read(view, base + offsets[ii]!);
+      intensity[index] = properties[ii]!.read(view, base + offsets[ii]!);
     }
     if (classification !== undefined) {
-      classification[point] = properties[ic]!.read(view, base + offsets[ic]!);
+      classification[index] = properties[ic]!.read(view, base + offsets[ic]!);
     }
   }
 

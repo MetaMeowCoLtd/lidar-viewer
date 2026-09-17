@@ -2,7 +2,7 @@ import { PLYLoader } from "three/examples/jsm/loaders/PLYLoader.js";
 import { PointCloud, chooseOrigin } from "../core/point-cloud.js";
 import { readBinaryPly } from "./binary-ply-reader.js";
 import type { ByteSource } from "./byte-source.js";
-import type { ReadProgress } from "./las-reader.js";
+import { keptCount, type ReadOptions } from "./read-options.js";
 
 /**
  * ASCII and big-endian PLY go through Three's PLYLoader, which needs the whole
@@ -12,20 +12,20 @@ import type { ReadProgress } from "./las-reader.js";
 const maxFallbackBytes = 512 * 1024 * 1024;
 
 /** Reads a PLY scan: binary little-endian by streaming, anything else through Three's loader. */
-export async function readPly(source: ByteSource, name: string, onProgress?: ReadProgress): Promise<PointCloud> {
-  const fastPath = await readBinaryPly(source, name, onProgress);
+export async function readPly(source: ByteSource, name: string, options: ReadOptions = {}): Promise<PointCloud> {
+  const fastPath = await readBinaryPly(source, name, options);
   if (fastPath !== undefined) return fastPath;
   if (source.size > maxFallbackBytes) {
     throw new Error("PLY files over 512 MB need to be binary little-endian. Convert it, for example with CloudCompare, and load it again.");
   }
   const whole = await source.read(0, source.size);
   const buffer = whole.byteOffset === 0 && whole.byteLength === whole.buffer.byteLength ? whole.buffer : whole.slice().buffer;
-  const cloud = parsePlyWithLoader(buffer as ArrayBuffer, name);
-  onProgress?.(1);
+  const cloud = parsePlyWithLoader(buffer as ArrayBuffer, name, options.keepEvery ?? 1);
+  options.onProgress?.(1);
   return cloud;
 }
 
-function parsePlyWithLoader(buffer: ArrayBuffer, name: string): PointCloud {
+function parsePlyWithLoader(buffer: ArrayBuffer, name: string, keepEvery: number): PointCloud {
   const geometry = new PLYLoader().parse(buffer);
   const position = geometry.getAttribute("position");
   if (position === undefined || position.itemSize < 3 || position.count === 0) {
@@ -34,9 +34,10 @@ function parsePlyWithLoader(buffer: ArrayBuffer, name: string): PointCloud {
 
   const color = geometry.getAttribute("color");
   const intensity = geometry.getAttribute("intensity") ?? geometry.getAttribute("scalar_Intensity");
-  const positions = new Float32Array(position.count * 3);
-  const colors = color === undefined ? undefined : new Uint8Array(position.count * 3);
-  const intensities = intensity === undefined ? undefined : new Float32Array(position.count);
+  const kept = keptCount(position.count, keepEvery);
+  const positions = new Float32Array(kept * 3);
+  const colors = color === undefined ? undefined : new Uint8Array(kept * 3);
+  const intensities = intensity === undefined ? undefined : new Float32Array(kept);
 
   // The loader has already narrowed every coordinate to Float32, so precision
   // a georeferenced file carried is gone by this point and anchoring cannot
@@ -49,7 +50,7 @@ function parsePlyWithLoader(buffer: ArrayBuffer, name: string): PointCloud {
     [position.getX(position.count - 1), position.getY(position.count - 1), position.getZ(position.count - 1)],
   );
 
-  for (let point = 0, offset = 0; point < position.count; point += 1, offset += 3) {
+  for (let point = 0, index = 0, offset = 0; point < position.count; point += keepEvery, index += 1, offset += 3) {
     positions[offset] = position.getX(point) - origin[0];
     positions[offset + 1] = position.getY(point) - origin[1];
     positions[offset + 2] = position.getZ(point) - origin[2];
@@ -58,7 +59,7 @@ function parsePlyWithLoader(buffer: ArrayBuffer, name: string): PointCloud {
       colors[offset + 1] = asByte(color.getY(point));
       colors[offset + 2] = asByte(color.getZ(point));
     }
-    if (intensity !== undefined && intensities !== undefined) intensities[point] = intensity.getX(point);
+    if (intensity !== undefined && intensities !== undefined) intensities[index] = intensity.getX(point);
   }
   geometry.dispose();
   return new PointCloud({

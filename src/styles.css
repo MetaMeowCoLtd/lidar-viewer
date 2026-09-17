@@ -427,3 +427,9 @@ button { color: inherit; }
     width: auto;
   }
 }
+
+/* Said once, next to the scan's name, when a scan was thinned to fit. */
+.sampling-note {
+  margin: -8px 0 14px;
+  color: #f5c98a;
+}

@@ -4,7 +4,7 @@ import { layoutForPointFormat, type LasHeader } from "./las-header.js";
 import { LasPointBuilder, colorScaleFromSamples } from "./las-point-builder.js";
 import { readLasSpatialReference } from "./las-records.js";
 import type { ByteSource } from "./byte-source.js";
-import type { ReadProgress } from "./las-reader.js";
+import { keptCount, type ReadOptions } from "./read-options.js";
 
 /**
  * laz-perf's WebAssembly memory is capped at 2 GB, and the compressed file has
@@ -44,7 +44,8 @@ function loadLazPerf(): Promise<LazPerfModule> {
  * shared builder. Nothing accumulates between the compressed input and the
  * destination buffers.
  */
-export async function readLazPoints(source: ByteSource, header: LasHeader, name: string, onProgress?: ReadProgress): Promise<PointCloud> {
+export async function readLazPoints(source: ByteSource, header: LasHeader, name: string, options: ReadOptions = {}): Promise<PointCloud> {
+  const { onProgress, keepEvery = 1 } = options;
   const layout = layoutForPointFormat(header.pointFormat);
   if (layout === undefined) throw new Error(`Unsupported LAS point format ${header.pointFormat}`);
   if (source.size > maxLazBytes) {
@@ -84,13 +85,17 @@ export async function readLazPoints(source: ByteSource, header: LasHeader, name:
       if (pointCount < 1) throw new Error("The LAZ file contains no readable point records");
 
       recordPointer = lazPerf._malloc(recordLength);
-      const builder = new LasPointBuilder(header, name, colorScale, spatialReference);
+      const builder = new LasPointBuilder(header, name, colorScale, spatialReference, keptCount(pointCount, keepEvery));
       const scratch = new Uint8Array(recordLength);
       const record = new DataView(scratch.buffer);
       for (let point = 0; point < pointCount; point += 1) {
+        // Compressed records only decode in order, so thinning still decodes
+        // every one and keeps a stride of them.
         reader.getPoint(recordPointer);
-        copyRecord(lazPerf, recordPointer, scratch);
-        builder.add(record, 0);
+        if (point % keepEvery === 0) {
+          copyRecord(lazPerf, recordPointer, scratch);
+          builder.add(record, 0);
+        }
         if ((point + 1) % progressInterval === 0) onProgress?.((point + 1) / pointCount);
       }
       onProgress?.(1);

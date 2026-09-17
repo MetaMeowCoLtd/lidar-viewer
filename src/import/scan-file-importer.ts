@@ -1,10 +1,19 @@
-import type { PointCloud } from "../core/point-cloud.js";
-import { viewerConfig } from "../config.js";
 import { readPly } from "./ply-file-importer.js";
 import { readLasHeader, minimumLasHeaderSize } from "./las-header.js";
 import { readLasPoints } from "./las-reader.js";
 import { readLazPoints } from "./laz-reader.js";
 import { blobSource, type ByteSource } from "./byte-source.js";
+import { plyVertexCount } from "./binary-ply-reader.js";
+import { keepEveryFor, type ImportedScan, type ReadProgress } from "./read-options.js";
+
+export interface ScanImportOptions {
+  readonly onProgress?: ReadProgress | undefined;
+  /**
+   * The most points to load. A scan with more is thinned evenly to fit,
+   * rather than exhausting the tab's memory partway through.
+   */
+  readonly maxPoints?: number | undefined;
+}
 
 /** Extensions offered in the file picker, in the order a user is likely to meet them. */
 export const supportedScanExtensions = [".las", ".laz", ".ply"] as const;
@@ -18,9 +27,9 @@ export const supportedScanExtensions = [".las", ".laz", ".ply"] as const;
  * an uncompressed one. The extension is only used to reject files the reader
  * has no chance with before spending time on them.
  */
-export async function importScanFile(file: File): Promise<PointCloud> {
+export async function importScanFile(file: File, options: ScanImportOptions = {}): Promise<ImportedScan> {
   validateScanFile(file);
-  return importScan(blobSource(file), scanName(file));
+  return importScan(blobSource(file), scanName(file), options);
 }
 
 /** Rejects a file no reader could take, before any work is spent on it. */
@@ -31,10 +40,6 @@ export function validateScanFile(file: File): void {
   }
   if (file.size === 0) throw new Error("The selected file is empty");
 
-  const maxImportSizeMb = viewerConfig().maxImportSizeMb;
-  if (file.size > maxImportSizeMb * 1024 * 1024) {
-    throw new Error(`This build reads scans up to ${maxImportSizeMb} MB. Larger scans need the planned streaming pipeline.`);
-  }
 }
 
 /** The name a scan is shown and exported under: its file name without the extension. */
@@ -46,15 +51,28 @@ export function scanName(file: File): string {
 const leadingBytes = 64 * 1024;
 
 /** Format dispatch, separated from the File plumbing so it can be exercised directly. */
-export async function importScan(source: ByteSource, name: string, onProgress?: (fraction: number) => void): Promise<PointCloud> {
+export async function importScan(source: ByteSource, name: string, options: ScanImportOptions = {}): Promise<ImportedScan> {
+  const { onProgress, maxPoints } = options;
   const leading = (await source.read(0, leadingBytes)).slice();
   if (leading.byteLength >= minimumLasHeaderSize) {
     const header = readLasHeader(leading.buffer);
     if (header !== undefined) {
-      return header.isCompressed ? readLazPoints(source, header, name, onProgress) : readLasPoints(source, header, name, onProgress);
+      // A truncated file holds fewer records than its header declares.
+      const sourcePointCount = header.isCompressed
+        ? header.pointCount
+        : Math.max(0, Math.min(header.pointCount, Math.floor((source.size - header.pointDataOffset) / header.pointLength)));
+      const readOptions = { onProgress, keepEvery: keepEveryFor(sourcePointCount, maxPoints) };
+      const cloud = header.isCompressed
+        ? await readLazPoints(source, header, name, readOptions)
+        : await readLasPoints(source, header, name, readOptions);
+      return { cloud, sourcePointCount };
     }
   }
-  if (looksLikePly(leading)) return readPly(source, name, onProgress);
+  if (looksLikePly(leading)) {
+    const sourcePointCount = plyVertexCount(leading) ?? 0;
+    const cloud = await readPly(source, name, { onProgress, keepEvery: keepEveryFor(sourcePointCount, maxPoints) });
+    return { cloud, sourcePointCount: Math.max(sourcePointCount, cloud.pointCount) };
+  }
   throw new Error("That file is not a readable LAS, LAZ or PLY point cloud");
 }
 

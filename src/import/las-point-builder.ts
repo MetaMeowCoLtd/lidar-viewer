@@ -63,6 +63,8 @@ export class LasPointBuilder {
     /** Divisor that brings this file's colour channels into the 0-255 range. */
     colorScale: number,
     private readonly spatialReference?: SpatialReference,
+    /** Points that will be added; fewer than the header declares when a scan is thinned. */
+    private readonly capacity = header.pointCount,
   ) {
     const layout = layoutForPointFormat(header.pointFormat);
     if (layout === undefined) throw new Error(`Unsupported LAS point format ${header.pointFormat}`);
@@ -87,17 +89,17 @@ export class LasPointBuilder {
       -offsetY - this.origin[2],
     ];
 
-    this.positions = new Float32Array(header.pointCount * 3);
-    this.colors = layout.rgbOffset === undefined ? undefined : new Uint8Array(header.pointCount * 3);
-    this.intensity = new Float32Array(header.pointCount);
-    this.classification = new Uint8Array(header.pointCount);
-    this.returnNumber = new Uint8Array(header.pointCount);
-    this.numberOfReturns = new Uint8Array(header.pointCount);
+    this.positions = new Float32Array(capacity * 3);
+    this.colors = layout.rgbOffset === undefined ? undefined : new Uint8Array(capacity * 3);
+    this.intensity = new Float32Array(capacity);
+    this.classification = new Uint8Array(capacity);
+    this.returnNumber = new Uint8Array(capacity);
+    this.numberOfReturns = new Uint8Array(capacity);
   }
 
   /** Reads one record starting at `base` within `view`. */
   public add(view: DataView, base: number): void {
-    if (this.written >= this.header.pointCount) return;
+    if (this.written >= this.capacity) return;
     const target = this.written * 3;
 
     this.positions[target] = view.getInt32(base, true) * this.scale[0] + this.bias[0];
@@ -140,7 +142,7 @@ export class LasPointBuilder {
 
   public finish(): PointCloud {
     if (this.written === 0) throw new Error("The LAS file declared points but none could be read");
-    const truncate = this.written < this.header.pointCount;
+    const truncate = this.written < this.capacity;
     return new PointCloud({
       positions: truncate ? this.positions.subarray(0, this.written * 3) : this.positions,
       ...(this.colors === undefined

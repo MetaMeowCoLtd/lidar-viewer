@@ -12,13 +12,16 @@ const scope = self as unknown as {
 const progressStep = 0.01;
 
 scope.onmessage = async (event: MessageEvent<ScanImportRequest>) => {
-  const { file, name } = event.data;
+  const { file, name, maxPoints } = event.data;
   let reported = -1;
   try {
-    const cloud = await importScan(blobSource(file), name, (fraction) => {
-      if (fraction - reported < progressStep && fraction < 1) return;
-      reported = fraction;
-      scope.postMessage({ kind: "progress", fraction });
+    const { cloud, sourcePointCount } = await importScan(blobSource(file), name, {
+      maxPoints,
+      onProgress: (fraction) => {
+        if (fraction - reported < progressStep && fraction < 1) return;
+        reported = fraction;
+        scope.postMessage({ kind: "progress", fraction });
+      },
     });
     const channels = definedChannels(cloud);
     // Every array is handed over rather than copied: the worker is done with
@@ -33,6 +36,7 @@ scope.onmessage = async (event: MessageEvent<ScanImportRequest>) => {
         bounds: cloud.bounds,
         origin: cloud.origin,
         ...(cloud.spatialReference === undefined ? {} : { spatialReference: cloud.spatialReference }),
+        sourcePointCount,
       },
       [...new Set(transfer)],
     );

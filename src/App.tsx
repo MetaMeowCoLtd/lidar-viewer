@@ -76,6 +76,7 @@ export function App() {
   const [count, setCount] = useState<CountState>({ status: "idle" });
   const countJobRef = useRef<ObjectDetectionJob | undefined>(undefined);
   const importJobRef = useRef<ScanImportJob | undefined>(undefined);
+  const [sampling, setSampling] = useState<{ readonly loaded: number; readonly total: number }>();
   const [showBuildingOutlines, setShowBuildingOutlines] = useState(true);
   const [showTreeOutlines, setShowTreeOutlines] = useState(true);
   const sourceRef = useRef<PointCloud | undefined>(undefined);
@@ -142,6 +143,7 @@ export function App() {
     const viewer = viewerRef.current;
     if (viewer === undefined) return;
     resetAnalysis();
+    setSampling(undefined);
     setSourceLabel("Procedural city block");
     void viewer.load(
       new ProceduralCloudGenerator().generate({ pointCount: INITIAL_POINT_COUNT, seed }),
@@ -260,14 +262,16 @@ export function App() {
       setSourceLabel(file.name);
       setStatus("processing");
       setStatusText("Reading local scan");
-      const job = startScanImport(file, (fraction) => {
+      setSampling(undefined);
+      const job = startScanImport(file, viewerConfig().maxImportPoints, (fraction) => {
         if (importJobRef.current === job) setStatusText(`Reading local scan · ${Math.round(fraction * 100)}%`);
       });
       importJobRef.current = job;
-      const cloud = await job.result;
+      const { cloud, sourcePointCount } = await job.result;
       // Another scan was chosen while this one was being read.
       if (importJobRef.current !== job) return;
       importJobRef.current = undefined;
+      if (sourcePointCount > cloud.pointCount) setSampling({ loaded: cloud.pointCount, total: sourcePointCount });
       await viewerRef.current?.load(cloud, createLodSpecs(cloud.bounds.diagonal));
     } catch (error) {
       if (error instanceof ScanImportCancelled) return;
@@ -544,6 +548,11 @@ export function App() {
               <small>{statusText}</small>
             </div>
           </div>
+          {sampling === undefined ? null : (
+            <p className="panel-footnote sampling-note">
+              {`This scan has ${formatCount(sampling.total)} points, more than this build loads, so every ${Math.ceil(sampling.total / sampling.loaded)}${ordinalSuffix(Math.ceil(sampling.total / sampling.loaded))} point is shown: ${formatCount(sampling.loaded)} in all, spread evenly. Raise maxImportPoints in viewer-config.json on a machine with memory to spare.`}
+            </p>
+          )}
 
           <div className="control-block">
             <div className="control-label"><span>Click the scan to</span></div>
@@ -952,6 +961,12 @@ function formatShare(count: number, total: number): string {
 function formatOrigin(cloud: { origin: readonly [number, number, number]; isGeoreferenced: boolean }): string {
   if (!cloud.isGeoreferenced) return "LOCAL";
   return cloud.origin.map((value) => value.toLocaleString("en-US", { maximumFractionDigits: 0 })).join(" / ");
+}
+
+function ordinalSuffix(value: number): string {
+  const lastTwo = value % 100;
+  if (lastTwo >= 11 && lastTwo <= 13) return "th";
+  return ["th", "st", "nd", "rd"][value % 10] ?? "th";
 }
 
 function formatCount(value: number): string {
