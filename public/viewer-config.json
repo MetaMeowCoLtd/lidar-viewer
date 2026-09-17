@@ -63,5 +63,9 @@
     "maxGridCells": 4000000,
     "maxTreeHeight": 60,
     "maxTreeSlenderness": 8
+  },
+  "terrain": {
+    "cellSize": 1,
+    "maxGridCells": 4000000
   }
 }

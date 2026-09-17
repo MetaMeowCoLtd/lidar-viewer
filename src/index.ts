@@ -14,6 +14,7 @@ export * from "./core/ground-detection.js";
 export * from "./core/ground-detection-job.js";
 export * from "./core/terrain.js";
 export * from "./core/contours.js";
+export * from "./core/terrain-job.js";
 export * from "./core/statistics.js";
 export * from "./core/raster-outline.js";
 export * from "./core/object-detection.js";
