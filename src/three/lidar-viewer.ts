@@ -1,4 +1,4 @@
-import { PerspectiveCamera, Scene, WebGLRenderer } from "three";
+import { Matrix4, PerspectiveCamera, Scene, Vector2, Vector3, WebGLRenderer } from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import type { PointCloud, PointCloudColorMode, PointCloudPointShape } from "../core/point-cloud.js";
 import { PointCloudLodPyramid, type LodTierSpec } from "../core/lod-pyramid.js";
@@ -8,9 +8,20 @@ import { LodBuildPool } from "../core/lod-build-pool.js";
 import { ThreePointCloudRenderer } from "./three-point-cloud-renderer.js";
 import { viewerConfig } from "../config.js";
 import type { DetectedObject } from "../core/object-detection.js";
+import { pickPoint, type PointHit } from "../core/point-picking.js";
+import { maxDotSize } from "./point-cloud-shader-material.js";
+import type { Annotations } from "./measurement-overlay.js";
 
 export type { LodRenderSummary } from "./three-point-cloud-renderer.js";
+export type { Annotations, MarkerAnnotation, MarkerTone } from "./measurement-overlay.js";
 import type { LodRenderSummary } from "./three-point-cloud-renderer.js";
+
+/** How far, in CSS pixels, a press may travel and still count as a click. */
+const clickSlop = 5;
+/** How long, in milliseconds, a press may last and still count as a click. */
+const clickDuration = 600;
+/** How far from the cursor, in CSS pixels, a click in a gap between dots still finds a point. */
+const pickTolerance = 8;
 
 export interface LidarViewerOptions {
   readonly pointBudget?: number;
@@ -55,6 +66,25 @@ export class LidarViewer {
   private buildPool: LodBuildPool | undefined;
   /** Set by {@link LidarViewer.replaceCloud}, so the next ready cloud keeps the current view. */
   private keepCameraOnNextReady = false;
+  private readonly clickListeners = new Set<(hit: PointHit | undefined) => void>();
+  private readonly frameListeners = new Set<() => void>();
+  private pressed: { x: number; y: number; time: number; pointerId: number } | undefined;
+  private readonly onPointerDown = (event: PointerEvent) => {
+    this.pressed = event.isPrimary && event.button === 0 ? { x: event.clientX, y: event.clientY, time: event.timeStamp, pointerId: event.pointerId } : undefined;
+  };
+  /**
+   * A press and release close together in place and time is a click; anything
+   * else was the user orbiting or panning, and must not pick a point.
+   */
+  private readonly onPointerUp = (event: PointerEvent) => {
+    const pressed = this.pressed;
+    this.pressed = undefined;
+    if (pressed === undefined || pressed.pointerId !== event.pointerId || this.clickListeners.size === 0) return;
+    const moved = Math.hypot(event.clientX - pressed.x, event.clientY - pressed.y);
+    if (moved > clickSlop || event.timeStamp - pressed.time > clickDuration) return;
+    const hit = this.pickAt(event.clientX, event.clientY);
+    for (const listener of this.clickListeners) listener(hit);
+  };
 
   public constructor(canvas: HTMLCanvasElement, options: LidarViewerOptions = {}) {
     this.pointBudget = options.pointBudget ?? 500_000;
@@ -73,6 +103,8 @@ export class LidarViewer {
     this.controls.screenSpacePanning = true;
     this.controls.zoomToCursor = true;
     this.pointCloudRenderer = new ThreePointCloudRenderer(this.scene, this.renderer, this.camera);
+    canvas.addEventListener("pointerdown", this.onPointerDown);
+    canvas.addEventListener("pointerup", this.onPointerUp);
 
     this.session.subscribe((state) => {
       if (state.status !== "ready" || this.disposed || state.tiled === undefined) return;
@@ -168,6 +200,70 @@ export class LidarViewer {
     this.pointCloudRenderer.setOutlineVisibility(buildings, trees);
   }
 
+  /**
+   * The scan point drawn under a position in the page, if any. Points come from
+   * each tile's full-resolution tier whatever detail is on screen, so the
+   * answer is always a real measured point rather than a decimated average.
+   */
+  public pickAt(clientX: number, clientY: number): PointHit | undefined {
+    this.assertNotDisposed();
+    const tiled = this.activeTiledPyramid;
+    if (tiled === undefined) return undefined;
+    const canvas = this.renderer.domElement;
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return undefined;
+    const size = this.renderer.getDrawingBufferSize(new Vector2());
+    const scale = size.x / rect.width;
+    this.camera.updateMatrixWorld();
+    const viewProjection = new Matrix4().multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse);
+    return pickPoint(
+      tiled.tiles.map((tile) => tile.pyramid.tiers[0]!.cloud),
+      {
+        viewProjection: viewProjection.elements,
+        width: size.x,
+        height: size.y,
+        cursorX: (clientX - rect.left) * scale,
+        cursorY: (clientY - rect.top) * scale,
+        dotRadius: (depth) => this.pointCloudRenderer.dotRadius(depth),
+        maxDotRadius: maxDotSize / 2,
+        tolerance: pickTolerance * this.renderer.getPixelRatio(),
+      },
+    );
+  }
+
+  /** Notified with the picked point, or undefined for a click on empty space. Drags never notify. */
+  public onPointClick(listener: (hit: PointHit | undefined) => void): () => void {
+    this.clickListeners.add(listener);
+    return () => this.clickListeners.delete(listener);
+  }
+
+  /** Markers and measurement lines drawn over the scan; they stay until replaced. */
+  public setAnnotations(annotations: Annotations): void {
+    this.assertNotDisposed();
+    this.pointCloudRenderer.setAnnotations(annotations);
+  }
+
+  /**
+   * Where a local position appears on the canvas, in CSS pixels from its
+   * top-left corner, for placing HTML labels. `visible` is false when the
+   * position is behind the camera.
+   */
+  public projectToCanvas(position: readonly [number, number, number]): { x: number; y: number; visible: boolean } {
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    const projected = new Vector3(...position).project(this.camera);
+    return {
+      x: ((projected.x + 1) / 2) * rect.width,
+      y: ((1 - projected.y) / 2) * rect.height,
+      visible: projected.z > -1 && projected.z < 1,
+    };
+  }
+
+  /** Called after every rendered frame, for keeping HTML overlays in step with the camera. */
+  public onFrame(listener: () => void): () => void {
+    this.frameListeners.add(listener);
+    return () => this.frameListeners.delete(listener);
+  }
+
   public setColorMode(mode: PointCloudColorMode): void {
     this.assertNotDisposed();
     this.colorMode = mode;
@@ -194,6 +290,7 @@ export class LidarViewer {
         this.notifySummary();
       }
       this.pointCloudRenderer.render();
+      for (const listener of this.frameListeners) listener();
       this.frameHandle = requestAnimationFrame(tick);
     };
     this.frameHandle = requestAnimationFrame(tick);
@@ -208,6 +305,10 @@ export class LidarViewer {
   public dispose(): void {
     if (this.disposed) return;
     this.stop();
+    this.renderer.domElement.removeEventListener("pointerdown", this.onPointerDown);
+    this.renderer.domElement.removeEventListener("pointerup", this.onPointerUp);
+    this.clickListeners.clear();
+    this.frameListeners.clear();
     this.session.cancelPendingLoad();
     this.controls.dispose();
     this.buildPool?.dispose();
