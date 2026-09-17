@@ -174,9 +174,11 @@ describe("PointCloudTiler", () => {
     const sliced = await new PointCloudTiler().tileInSlices(cloud, { tileSize: 250 }, 0);
 
     expect(sliced.map((tile) => tile.id)).toEqual(whole.map((tile) => tile.id));
+    // Compared with a plain loop: toEqual walks a typed array element by
+    // element through its generic equality and takes seconds on arrays this size.
     sliced.forEach((tile, index) => {
-      expect(tile.cloud.positions).toEqual(whole[index]!.cloud.positions);
-      expect(tile.cloud.classification).toEqual(whole[index]!.cloud.classification);
+      expect(sameValues(tile.cloud.positions, whole[index]!.cloud.positions)).toBe(true);
+      expect(sameValues(tile.cloud.classification!, whole[index]!.cloud.classification!)).toBe(true);
     });
     expect(sliced.reduce((sum, tile) => sum + tile.cloud.pointCount, 0)).toBe(pointCount);
   });
@@ -660,4 +662,12 @@ function expectEveryPointInsideBounds(cloud: PointCloud): void {
       expect(value).toBeLessThanOrEqual(cloud.bounds.max[axis]!);
     }
   }
+}
+
+function sameValues(a: ArrayLike<number>, b: ArrayLike<number>): boolean {
+  if (a.length !== b.length) return false;
+  for (let index = 0; index < a.length; index += 1) {
+    if (a[index] !== b[index]) return false;
+  }
+  return true;
 }
