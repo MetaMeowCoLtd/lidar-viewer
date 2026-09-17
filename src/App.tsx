@@ -18,13 +18,21 @@ import { writeLas } from "./export/las-writer.js";
 import { classSummaryCsv, objectInventoryCsv, objectsGeoJson } from "./export/object-inventory.js";
 import { fileStem, saveFile } from "./export/save-file.js";
 import { describePoint, measureBetween, type PointDetails } from "./core/point-inspection.js";
+import { TerrainCancelled, startTerrainBuild, type TerrainJob, type TerrainResult } from "./core/terrain-job.js";
+import { contoursGeoJson, terrainGeoTiff } from "./export/terrain-export.js";
 
 const INITIAL_POINT_COUNT = 380_000;
 const budgetStep = 10_000;
 
 type ViewerStatus = "initializing" | "processing" | "ready" | "error";
 
-type ExportKind = "inventory" | "geojson" | "las" | "classes";
+type ExportKind = "inventory" | "geojson" | "las" | "classes" | "elevation" | "contours";
+
+type TerrainState =
+  | { readonly status: "idle" }
+  | { readonly status: "running"; readonly stage: string; readonly fraction: number }
+  | { readonly status: "done"; readonly result: TerrainResult; readonly seconds: number }
+  | { readonly status: "failed"; readonly message: string };
 
 type ClickTool = "inspect" | "measure";
 
@@ -91,6 +99,11 @@ export function App() {
   const sourceRef = useRef<PointCloud | undefined>(undefined);
   const [exporting, setExporting] = useState<ExportKind>();
   const [exportError, setExportError] = useState<string>();
+  const [terrain, setTerrain] = useState<TerrainState>({ status: "idle" });
+  const terrainJobRef = useRef<TerrainJob | undefined>(undefined);
+  const [showSurface, setShowSurface] = useState(true);
+  const [showContours, setShowContours] = useState(true);
+  const [showPoints, setShowPoints] = useState(true);
   const [clickTool, setClickTool] = useState<ClickTool>("inspect");
   const clickToolRef = useRef(clickTool);
   const [picks, setPicks] = useState<Picks>({});
@@ -105,7 +118,7 @@ export function App() {
   const supportsClassification = source?.supportsColorMode("classification") ?? false;
   const supportsHeightAboveGround = source?.supportsColorMode("heightAboveGround") ?? false;
   const supportsObjects = source?.supportsColorMode("objects") ?? false;
-  const analysing = ground.status === "running" || count.status === "running";
+  const analysing = ground.status === "running" || count.status === "running" || terrain.status === "running";
   const exportBlocked = source === undefined || status !== "ready" || analysing || exporting !== undefined;
   const counted = count.status === "done" && source?.objectId !== undefined;
   const showsPickCard = (clickTool === "inspect" && picks.inspected !== undefined) || (clickTool === "measure" && picks.from !== undefined);
@@ -115,6 +128,7 @@ export function App() {
   // A full pass over the class channel, so it is computed once per loaded
   // scan rather than on every render.
   const classHistogram = useMemo(() => source?.classificationHistogram() ?? [], [source]);
+  const hasGround = classHistogram.some(({ code, count: points }) => code === 2 && points >= 100);
   const aboveGroundTop = useMemo(
     () => (source?.heightAboveGround === undefined ? 0 : heightAboveGroundRampTop(source.heightAboveGround)),
     [source],
@@ -138,6 +152,20 @@ export function App() {
     clickToolRef.current = clickTool;
   }, [clickTool]);
 
+  const terrainRef = useRef(terrain);
+  useLayoutEffect(() => {
+    terrainRef.current = terrain;
+  }, [terrain]);
+
+  /** Drops the terrain, for when the ground it was built from is replaced. */
+  const clearTerrain = useCallback(() => {
+    terrainJobRef.current?.cancel();
+    terrainJobRef.current = undefined;
+    setTerrain({ status: "idle" });
+    setShowPoints(true);
+    viewerRef.current?.setTerrain(undefined, undefined);
+  }, []);
+
   /** Abandons any analysis in flight and its results, for when the scan it was working on is replaced. */
   const resetAnalysis = useCallback(() => {
     setPicks({});
@@ -151,7 +179,8 @@ export function App() {
     countJobRef.current = undefined;
     setGround({ status: "idle" });
     setCount({ status: "idle" });
-  }, []);
+    clearTerrain();
+  }, [clearTerrain]);
 
   const loadProcedural = useCallback((seed = Math.floor(Math.random() * 1_000_000)) => {
     const viewer = viewerRef.current;
@@ -337,12 +366,38 @@ export function App() {
       if (groundJobRef.current !== job) return;
       groundJobRef.current = undefined;
       setCount({ status: "idle" });
+      // New ground means a new terrain; the old one describes ground that is gone.
+      clearTerrain();
       setColorMode("heightAboveGround");
       setGround({ status: "done", stats: result.stats, seconds: (performance.now() - started) / 1000 });
     } catch (error) {
       if (error instanceof GroundDetectionCancelled || groundJobRef.current !== job) return;
       groundJobRef.current = undefined;
       setGround({ status: "failed", message: error instanceof Error ? error.message : "Ground detection failed" });
+    }
+  }, [clearTerrain]);
+
+  const buildTerrain = useCallback(async () => {
+    const viewer = viewerRef.current;
+    const cloud = sourceRef.current;
+    if (viewer === undefined || cloud === undefined) return;
+    terrainJobRef.current?.cancel();
+    const started = performance.now();
+    setTerrain({ status: "running", stage: "Starting", fraction: 0 });
+    const job = startTerrainBuild(cloud, viewerConfig().terrain, (stage, fraction) => {
+      if (terrainJobRef.current === job) setTerrain({ status: "running", stage, fraction });
+    });
+    terrainJobRef.current = job;
+    try {
+      const result = await job.result;
+      if (terrainJobRef.current !== job) return;
+      terrainJobRef.current = undefined;
+      viewer.setTerrain(result.model, result.contours);
+      setTerrain({ status: "done", result, seconds: (performance.now() - started) / 1000 });
+    } catch (error) {
+      if (error instanceof TerrainCancelled || terrainJobRef.current !== job) return;
+      terrainJobRef.current = undefined;
+      setTerrain({ status: "failed", message: error instanceof Error ? error.message : "Building the terrain failed" });
     }
   }, []);
 
@@ -388,6 +443,7 @@ export function App() {
       // Outlines belong to the cloud now on screen, so they go in after it.
       viewer.setObjects(result.objects);
       const seconds = (performance.now() - started) / 1000;
+      if (result.groundSource === "detected") clearTerrain();
       if (result.groundStats !== undefined) {
         setGround({ status: "done", stats: result.groundStats, seconds: (groundFinished - started) / 1000 });
       }
@@ -415,7 +471,7 @@ export function App() {
       countJobRef.current = undefined;
       setCount({ status: "failed", message: error instanceof Error ? error.message : "Counting buildings and trees failed" });
     }
-  }, []);
+  }, [clearTerrain]);
 
   const exportScan = useCallback(async (kind: ExportKind) => {
     const cloud = sourceRef.current;
@@ -432,6 +488,11 @@ export function App() {
         saveFile(writeLas(cloud) as BlobPart[], `${stem}-classified.las`, "application/vnd.las");
       } else if (kind === "classes") {
         saveFile([classSummaryCsv(cloud)], `${stem}-classes.csv`, "text/csv");
+      } else if (kind === "elevation" || kind === "contours") {
+        const built = terrainRef.current;
+        if (built.status !== "done") return;
+        if (kind === "elevation") saveFile([terrainGeoTiff(built.result.model, cloud.origin, cloud.spatialReference) as BlobPart], `${stem}-terrain.tif`, "image/tiff");
+        else saveFile([contoursGeoJson(built.result.contours, cloud.origin, cloud.name, cloud.spatialReference)], `${stem}-contours.geojson`, "application/geo+json");
       } else {
         const objects = countRef.current.status === "done" ? countRef.current.objects : [];
         if (kind === "inventory") saveFile([objectInventoryCsv(cloud, objects)], `${stem}-inventory.csv`, "text/csv");
@@ -479,8 +540,17 @@ export function App() {
     viewerRef.current?.setOutlineVisibility(showBuildingOutlines, showTreeOutlines);
   }, [showBuildingOutlines, showTreeOutlines]);
 
+  useEffect(() => {
+    viewerRef.current?.setTerrainVisibility(showSurface, showContours);
+  }, [showSurface, showContours]);
+
+  useEffect(() => {
+    viewerRef.current?.setPointsVisible(showPoints);
+  }, [showPoints]);
+
   useEffect(
     () => () => {
+      terrainJobRef.current?.cancel();
       importJobRef.current?.cancel();
       groundJobRef.current?.cancel();
       countJobRef.current?.cancel();
@@ -686,6 +756,34 @@ export function App() {
 
           <div className="control-block">
             <div className="control-label">
+              <span>Terrain</span>
+              <strong>{terrainHeadline(terrain)}</strong>
+            </div>
+            <button
+              className="analysis-button"
+              type="button"
+              disabled={source === undefined || status !== "ready" || analysing || !hasGround}
+              onClick={() => void buildTerrain()}
+            >
+              {terrain.status === "running" ? `${terrain.stage}\u2026` : terrain.status === "done" ? "Build terrain again" : "Build terrain"}
+            </button>
+            {terrain.status === "running" ? (
+              <div className="analysis-progress" role="progressbar" aria-label="Terrain progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(terrain.fraction * 100)}>
+                <i style={{ width: `${Math.round(terrain.fraction * 100)}%` }} />
+              </div>
+            ) : null}
+            <p className={terrain.status === "failed" ? "panel-footnote analysis-error" : "panel-footnote"}>{terrainFootnote(terrain, hasGround, source?.origin[1] ?? 0)}</p>
+            {terrain.status === "done" ? (
+              <div className="segmented-control outline-toggles" role="group" aria-label="Terrain layers">
+                <ToggleButton pressed={showSurface} onClick={() => setShowSurface((shown) => !shown)}>Surface</ToggleButton>
+                <ToggleButton pressed={showContours} onClick={() => setShowContours((shown) => !shown)}>Contours</ToggleButton>
+                <ToggleButton pressed={showPoints} onClick={() => setShowPoints((shown) => !shown)}>Points</ToggleButton>
+              </div>
+            ) : null}
+          </div>
+
+          <div className="control-block">
+            <div className="control-label">
               <span>Buildings and trees</span>
               <strong>{countHeadline(count)}</strong>
             </div>
@@ -733,6 +831,8 @@ export function App() {
               <ExportButton label="Map layer" format="GeoJSON" busy={exporting === "geojson"} disabled={exportBlocked || !counted} onClick={() => void exportScan("geojson")} />
               <ExportButton label="Classified points" format="LAS" busy={exporting === "las"} disabled={exportBlocked || !supportsClassification} onClick={() => void exportScan("las")} />
               <ExportButton label="Class summary" format="CSV" busy={exporting === "classes"} disabled={exportBlocked || !supportsClassification} onClick={() => void exportScan("classes")} />
+              <ExportButton label="Terrain elevation" format="GeoTIFF" busy={exporting === "elevation"} disabled={exportBlocked || terrain.status !== "done"} onClick={() => void exportScan("elevation")} />
+              <ExportButton label="Contour lines" format="GeoJSON" busy={exporting === "contours"} disabled={exportBlocked || terrain.status !== "done"} onClick={() => void exportScan("contours")} />
             </div>
             <p className={exportError === undefined ? "panel-footnote" : "panel-footnote analysis-error"}>
               {exportError ?? exportFootnote(counted, supportsClassification)}
@@ -961,6 +1061,27 @@ function countFootnote(count: CountState): string {
         ? `The tree stands ${formatRampHeight(treeHeights[1])} tall.`
         : `Trees stand ${formatRampHeight(treeHeights[0])} to ${formatRampHeight(treeHeights[1])} tall.`;
   return `${buildings} ${trees}`;
+}
+
+function terrainHeadline(terrain: TerrainState): string {
+  if (terrain.status === "running") return `${Math.round(terrain.fraction * 100)}%`;
+  if (terrain.status === "done") return `${terrain.seconds.toFixed(1)} s`;
+  return "\u2014";
+}
+
+function terrainFootnote(terrain: TerrainState, hasGround: boolean, originY: number): string {
+  if (terrain.status === "failed") return terrain.message;
+  if (terrain.status !== "done") {
+    return hasGround
+      ? "Turns the ground points into a 3D terrain surface with contour lines, ready to export for GIS and CAD."
+      : "Needs ground points. Detect ground first, or load a scan whose file already marks its ground.";
+  }
+  const { model, contours } = terrain.result;
+  const cell = model.grid.cellSize < 10 ? model.grid.cellSize.toFixed(1) : String(Math.round(model.grid.cellSize));
+  const low = formatRampHeight(originY + model.minElevation);
+  const high = formatRampHeight(originY + model.maxElevation);
+  const measured = formatShare(model.measuredCells, model.coveredCells);
+  return `Ground from ${low} to ${high} on a ${cell} m grid; ${measured} measured, the rest filled in under buildings and trees. Contours every ${contours.interval} m, bold every ${contours.majorInterval} m.`;
 }
 
 function groundHeadline(ground: GroundState): string {
