@@ -1,6 +1,7 @@
 export * from "./core/point-cloud.js";
 export * from "./core/spatial-reference.js";
 export * from "./core/point-picking.js";
+export * from "./core/point-inspection.js";
 export * from "./core/voxel-grid-downsampler.js";
 export * from "./core/lod-pyramid.js";
 export * from "./core/point-cloud-tiler.js";
