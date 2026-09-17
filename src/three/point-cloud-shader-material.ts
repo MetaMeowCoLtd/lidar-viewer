@@ -21,6 +21,9 @@ const colorModeToNumber: Record<PointCloudColorMode, number> = {
 const pointShapeToNumber: Record<PointCloudPointShape, number> = { circle: 0, square: 1 };
 const sizeScaleFraction = 0.78;
 const minDepthFraction = 0.01;
+/** Bounds on a drawn dot's diameter in pixels, shared by the shader and picking. */
+const minDotSize = 0.8;
+export const maxDotSize = 10;
 
 export interface PointCloudShaderOptions {
   readonly pointSize?: number;
@@ -73,7 +76,7 @@ export class PointCloudShaderMaterial extends ShaderMaterial {
           vAboveGround = heightAboveGround;
           vObject = objectId;
           vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-          gl_PointSize = clamp(uPointSize * (uSizeScale / max(uMinDepth, -mvPosition.z)), 0.8, 10.0);
+          gl_PointSize = clamp(uPointSize * (uSizeScale / max(uMinDepth, -mvPosition.z)), ${minDotSize.toFixed(1)}, ${maxDotSize.toFixed(1)});
           gl_Position = projectionMatrix * mvPosition;
         }
       `,
@@ -168,6 +171,16 @@ export class PointCloudShaderMaterial extends ShaderMaterial {
 
   public setColorMode(mode: PointCloudColorMode): void {
     this.uniforms.uColorMode!.value = colorModeToNumber[mode];
+  }
+
+  /**
+   * Radius, in drawing-surface pixels, of the dot drawn for a point this far in
+   * front of the camera. Mirrors the vertex shader, so picking agrees with what
+   * is on screen.
+   */
+  public dotRadius(depth: number): number {
+    const size = this.uniforms.uPointSize!.value * (this.uniforms.uSizeScale!.value / Math.max(this.uniforms.uMinDepth!.value, depth));
+    return Math.min(Math.max(size, minDotSize), maxDotSize) / 2;
   }
 
   /** Object ids up to this count are buildings; above it, trees. */

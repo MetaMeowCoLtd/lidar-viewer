@@ -10,7 +10,8 @@ import {
 import type { PointCloud, PointCloudBounds, PointCloudColorMode, PointCloudPointShape } from "../core/point-cloud.js";
 import type { PointCloudLodTier } from "../core/lod-pyramid.js";
 import { distanceToBounds, type TiledPointCloudLodPyramid } from "../core/tiled-lod-pyramid.js";
-import { PointCloudShaderMaterial } from "./point-cloud-shader-material.js";
+import { PointCloudShaderMaterial, maxDotSize } from "./point-cloud-shader-material.js";
+import { MeasurementOverlay, type Annotations } from "./measurement-overlay.js";
 import { EyeDomeLighting } from "./eye-dome-lighting.js";
 import { viewerConfig } from "../config.js";
 import { heightAboveGroundRampTop } from "../core/statistics.js";
@@ -59,6 +60,7 @@ export class ThreePointCloudRenderer {
   private hasHeightAboveGround = false;
   private hasObjects = false;
   private readonly outlines = new ObjectOutlines();
+  private readonly annotations = new MeasurementOverlay();
 
   public constructor(
     private readonly scene: Scene,
@@ -67,6 +69,7 @@ export class ThreePointCloudRenderer {
   ) {
     const size = renderer.getDrawingBufferSize(new Vector2());
     this.outlines.setResolution(size.x, size.y);
+    this.annotations.setResolution(size.x, size.y, renderer.getPixelRatio());
   }
 
   public setTiledPyramid(source: PointCloud, tiled: TiledPointCloudLodPyramid): void {
@@ -141,6 +144,17 @@ export class ThreePointCloudRenderer {
   public setSize(width: number, height: number): void {
     this.eyeDome?.setSize(width, height);
     this.outlines.setResolution(width, height);
+    this.annotations.setResolution(width, height, this.renderer.getPixelRatio());
+  }
+
+  /** Picked points and measurements. They belong to the view, not the cloud, so a new cloud keeps them. */
+  public setAnnotations(annotations: Annotations): void {
+    this.annotations.setAnnotations(annotations);
+  }
+
+  /** Radius in drawing-surface pixels of a point's dot at this depth, and the largest it can be. */
+  public dotRadius(depth: number): number {
+    return this.material?.dotRadius(depth) ?? maxDotSize / 2;
   }
 
   /**
@@ -162,6 +176,7 @@ export class ThreePointCloudRenderer {
     if (!this.reliefEnabled) {
       this.renderer.render(this.scene, this.camera);
       this.outlines.render(this.renderer, this.camera);
+      this.annotations.render(this.renderer, this.camera);
       return;
     }
     if (this.eyeDome === undefined) {
@@ -173,11 +188,13 @@ export class ThreePointCloudRenderer {
     }
     this.eyeDome.render(this.scene, this.camera);
     this.outlines.render(this.renderer, this.camera);
+    this.annotations.render(this.renderer, this.camera);
   }
 
   public dispose(): void {
     this.disposeCloudResources();
     this.outlines.dispose();
+    this.annotations.dispose();
     this.emptyGeometry.dispose();
     this.eyeDome?.dispose();
     this.eyeDome = undefined;
