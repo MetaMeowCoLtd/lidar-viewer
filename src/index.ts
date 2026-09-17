@@ -20,6 +20,7 @@ export * from "./core/object-detection.js";
 export * from "./core/object-detection-job.js";
 export * from "./export/las-writer.js";
 export * from "./export/object-inventory.js";
+export * from "./export/terrain-export.js";
 export * from "./three/point-cloud-shader-material.js";
 export * from "./three/three-point-cloud-renderer.js";
 export * from "./three/lidar-viewer.js";
