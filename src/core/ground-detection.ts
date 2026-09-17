@@ -222,6 +222,23 @@ function measureHeightAboveGround(
   grid: GridGeometry,
   fallback: Float32Array | undefined,
 ): Float32Array | undefined {
+  const ground = meanGroundSurface(positions, classification, grid);
+  const surface = fillEmptyCells(ground, grid.cols, grid.rows) ? ground : fallback;
+  if (surface === undefined) return undefined;
+
+  const heights = new Float32Array(positions.length / 3);
+  for (let point = 0, offset = 0; offset < positions.length; point += 1, offset += 3) {
+    heights[point] = positions[offset + 1]! - sampleSurface(surface, grid, positions[offset]!, positions[offset + 2]!);
+  }
+  return heights;
+}
+
+/**
+ * The mean height of the ground points in each cell, NaN where a cell has
+ * none. Terrain models and height above ground are both measured from it, so
+ * the two always agree about where the ground is.
+ */
+export function meanGroundSurface(positions: Float32Array, classification: Uint8Array, grid: GridGeometry): Float32Array {
   const cells = grid.cols * grid.rows;
   const ground = new Float32Array(cells).fill(Number.NaN);
   const counts = new Uint32Array(cells);
@@ -235,14 +252,7 @@ function measureHeightAboveGround(
     // hundreds of heights would not.
     ground[cell] = count === 1 ? height : ground[cell]! + (height - ground[cell]!) / count;
   }
-  const surface = fillEmptyCells(ground, grid.cols, grid.rows) ? ground : fallback;
-  if (surface === undefined) return undefined;
-
-  const heights = new Float32Array(positions.length / 3);
-  for (let point = 0, offset = 0; offset < positions.length; point += 1, offset += 3) {
-    heights[point] = positions[offset + 1]! - sampleSurface(surface, grid, positions[offset]!, positions[offset + 2]!);
-  }
-  return heights;
+  return ground;
 }
 
 /**
