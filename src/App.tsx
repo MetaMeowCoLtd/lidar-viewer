@@ -88,6 +88,9 @@ export function App() {
   const measureLabelRef = useRef<HTMLDivElement>(null);
 
   const source = pyramid?.tiers[0]?.cloud;
+  // The budget the user chose is kept as chosen and only capped here, per scan.
+  // Writing the cap back into it would shrink the budget to the size of a small
+  // scan and leave the next, larger one drawn at a fraction of its detail.
   const effectivePointBudget = Math.min(pointBudget, source?.pointCount ?? pointBudget);
   const supportsRgb = source?.supportsColorMode("rgb") ?? false;
   const supportsClassification = source?.supportsColorMode("classification") ?? false;
@@ -224,12 +227,6 @@ export function App() {
   useEffect(() => {
     viewerRef.current?.setPointBudget(effectivePointBudget);
   }, [effectivePointBudget]);
-
-  useEffect(() => {
-    if (source !== undefined && pointBudget > source.pointCount) {
-      setPointBudget(source.pointCount);
-    }
-  }, [pointBudget, source]);
 
   useEffect(() => {
     viewerRef.current?.setPointSize(pointSize);
