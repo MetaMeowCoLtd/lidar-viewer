@@ -258,6 +258,7 @@ describe("inventory exports", () => {
     expect(layer.crs).toBeUndefined();
   });
 
+  // Builds and analyses a half-million-point scene, which takes seconds on a slow CI runner.
   it("exports footprints whose map area matches the measured area", () => {
     const scene = buildAerialScene({ seed: 3 });
     const result = detectObjects({
@@ -283,7 +284,7 @@ describe("inventory exports", () => {
     }
     const csvRows = objectInventoryCsv(cloud, result.objects).trim().split("\r\n");
     expect(csvRows).toHaveLength(result.objects.length + 1);
-  });
+  }, 60_000);
 
   it("converts viewer axes to east, north, up", () => {
     expect(toMapCoordinates([500, 10, -2000], 1, 2, 3)).toEqual([501, 1997, 12]);
