@@ -39,24 +39,31 @@ export class PointCloudTiler {
    * seconds are a frozen tab. In slices the page keeps drawing and responding
    * while it runs, for the cost of the few yields.
    */
-  public async tileInSlices(source: PointCloud, options: TilingOptions, budgetMs = 30): Promise<PointCloudTile[]> {
+  public async tileInSlices(
+    source: PointCloud,
+    options: TilingOptions,
+    budgetMs = 30,
+    onProgress?: (fraction: number) => void,
+  ): Promise<PointCloudTile[]> {
     const steps = this.partition(source, options);
     let sliceStart = performance.now();
     for (;;) {
       const step = steps.next();
       if (step.done === true) return step.value;
       if (performance.now() - sliceStart < budgetMs) continue;
+      onProgress?.(step.value);
       await yieldToEventLoop();
       sliceStart = performance.now();
     }
   }
 
   /**
-   * The partition as a sequence of steps, pausing after every block of points.
-   * The per-point loops live in plain functions called from here, because hot
-   * loops written directly inside a generator run markedly slower.
+   * The partition as a sequence of steps, pausing after every block of points
+   * with the fraction of the work done so far. The per-point loops live in
+   * plain functions called from here, because hot loops written directly
+   * inside a generator run markedly slower.
    */
-  private *partition(source: PointCloud, options: TilingOptions): Generator<void, PointCloudTile[]> {
+  private *partition(source: PointCloud, options: TilingOptions): Generator<number, PointCloudTile[]> {
     const { tileSize } = options;
     if (!Number.isFinite(tileSize) || tileSize <= 0) {
       throw new Error("tileSize must be a finite number greater than zero");
@@ -85,8 +92,10 @@ export class PointCloudTiler {
       }
     };
     for (let first = 0; first < pointCount; first += stepPoints) {
-      count(first, Math.min(pointCount, first + stepPoints));
-      yield;
+      const last = Math.min(pointCount, first + stepPoints);
+      count(first, last);
+      // Counting only reads, so it is the cheaper share of the work.
+      yield countShare * (last / pointCount);
     }
 
     const tileOfCell = new Int32Array(cellCounts.length).fill(-1);
@@ -137,8 +146,9 @@ export class PointCloudTiler {
       }
     };
     for (let first = 0; first < pointCount; first += stepPoints) {
-      scatter(first, Math.min(pointCount, first + stepPoints));
-      yield;
+      const last = Math.min(pointCount, first + stepPoints);
+      scatter(first, last);
+      yield countShare + (1 - countShare) * (last / pointCount);
     }
 
     return cellOfTile.map((cell, tile) => {
@@ -160,6 +170,9 @@ export class PointCloudTiler {
     });
   }
 }
+
+/** The share of a partition's time spent counting points into cells, before copying them into tiles. */
+const countShare = 0.3;
 
 /** Points handled between pauses; small enough that a pause is never far away. */
 const stepPoints = 1 << 16;

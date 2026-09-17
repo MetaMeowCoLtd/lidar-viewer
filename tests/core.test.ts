@@ -171,7 +171,12 @@ describe("PointCloudTiler", () => {
     const cloud = new PointCloud({ positions, classification });
     const whole = new PointCloudTiler().tile(cloud, { tileSize: 250 });
     // A zero budget yields after every block, the most interrupted run possible.
-    const sliced = await new PointCloudTiler().tileInSlices(cloud, { tileSize: 250 }, 0);
+    const progress: number[] = [];
+    const sliced = await new PointCloudTiler().tileInSlices(cloud, { tileSize: 250 }, 0, (fraction) => progress.push(fraction));
+
+    expect(progress.length).toBeGreaterThan(2);
+    expect(progress.every((fraction, index) => fraction > 0 && fraction <= 1 && (index === 0 || fraction > progress[index - 1]!))).toBe(true);
+    expect(progress.at(-1)).toBe(1);
 
     expect(sliced.map((tile) => tile.id)).toEqual(whole.map((tile) => tile.id));
     // Compared with a plain loop: toEqual walks a typed array element by

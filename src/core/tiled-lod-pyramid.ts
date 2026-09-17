@@ -52,16 +52,26 @@ export class TiledPointCloudLodPyramid {
    * Builds every tile's pyramid on a worker pool. A cloud small enough to stay
    * in one tile is built on the calling thread instead, because that tile's
    * buffers are the caller's own and must not be transferred away.
+   *
+   * `onProgress` hears the fraction done: partitioning into tiles first, then
+   * each tile as its worker finishes.
    */
   public static async buildWithPool(
     source: PointCloud,
     specs: readonly LodTierSpec[],
     tiling: TilingConfig,
     pool: LodBuildPool,
+    onProgress?: (fraction: number) => void,
   ): Promise<TiledPointCloudLodPyramid> {
-    const rawTiles = await partitionInSlices(source, tiling);
-    if (rawTiles.length === 1) return TiledPointCloudLodPyramid.build(source, specs, tiling);
+    const rawTiles = await partitionInSlices(source, tiling, (fraction) => onProgress?.(partitionShare * fraction));
+    if (rawTiles.length === 1) {
+      const whole = TiledPointCloudLodPyramid.build(source, specs, tiling);
+      onProgress?.(1);
+      return whole;
+    }
 
+    let built = 0;
+    onProgress?.(partitionShare);
     const tiles = await Promise.all(
       rawTiles.map(async (tile) => {
         const bounds = tile.cloud.bounds;
@@ -73,6 +83,8 @@ export class TiledPointCloudLodPyramid {
           origin: tile.cloud.origin,
           specs,
         });
+        built += 1;
+        onProgress?.(partitionShare + (1 - partitionShare) * (built / rawTiles.length));
         return { id: tile.id, bounds, pyramid: new PointCloudLodPyramid(response.tiers.map(toTier)) };
       }),
     );
@@ -105,15 +117,26 @@ export class TiledPointCloudLodPyramid {
   }
 }
 
+/**
+ * The share of a pooled build's progress given to partitioning, which runs on
+ * the page's thread one point at a time; the per-tile builds that follow run
+ * in parallel on workers and take roughly as long again.
+ */
+const partitionShare = 0.5;
+
 function partition(source: PointCloud, tiling: TilingConfig): readonly PointCloudTile[] {
   const tileSize = tileSizeFor(source, tiling);
   return tileSize === undefined ? singleTile(source) : new PointCloudTiler().tile(source, { tileSize });
 }
 
 /** {@link partition} without holding the thread; see {@link PointCloudTiler.tileInSlices}. */
-async function partitionInSlices(source: PointCloud, tiling: TilingConfig): Promise<readonly PointCloudTile[]> {
+async function partitionInSlices(
+  source: PointCloud,
+  tiling: TilingConfig,
+  onProgress?: (fraction: number) => void,
+): Promise<readonly PointCloudTile[]> {
   const tileSize = tileSizeFor(source, tiling);
-  return tileSize === undefined ? singleTile(source) : new PointCloudTiler().tileInSlices(source, { tileSize });
+  return tileSize === undefined ? singleTile(source) : new PointCloudTiler().tileInSlices(source, { tileSize }, undefined, onProgress);
 }
 
 /** The tile edge for a cloud, or undefined when it should stay in one tile. */
