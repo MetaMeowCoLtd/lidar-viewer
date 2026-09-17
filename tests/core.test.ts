@@ -157,6 +157,29 @@ describe("PointCloudTiler", () => {
     expect(() => new PointCloudTiler().tile(cloud, { tileSize: 0 })).toThrow();
     expect(() => new PointCloudTiler().tile(cloud, { tileSize: -5 })).toThrow();
   });
+
+  it("partitions identically when it hands the thread back between slices", async () => {
+    const pointCount = 300_000;
+    const positions = new Float32Array(pointCount * 3);
+    const classification = new Uint8Array(pointCount);
+    for (let point = 0; point < pointCount; point += 1) {
+      positions[point * 3] = (point * 7919) % 1000;
+      positions[point * 3 + 1] = point % 13;
+      positions[point * 3 + 2] = (point * 104_729) % 1000;
+      classification[point] = point % 5;
+    }
+    const cloud = new PointCloud({ positions, classification });
+    const whole = new PointCloudTiler().tile(cloud, { tileSize: 250 });
+    // A zero budget yields after every block, the most interrupted run possible.
+    const sliced = await new PointCloudTiler().tileInSlices(cloud, { tileSize: 250 }, 0);
+
+    expect(sliced.map((tile) => tile.id)).toEqual(whole.map((tile) => tile.id));
+    sliced.forEach((tile, index) => {
+      expect(tile.cloud.positions).toEqual(whole[index]!.cloud.positions);
+      expect(tile.cloud.classification).toEqual(whole[index]!.cloud.classification);
+    });
+    expect(sliced.reduce((sum, tile) => sum + tile.cloud.pointCount, 0)).toBe(pointCount);
+  });
 });
 
 describe("TiledPointCloudLodPyramid", () => {

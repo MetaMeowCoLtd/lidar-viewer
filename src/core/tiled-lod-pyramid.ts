@@ -59,7 +59,7 @@ export class TiledPointCloudLodPyramid {
     tiling: TilingConfig,
     pool: LodBuildPool,
   ): Promise<TiledPointCloudLodPyramid> {
-    const rawTiles = partition(source, tiling);
+    const rawTiles = await partitionInSlices(source, tiling);
     if (rawTiles.length === 1) return TiledPointCloudLodPyramid.build(source, specs, tiling);
 
     const tiles = await Promise.all(
@@ -106,12 +106,26 @@ export class TiledPointCloudLodPyramid {
 }
 
 function partition(source: PointCloud, tiling: TilingConfig): readonly PointCloudTile[] {
-  const single: readonly PointCloudTile[] = [{ id: "tile-0-0", gridX: 0, gridZ: 0, cloud: source }];
-  if (!tiling.enabled) return single;
+  const tileSize = tileSizeFor(source, tiling);
+  return tileSize === undefined ? singleTile(source) : new PointCloudTiler().tile(source, { tileSize });
+}
+
+/** {@link partition} without holding the thread; see {@link PointCloudTiler.tileInSlices}. */
+async function partitionInSlices(source: PointCloud, tiling: TilingConfig): Promise<readonly PointCloudTile[]> {
+  const tileSize = tileSizeFor(source, tiling);
+  return tileSize === undefined ? singleTile(source) : new PointCloudTiler().tileInSlices(source, { tileSize });
+}
+
+/** The tile edge for a cloud, or undefined when it should stay in one tile. */
+function tileSizeFor(source: PointCloud, tiling: TilingConfig): number | undefined {
+  if (!tiling.enabled) return undefined;
   const span = Math.max(source.bounds.size[0], source.bounds.size[2]);
   const tilesPerAxis = Math.ceil(Math.sqrt(source.pointCount / Math.max(1, tiling.targetPointsPerTile)));
-  if (span <= 0 || tilesPerAxis < 2) return single;
-  return new PointCloudTiler().tile(source, { tileSize: span / tilesPerAxis });
+  return span <= 0 || tilesPerAxis < 2 ? undefined : span / tilesPerAxis;
+}
+
+function singleTile(source: PointCloud): readonly PointCloudTile[] {
+  return [{ id: "tile-0-0", gridX: 0, gridZ: 0, cloud: source }];
 }
 
 function toTier(tier: SerializedTier): PointCloudLodTier {

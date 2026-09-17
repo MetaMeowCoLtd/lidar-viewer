@@ -1,4 +1,5 @@
 import { PointCloud } from "./point-cloud.js";
+import { yieldToEventLoop } from "./yield.js";
 
 export interface TilingOptions {
   /** World-space edge length of one square XZ tile column. */
@@ -24,6 +25,38 @@ export interface PointCloudTile {
  */
 export class PointCloudTiler {
   public tile(source: PointCloud, options: TilingOptions): PointCloudTile[] {
+    const steps = this.partition(source, options);
+    for (;;) {
+      const step = steps.next();
+      if (step.done === true) return step.value;
+    }
+  }
+
+  /**
+   * The same partition, handing the thread back to the browser whenever a
+   * slice of work has run for `budgetMs`. Copying tens of millions of points
+   * into tiles takes seconds; done in one go on the page's thread, those
+   * seconds are a frozen tab. In slices the page keeps drawing and responding
+   * while it runs, for the cost of the few yields.
+   */
+  public async tileInSlices(source: PointCloud, options: TilingOptions, budgetMs = 30): Promise<PointCloudTile[]> {
+    const steps = this.partition(source, options);
+    let sliceStart = performance.now();
+    for (;;) {
+      const step = steps.next();
+      if (step.done === true) return step.value;
+      if (performance.now() - sliceStart < budgetMs) continue;
+      await yieldToEventLoop();
+      sliceStart = performance.now();
+    }
+  }
+
+  /**
+   * The partition as a sequence of steps, pausing after every block of points.
+   * The per-point loops live in plain functions called from here, because hot
+   * loops written directly inside a generator run markedly slower.
+   */
+  private *partition(source: PointCloud, options: TilingOptions): Generator<void, PointCloudTile[]> {
     const { tileSize } = options;
     if (!Number.isFinite(tileSize) || tileSize <= 0) {
       throw new Error("tileSize must be a finite number greater than zero");
@@ -45,9 +78,15 @@ export class PointCloudTiler {
       clamp(Math.floor((positions[offset]! - originX) / tileSize), columns - 1);
 
     const cellCounts = new Int32Array(columns * rows);
-    for (let offset = 0; offset < positions.length; offset += 3) {
-      const cell = cellOf(offset);
-      cellCounts[cell] = cellCounts[cell]! + 1;
+    const count = (first: number, last: number): void => {
+      for (let offset = first * 3; offset < last * 3; offset += 3) {
+        const cell = cellOf(offset);
+        cellCounts[cell] = cellCounts[cell]! + 1;
+      }
+    };
+    for (let first = 0; first < pointCount; first += stepPoints) {
+      count(first, Math.min(pointCount, first + stepPoints));
+      yield;
     }
 
     const tileOfCell = new Int32Array(cellCounts.length).fill(-1);
@@ -76,24 +115,30 @@ export class PointCloudTiler {
     );
     const cursors = new Int32Array(cellOfTile.length);
 
-    for (let point = 0, offset = 0; point < pointCount; point += 1, offset += 3) {
-      const tile = tileOfCell[cellOf(offset)]!;
-      const target = cursors[tile]!;
-      cursors[tile] = target + 1;
+    const scatter = (first: number, last: number): void => {
+      for (let point = first, offset = first * 3; point < last; point += 1, offset += 3) {
+        const tile = tileOfCell[cellOf(offset)]!;
+        const target = cursors[tile]!;
+        cursors[tile] = target + 1;
 
-      const targetOffset = target * 3;
-      const destination = tilePositions[tile]!;
-      destination[targetOffset] = positions[offset]!;
-      destination[targetOffset + 1] = positions[offset + 1]!;
-      destination[targetOffset + 2] = positions[offset + 2]!;
-      if (tileColors !== undefined) {
-        const destinationColors = tileColors[tile]!;
-        destinationColors[targetOffset] = colors![offset]!;
-        destinationColors[targetOffset + 1] = colors![offset + 1]!;
-        destinationColors[targetOffset + 2] = colors![offset + 2]!;
+        const targetOffset = target * 3;
+        const destination = tilePositions[tile]!;
+        destination[targetOffset] = positions[offset]!;
+        destination[targetOffset + 1] = positions[offset + 1]!;
+        destination[targetOffset + 2] = positions[offset + 2]!;
+        if (tileColors !== undefined) {
+          const destinationColors = tileColors[tile]!;
+          destinationColors[targetOffset] = colors![offset]!;
+          destinationColors[targetOffset + 1] = colors![offset + 1]!;
+          destinationColors[targetOffset + 2] = colors![offset + 2]!;
+        }
+        if (tileIntensity !== undefined) tileIntensity[tile]![target] = intensity![point]!;
+        for (const entry of perPoint) entry.tiles[tile]![target] = entry.channel[point]!;
       }
-      if (tileIntensity !== undefined) tileIntensity[tile]![target] = intensity![point]!;
-      for (const entry of perPoint) entry.tiles[tile]![target] = entry.channel[point]!;
+    };
+    for (let first = 0; first < pointCount; first += stepPoints) {
+      scatter(first, Math.min(pointCount, first + stepPoints));
+      yield;
     }
 
     return cellOfTile.map((cell, tile) => {
@@ -115,6 +160,9 @@ export class PointCloudTiler {
     });
   }
 }
+
+/** Points handled between pauses; small enough that a pause is never far away. */
+const stepPoints = 1 << 16;
 
 /** A new, empty typed array of the same kind as `source`. */
 function allocateLike<T extends Uint8Array | Uint32Array | Float32Array>(source: T, length: number): T {
