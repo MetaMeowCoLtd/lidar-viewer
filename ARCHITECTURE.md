@@ -192,6 +192,36 @@ Not supported: writing LAZ, since the laz-perf build decompresses only, and
 fields the viewer does not load - GPS time, scan angle, point source id and
 other extra bytes - are not carried into the LAS export.
 
+## Loading large scans
+
+The file-size cap is gone; what bounds a load now is memory for the points
+themselves.
+
+- **Off the page's thread.** `startScanImport` hands the `File` - a handle, not
+  its bytes - to a worker, which reads it and transfers the finished arrays
+  back without copying. Progress is reported per percent; picking another scan
+  terminates the worker, and with it everything it held.
+- **In slices.** Readers work through a `ByteSource` and ask only for what they
+  are about to decode: headers, coordinate-system records, and 16 MB blocks of
+  point records. The file is never in memory whole, next to the arrays being
+  built from it. LAZ is the exception by necessity: laz-perf decompresses from
+  its own WebAssembly heap, so the compressed file is copied in - block by
+  block, never as one JavaScript buffer - and the 2 GB cap on that heap limits
+  LAZ files to about 1.9 GB.
+- **Thinned, not refused.** Every loaded point costs memory several times over:
+  the cloud, its tiles and their detail levels. Scans with more than
+  `maxImportPoints` points keep every n-th point, which spreads the kept points
+  across the whole scan because writers store points in acquisition or spatial
+  order. The panel says when this happened and by how much. The default of 60
+  million loads the 900 MB, 60-million-point Shinjuku sample in about 20
+  seconds.
+- **Tiling in slices.** Partitioning tens of millions of points into tiles takes
+  seconds and runs on the page's thread, because the tiles are what the page
+  draws. `PointCloudTiler.tileInSlices` runs the same partition as a generator
+  and yields to the browser every 30 ms, through a message channel rather than
+  a timer, which background tabs throttle. On a 10-million-point scan the
+  longest stall during a load fell from 1.4 s to about 0.1 s.
+
 ## Rendering approach
 
 The renderer uses one `THREE.Points` draw call for the active tier and a custom
@@ -202,9 +232,9 @@ the shader layout stays stable across all clouds.
 
 ## Intentional next boundaries
 
-1. Move file parsing into a worker for million-point imports, transferring
-   typed-array buffers into the existing `PointCloud` contract. Pyramid
-   construction already runs on a worker pool.
+1. Stream scans beyond memory - an out-of-core octree - for datasets larger
+   than any single tab can hold. Parsing, tiling and pyramid construction
+   already stay off the page's thread or yield to it.
 2. Add retained performance telemetry (FPS, frame time, GPU capability) to the
    React overlay without coupling it to Three.js scene state.
 3. Add accessibility and keyboard navigation refinements to the control panel.

@@ -7,6 +7,10 @@ only responsible for GPU resources and draw configuration.
 ## Current scope
 
 - LAS, LAZ and PLY readers, dispatched on the file's own leading bytes
+- Large scans load on a worker, read from disk in slices with progress, so the
+  page stays responsive and a file is never held in memory whole. Scans over
+  `maxImportPoints` (60 million by default) are thinned evenly to fit rather
+  than refused; LAZ files are limited to 1.9 GB by the decoder's memory
 - Georeferenced scans held in a local frame with a double-precision origin
 - ASPRS classification and per-pulse return fields, carried through decimation
 - Ground detection on a worker: classifies ground and low noise, and measures
