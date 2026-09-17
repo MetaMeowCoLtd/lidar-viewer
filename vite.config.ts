@@ -5,4 +5,7 @@ import { defineConfig } from "vite";
 // GitHub Pages project subpath like https://<org>.github.io/lidar-viewer/.
 export default defineConfig({
   base: "./",
+  // Workers are started as module workers, and the scan import worker loads
+  // the LAZ decoder lazily, which needs a code-splitting output format.
+  worker: { format: "es" },
 });

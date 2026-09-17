@@ -19,6 +19,12 @@ export const supportedScanExtensions = [".las", ".laz", ".ply"] as const;
  * has no chance with before spending time on them.
  */
 export async function importScanFile(file: File): Promise<PointCloud> {
+  validateScanFile(file);
+  return importScan(blobSource(file), scanName(file));
+}
+
+/** Rejects a file no reader could take, before any work is spent on it. */
+export function validateScanFile(file: File): void {
   const lowerName = file.name.toLowerCase();
   if (!supportedScanExtensions.some((extension) => lowerName.endsWith(extension))) {
     throw new Error(`Select a ${supportedScanExtensions.join(", ")} point-cloud file`);
@@ -29,9 +35,11 @@ export async function importScanFile(file: File): Promise<PointCloud> {
   if (file.size > maxImportSizeMb * 1024 * 1024) {
     throw new Error(`This build reads scans up to ${maxImportSizeMb} MB. Larger scans need the planned streaming pipeline.`);
   }
+}
 
-  const name = file.name.replace(/\.(las|laz|ply)$/i, "");
-  return importScan(blobSource(file), name);
+/** The name a scan is shown and exported under: its file name without the extension. */
+export function scanName(file: File): string {
+  return file.name.replace(/\.(las|laz|ply)$/i, "");
 }
 
 /** Bytes read up front: enough for any LAS header and a PLY header. */
