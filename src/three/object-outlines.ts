@@ -3,6 +3,7 @@ import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 import { LineSegments2 } from "three/examples/jsm/lines/LineSegments2.js";
 import { LineSegmentsGeometry } from "three/examples/jsm/lines/LineSegmentsGeometry.js";
 import type { DetectedBuilding, DetectedObject, DetectedTree } from "../core/object-detection.js";
+import { pullTowardCamera } from "./depth-pull.js";
 
 const crownSegments = 28;
 
@@ -10,10 +11,7 @@ const crownSegments = 28;
  * How far toward the camera outlines are drawn, as a fraction of their
  * distance. A roof outline sits at the roof's measured height with roof points
  * all around it, and a crown ring sits inside its crown; without this nudge
- * the points they describe would hide them. Scaling a position toward the
- * camera leaves it at the same place on screen and only changes its depth,
- * and a fraction of the distance keeps the nudge in proportion to how large
- * points are drawn at that distance.
+ * the points they describe would hide them.
  */
 const depthPull = 0.02;
 
@@ -118,15 +116,7 @@ function outlineMaterial(color: number): LineMaterial {
     depthTest: true,
     depthWrite: false,
   });
-  material.onBeforeCompile = (shader) => {
-    shader.uniforms.uDepthPull = { value: 1 - depthPull };
-    shader.vertexShader = shader.vertexShader
-      .replace("void main() {", "uniform float uDepthPull;\nvoid main() {")
-      .replace(
-        "vec4 end = modelViewMatrix * vec4( instanceEnd, 1.0 );",
-        "vec4 end = modelViewMatrix * vec4( instanceEnd, 1.0 );\nstart.xyz *= uDepthPull;\nend.xyz *= uDepthPull;",
-      );
-  };
+  pullTowardCamera(material, depthPull);
   return material;
 }
 
