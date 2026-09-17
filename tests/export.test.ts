@@ -5,10 +5,10 @@ import {
   detectObjects,
   epsgFromGeoKeys,
   epsgFromWkt,
-  lasAxes,
   objectInventoryCsv,
   objectsGeoJson,
   spatialReferenceFromRecords,
+  toMapCoordinates,
   writeLas,
   type DetectedObject,
   type SpatialReference,
@@ -285,7 +285,7 @@ describe("inventory exports", () => {
   });
 
   it("converts viewer axes to east, north, up", () => {
-    expect(lasAxes([500, 10, -2000], 1, 2, 3)).toEqual([501, 1997, 12]);
+    expect(toMapCoordinates([500, 10, -2000], 1, 2, 3)).toEqual([501, 1997, 12]);
   });
 
   it("makes scan names safe as file names", () => {

@@ -1,7 +1,6 @@
-import type { PointCloud } from "../core/point-cloud.js";
+import { toMapCoordinates, type PointCloud } from "../core/point-cloud.js";
 import type { DetectedObject } from "../core/object-detection.js";
 import { classificationName } from "../core/point-cloud-classification.js";
-import { lasAxes } from "./las-writer.js";
 
 /**
  * Inventory exports: what was found in a scan, as a table for a spreadsheet
@@ -72,7 +71,7 @@ export function objectsGeoJson(cloud: PointCloud, objects: readonly DetectedObje
         },
       };
     }
-    const top = lasAxes(cloud.origin, object.top[0], object.top[1], object.top[2]);
+    const top = toMapCoordinates(cloud.origin, object.top[0], object.top[1], object.top[2]);
     return {
       type: "Feature",
       id: object.id,
@@ -100,7 +99,7 @@ export function objectsGeoJson(cloud: PointCloud, objects: readonly DetectedObje
 /** Where an object sits on the map: a building's footprint centre, or a tree's top. */
 function objectLocation(cloud: PointCloud, object: DetectedObject): [number, number] {
   const [x, z] = object.kind === "building" ? object.center : [object.top[0], object.top[2]];
-  const world = lasAxes(cloud.origin, x, 0, z);
+  const world = toMapCoordinates(cloud.origin, x, 0, z);
   return [world[0], world[1]];
 }
 
@@ -112,7 +111,7 @@ function objectLocation(cloud: PointCloud, object: DetectedObject): [number, num
 function footprintRing(cloud: PointCloud, outline: Float32Array): [number, number][] {
   const ring: [number, number][] = [];
   for (let index = 0; index + 1 < outline.length; index += 2) {
-    const world = lasAxes(cloud.origin, outline[index]!, 0, outline[index + 1]!);
+    const world = toMapCoordinates(cloud.origin, outline[index]!, 0, outline[index + 1]!);
     ring.push([round(world[0], 3), round(world[1], 3)]);
   }
   if (ring.length === 0) return ring;

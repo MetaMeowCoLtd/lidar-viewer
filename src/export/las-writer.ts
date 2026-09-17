@@ -1,4 +1,4 @@
-import type { PointCloud } from "../core/point-cloud.js";
+import { toMapCoordinates, type PointCloud } from "../core/point-cloud.js";
 import { ogcWktRecordId, type SpatialReferenceRecord } from "../core/spatial-reference.js";
 
 /**
@@ -195,12 +195,7 @@ export function lasFrame(cloud: PointCloud): { scale: [number, number, number]; 
     while (extent / step > 2_000_000_000) step *= 10;
     return step;
   }) as [number, number, number];
-  return { scale, offset: lasAxes(cloud.origin, 0, 0, 0) };
-}
-
-/** A local viewer-axis position as world coordinates in LAS axes: east, north, up. */
-export function lasAxes(origin: readonly [number, number, number], x: number, y: number, z: number): [number, number, number] {
-  return [origin[0] + x, -(origin[2] + z) + 0, origin[1] + y];
+  return { scale, offset: toMapCoordinates(cloud.origin, 0, 0, 0) };
 }
 
 /**

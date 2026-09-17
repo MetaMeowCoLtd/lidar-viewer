@@ -228,6 +228,21 @@ export class PointCloud {
 }
 
 /**
+ * A local position in viewer axes (x east, y up, z south) as map coordinates:
+ * east, north and elevation in the scan's own coordinate system, resolved in
+ * double precision. This is the order LAS, GIS tools and surveyors use.
+ */
+export function toMapCoordinates(
+  origin: PointCloudOrigin,
+  x: number,
+  y: number,
+  z: number,
+): [east: number, north: number, elevation: number] {
+  // Adding zero folds the negative zero that negating zero produces.
+  return [origin[0] + x, -(origin[2] + z) + 0, origin[1] + y];
+}
+
+/**
  * Picks a local frame for a cloud whose extent in world coordinates is known.
  * The anchor is the nearest round multiple of `step` to the centre, so it stays
  * readable in a coordinate readout and stable across reloads of the same scan,
