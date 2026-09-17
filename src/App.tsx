@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, DragEvent, ReactNode } from "react";
 import { PointCloud, definedChannels, type PointCloudColorMode, type PointCloudPointShape } from "./core/point-cloud.js";
 import type { PointCloudLodPyramid } from "./core/lod-pyramid.js";
@@ -9,6 +9,8 @@ import { LidarViewer } from "./three/lidar-viewer.js";
 import { classificationColor, classificationName } from "./core/point-cloud-classification.js";
 import { GroundDetectionCancelled, startGroundDetection, type GroundDetectionJob } from "./core/ground-detection-job.js";
 import type { GroundDetectionStats } from "./core/ground-detection.js";
+import { ObjectDetectionCancelled, startObjectDetection, type ObjectDetectionJob } from "./core/object-detection-job.js";
+import type { ObjectDetectionStats } from "./core/object-detection.js";
 import { heightAboveGroundRampTop } from "./core/statistics.js";
 import { viewerConfig } from "./config.js";
 
@@ -21,6 +23,12 @@ type GroundState =
   | { readonly status: "idle" }
   | { readonly status: "running"; readonly stage: string; readonly fraction: number }
   | { readonly status: "done"; readonly stats: GroundDetectionStats; readonly seconds: number }
+  | { readonly status: "failed"; readonly message: string };
+
+type CountState =
+  | { readonly status: "idle" }
+  | { readonly status: "running"; readonly stage: string; readonly fraction: number }
+  | { readonly status: "done"; readonly stats: ObjectDetectionStats; readonly tallestBuilding: number; readonly treeHeights: readonly [number, number]; readonly seconds: number }
   | { readonly status: "failed"; readonly message: string };
 
 export function App() {
@@ -43,6 +51,10 @@ export function App() {
   const [lodSummary, setLodSummary] = useState<LodRenderSummary>();
   const [ground, setGround] = useState<GroundState>({ status: "idle" });
   const groundJobRef = useRef<GroundDetectionJob | undefined>(undefined);
+  const [count, setCount] = useState<CountState>({ status: "idle" });
+  const countJobRef = useRef<ObjectDetectionJob | undefined>(undefined);
+  const [showBuildingOutlines, setShowBuildingOutlines] = useState(true);
+  const [showTreeOutlines, setShowTreeOutlines] = useState(true);
   const sourceRef = useRef<PointCloud | undefined>(undefined);
 
   const source = pyramid?.tiers[0]?.cloud;
@@ -50,6 +62,8 @@ export function App() {
   const supportsRgb = source?.supportsColorMode("rgb") ?? false;
   const supportsClassification = source?.supportsColorMode("classification") ?? false;
   const supportsHeightAboveGround = source?.supportsColorMode("heightAboveGround") ?? false;
+  const supportsObjects = source?.supportsColorMode("objects") ?? false;
+  const analysing = ground.status === "running" || count.status === "running";
   const budgetMaximum = source?.pointCount ?? viewerConfig().defaultPointBudget;
   const budgetSliderMax = Math.max(budgetStep, Math.ceil(budgetMaximum / budgetStep) * budgetStep);
 
@@ -61,27 +75,34 @@ export function App() {
     [source],
   );
 
-  useEffect(() => {
+  // A layout effect runs before the browser paints, so the moment a new scan
+  // appears on screen, a click on an analysis button already works on it. A
+  // plain effect runs after the paint, and a click in between would start work
+  // on the scan that was just replaced.
+  useLayoutEffect(() => {
     sourceRef.current = source;
   }, [source]);
 
-  /** Abandons any ground detection in flight, for when the scan it was working on is replaced. */
-  const resetGround = useCallback(() => {
+  /** Abandons any analysis in flight and its results, for when the scan it was working on is replaced. */
+  const resetAnalysis = useCallback(() => {
     groundJobRef.current?.cancel();
     groundJobRef.current = undefined;
+    countJobRef.current?.cancel();
+    countJobRef.current = undefined;
     setGround({ status: "idle" });
+    setCount({ status: "idle" });
   }, []);
 
   const loadProcedural = useCallback((seed = Math.floor(Math.random() * 1_000_000)) => {
     const viewer = viewerRef.current;
     if (viewer === undefined) return;
-    resetGround();
+    resetAnalysis();
     setSourceLabel("Procedural city block");
     void viewer.load(
       new ProceduralCloudGenerator().generate({ pointCount: INITIAL_POINT_COUNT, seed }),
       createLodSpecs(115),
     );
-  }, [resetGround]);
+  }, [resetAnalysis]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -166,7 +187,7 @@ export function App() {
 
   const loadFile = useCallback(async (file: File) => {
     try {
-      resetGround();
+      resetAnalysis();
       setSourceLabel(file.name);
       setStatus("processing");
       setStatusText("Reading local scan");
@@ -176,7 +197,7 @@ export function App() {
       setStatus("error");
       setStatusText(error instanceof Error ? error.message : "Unable to load that scan");
     }
-  }, [resetGround]);
+  }, [resetAnalysis]);
 
   const detectGround = useCallback(async () => {
     const viewer = viewerRef.current;
@@ -191,12 +212,21 @@ export function App() {
     groundJobRef.current = job;
     try {
       const result = await job.result;
-      // The user may have opened another scan while this one was analysed.
-      if (groundJobRef.current !== job || sourceRef.current !== cloud) return;
+      if (groundJobRef.current !== job) return;
+      // The user may have opened another scan while this one was analysed;
+      // the result is for a scan no longer on screen, so it is dropped.
+      if (sourceRef.current !== cloud) {
+        groundJobRef.current = undefined;
+        setGround({ status: "idle" });
+        return;
+      }
+      // Rebuilding every detail level with the new labels takes seconds on a
+      // large scan, and saying so beats a progress bar stuck at its end.
+      setGround({ status: "running", stage: "Updating the view", fraction: 1 });
       await viewer.replaceCloud(
         new PointCloud({
           positions: cloud.positions,
-          ...definedChannels(cloud),
+          ...channelsWithoutObjects(cloud),
           classification: result.classification,
           heightAboveGround: result.heightAboveGround,
           bounds: cloud.bounds,
@@ -206,6 +236,7 @@ export function App() {
       );
       if (groundJobRef.current !== job) return;
       groundJobRef.current = undefined;
+      setCount({ status: "idle" });
       setColorMode("heightAboveGround");
       setGround({ status: "done", stats: result.stats, seconds: (performance.now() - started) / 1000 });
     } catch (error) {
@@ -215,7 +246,86 @@ export function App() {
     }
   }, []);
 
-  useEffect(() => () => groundJobRef.current?.cancel(), []);
+  const countObjects = useCallback(async () => {
+    const viewer = viewerRef.current;
+    const cloud = sourceRef.current;
+    if (viewer === undefined || cloud === undefined) return;
+    countJobRef.current?.cancel();
+    const started = performance.now();
+    // The worker spends the first 45% of its progress on ground detection when
+    // it has to run it; noting when progress passes that point times it.
+    let groundFinished = started;
+    setCount({ status: "running", stage: "Starting", fraction: 0 });
+    const job = startObjectDetection(cloud, viewerConfig().groundDetection, viewerConfig().objectDetection, (stage, fraction) => {
+      if (fraction <= 0.45) groundFinished = performance.now();
+      if (countJobRef.current === job) setCount({ status: "running", stage, fraction });
+    });
+    countJobRef.current = job;
+    try {
+      const result = await job.result;
+      if (countJobRef.current !== job) return;
+      if (sourceRef.current !== cloud) {
+        countJobRef.current = undefined;
+        setCount({ status: "idle" });
+        return;
+      }
+      setCount({ status: "running", stage: "Updating the view", fraction: 1 });
+      await viewer.replaceCloud(
+        new PointCloud({
+          positions: cloud.positions,
+          ...definedChannels(cloud),
+          classification: result.classification,
+          heightAboveGround: result.heightAboveGround,
+          objectId: result.objectId,
+          bounds: cloud.bounds,
+          origin: cloud.origin,
+          name: cloud.name,
+        }),
+      );
+      if (countJobRef.current !== job) return;
+      countJobRef.current = undefined;
+      // Outlines belong to the cloud now on screen, so they go in after it.
+      viewer.setObjects(result.objects);
+      const seconds = (performance.now() - started) / 1000;
+      if (result.groundStats !== undefined) {
+        setGround({ status: "done", stats: result.groundStats, seconds: (groundFinished - started) / 1000 });
+      }
+      let tallestBuilding = 0;
+      let shortestTree = Infinity;
+      let tallestTree = 0;
+      for (const object of result.objects) {
+        if (object.kind === "building") tallestBuilding = Math.max(tallestBuilding, object.height);
+        else {
+          shortestTree = Math.min(shortestTree, object.height);
+          tallestTree = Math.max(tallestTree, object.height);
+        }
+      }
+      setColorMode("objects");
+      setCount({
+        status: "done",
+        stats: result.stats,
+        tallestBuilding,
+        treeHeights: [Number.isFinite(shortestTree) ? shortestTree : 0, tallestTree],
+        seconds,
+      });
+    } catch (error) {
+      if (error instanceof ObjectDetectionCancelled || countJobRef.current !== job) return;
+      countJobRef.current = undefined;
+      setCount({ status: "failed", message: error instanceof Error ? error.message : "Counting buildings and trees failed" });
+    }
+  }, []);
+
+  useEffect(() => {
+    viewerRef.current?.setOutlineVisibility(showBuildingOutlines, showTreeOutlines);
+  }, [showBuildingOutlines, showTreeOutlines]);
+
+  useEffect(
+    () => () => {
+      groundJobRef.current?.cancel();
+      countJobRef.current?.cancel();
+    },
+    [],
+  );
 
   const handleFileInput = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -320,6 +430,7 @@ export function App() {
               <ModeButton active={colorMode === "relief"} onClick={() => setColorMode("relief")}>Relief</ModeButton>
               <ModeButton active={colorMode === "classification"} disabled={!supportsClassification} onClick={() => setColorMode("classification")}>Classes</ModeButton>
               <ModeButton active={colorMode === "heightAboveGround"} disabled={!supportsHeightAboveGround} onClick={() => setColorMode("heightAboveGround")}>Above ground</ModeButton>
+              <ModeButton active={colorMode === "objects"} disabled={!supportsObjects} onClick={() => setColorMode("objects")}>Objects</ModeButton>
             </div>
           </div>
 
@@ -359,7 +470,7 @@ export function App() {
             <button
               className="analysis-button"
               type="button"
-              disabled={source === undefined || status !== "ready" || ground.status === "running"}
+              disabled={source === undefined || status !== "ready" || analysing}
               onClick={() => void detectGround()}
             >
               {ground.status === "running" ? `${ground.stage}\u2026` : ground.status === "done" ? "Detect ground again" : "Detect ground"}
@@ -370,6 +481,45 @@ export function App() {
               </div>
             ) : null}
             <p className={ground.status === "failed" ? "panel-footnote analysis-error" : "panel-footnote"}>{groundFootnote(ground)}</p>
+          </div>
+
+          <div className="control-block">
+            <div className="control-label">
+              <span>Buildings and trees</span>
+              <strong>{countHeadline(count)}</strong>
+            </div>
+            <button
+              className="analysis-button"
+              type="button"
+              disabled={source === undefined || status !== "ready" || analysing}
+              onClick={() => void countObjects()}
+            >
+              {count.status === "running" ? `${count.stage}\u2026` : count.status === "done" ? "Count again" : "Count buildings and trees"}
+            </button>
+            {count.status === "running" ? (
+              <div className="analysis-progress" role="progressbar" aria-label="Counting progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(count.fraction * 100)}>
+                <i style={{ width: `${Math.round(count.fraction * 100)}%` }} />
+              </div>
+            ) : null}
+            {count.status === "done" ? (
+              <div className="object-tally">
+                <div className="object-tally-buildings">
+                  <strong>{count.stats.buildings.toLocaleString("en-US")}</strong>
+                  <span>{count.stats.buildings === 1 ? "Building" : "Buildings"}</span>
+                </div>
+                <div className="object-tally-trees">
+                  <strong>{count.stats.trees.toLocaleString("en-US")}</strong>
+                  <span>{count.stats.trees === 1 ? "Tree" : "Trees"}</span>
+                </div>
+              </div>
+            ) : null}
+            <p className={count.status === "failed" ? "panel-footnote analysis-error" : "panel-footnote"}>{countFootnote(count)}</p>
+            {count.status === "done" ? (
+              <div className="segmented-control outline-toggles" role="group" aria-label="Outlines">
+                <ToggleButton pressed={showBuildingOutlines} onClick={() => setShowBuildingOutlines((shown) => !shown)}>Building outlines</ToggleButton>
+                <ToggleButton pressed={showTreeOutlines} onClick={() => setShowTreeOutlines((shown) => !shown)}>Tree outlines</ToggleButton>
+              </div>
+            ) : null}
           </div>
 
           <button
@@ -392,6 +542,8 @@ export function App() {
         <footer className="telemetry-bar">
           <Telemetry label="SOURCE POINTS" value={source === undefined ? "—" : formatCount(source.pointCount)} />
           <Telemetry label="GEOREF ORIGIN" value={source === undefined ? "—" : formatOrigin(source)} />
+          {count.status === "done" ? <Telemetry label="BUILDINGS" value={count.stats.buildings.toLocaleString("en-US")} /> : null}
+          {count.status === "done" ? <Telemetry label="TREES" value={count.stats.trees.toLocaleString("en-US")} /> : null}
           <Telemetry label="ACTIVE LOD" value={lodSummary?.focusTierId?.toUpperCase() ?? "—"} />
           <Telemetry label="DRAW BUDGET" value={lodSummary === undefined ? "—" : formatCount(lodSummary.drawnPointCount)} />
           <Telemetry label="TILES" value={lodSummary === undefined ? "—" : String(lodSummary.tileCount)} />
@@ -419,6 +571,11 @@ function ControlRow({ label, value, children }: { label: string; value: string; 
   return <div className="control-block"><div className="control-label"><span>{label}</span><strong>{value}</strong></div>{children}</div>;
 }
 
+/** A button that stays pressed or released, for switches that are not mutually exclusive. */
+function ToggleButton({ pressed, onClick, children }: { pressed: boolean; onClick: () => void; children: ReactNode }) {
+  return <button type="button" className={pressed ? "active" : ""} aria-pressed={pressed} onClick={onClick}>{children}</button>;
+}
+
 function ModeButton({ active, disabled, onClick, children }: { active: boolean; disabled?: boolean; onClick: () => void; children: ReactNode }) {
   return <button type="button" className={active ? "active" : ""} disabled={disabled} onClick={onClick}>{children}</button>;
 }
@@ -444,6 +601,37 @@ function Icon({ name }: { name: "spark" | "orbit" | "layers" | "upload" | "arrow
  */
 function formatRampHeight(metres: number): string {
   return `${metres < 10 ? metres.toFixed(1) : Math.round(metres)} m`;
+}
+
+/** A cloud's channels without its object ids, which a new classification makes stale. */
+function channelsWithoutObjects(cloud: PointCloud) {
+  const { objectId: _stale, ...channels } = definedChannels(cloud);
+  return channels;
+}
+
+function countHeadline(count: CountState): string {
+  if (count.status === "running") return `${Math.round(count.fraction * 100)}%`;
+  if (count.status === "done") return `${count.seconds.toFixed(1)} s`;
+  return "\u2014";
+}
+
+function countFootnote(count: CountState): string {
+  if (count.status === "failed") return count.message;
+  if (count.status !== "done") {
+    return "Finds each building and tree standing on the ground, outlines it and counts it. Detects ground first when the scan needs it.";
+  }
+  const { stats, tallestBuilding, treeHeights } = count;
+  const buildings =
+    stats.buildings === 0
+      ? "No buildings found."
+      : `Footprints cover ${Math.round(stats.footprintArea).toLocaleString("en-US")} m\u00b2, the tallest building rising ${formatRampHeight(tallestBuilding)}.`;
+  const trees =
+    stats.trees === 0
+      ? "No trees found."
+      : stats.trees === 1
+        ? `The tree stands ${formatRampHeight(treeHeights[1])} tall.`
+        : `Trees stand ${formatRampHeight(treeHeights[0])} to ${formatRampHeight(treeHeights[1])} tall.`;
+  return `${buildings} ${trees}`;
 }
 
 function groundHeadline(ground: GroundState): string {

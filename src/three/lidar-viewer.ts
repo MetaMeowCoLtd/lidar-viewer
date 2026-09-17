@@ -7,6 +7,7 @@ import { TiledPointCloudLodPyramid } from "../core/tiled-lod-pyramid.js";
 import { LodBuildPool } from "../core/lod-build-pool.js";
 import { ThreePointCloudRenderer } from "./three-point-cloud-renderer.js";
 import { viewerConfig } from "../config.js";
+import type { DetectedObject } from "../core/object-detection.js";
 
 export type { LodRenderSummary } from "./three-point-cloud-renderer.js";
 import type { LodRenderSummary } from "./three-point-cloud-renderer.js";
@@ -154,6 +155,17 @@ export class LidarViewer {
     this.assertNotDisposed();
     this.pointShape = shape;
     this.pointCloudRenderer.setPointShape(shape);
+  }
+
+  /** Outlines and per-object colours for detected buildings and trees; undefined clears them. */
+  public setObjects(objects: readonly DetectedObject[] | undefined): void {
+    this.assertNotDisposed();
+    this.pointCloudRenderer.setObjects(objects);
+  }
+
+  public setOutlineVisibility(buildings: boolean, trees: boolean): void {
+    this.assertNotDisposed();
+    this.pointCloudRenderer.setOutlineVisibility(buildings, trees);
   }
 
   public setColorMode(mode: PointCloudColorMode): void {

@@ -45,5 +45,23 @@
     "elevationScaler": 1.25,
     "lowNoiseDepth": 2,
     "maxGridCells": 4000000
+  },
+  "objectDetection": {
+    "cellSize": "auto",
+    "minObjectHeight": 2,
+    "roofRoughness": 0.15,
+    "crownDepth": 1,
+    "maxDeepFraction": 0.35,
+    "multipleReturnFraction": 0.6,
+    "minBuildingHeight": 2.5,
+    "minBuildingArea": 20,
+    "minTreeHeight": 2.5,
+    "minCrownArea": 2,
+    "minTreePoints": 10,
+    "crownFraction": 0.35,
+    "minCanopyWidth": 2.5,
+    "maxGridCells": 4000000,
+    "maxTreeHeight": 60,
+    "maxTreeSlenderness": 8
   }
 }

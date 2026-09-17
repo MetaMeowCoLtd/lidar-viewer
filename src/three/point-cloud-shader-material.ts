@@ -10,7 +10,14 @@ import {
 import type { PointCloudColorMode, PointCloudPointShape } from "../core/point-cloud.js";
 import { classificationPaletteBytes } from "../core/point-cloud-classification.js";
 
-const colorModeToNumber: Record<PointCloudColorMode, number> = { height: 0, rgb: 1, relief: 2, classification: 3, heightAboveGround: 4 };
+const colorModeToNumber: Record<PointCloudColorMode, number> = {
+  height: 0,
+  rgb: 1,
+  relief: 2,
+  classification: 3,
+  heightAboveGround: 4,
+  objects: 5,
+};
 const pointShapeToNumber: Record<PointCloudPointShape, number> = { circle: 0, square: 1 };
 const sizeScaleFraction = 0.78;
 const minDepthFraction = 0.01;
@@ -40,6 +47,7 @@ export class PointCloudShaderMaterial extends ShaderMaterial {
       uHighHeightColor: { value: new Color("#ffe09a") },
       uClassPalette: { value: createClassificationPalette() },
       uMaxAboveGround: { value: Math.max(options.maxAboveGround ?? 20, 1) },
+      uBuildingCount: { value: 0 },
     };
     super({
       uniforms,
@@ -49,10 +57,12 @@ export class PointCloudShaderMaterial extends ShaderMaterial {
         attribute vec3 color;
         attribute float classification;
         attribute float heightAboveGround;
+        attribute float objectId;
         varying vec3 vColor;
         varying float vHeight;
         varying float vClass;
         varying float vAboveGround;
+        varying float vObject;
         uniform float uPointSize;
         uniform float uSizeScale;
         uniform float uMinDepth;
@@ -61,6 +71,7 @@ export class PointCloudShaderMaterial extends ShaderMaterial {
           vHeight = position.y;
           vClass = classification;
           vAboveGround = heightAboveGround;
+          vObject = objectId;
           vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
           gl_PointSize = clamp(uPointSize * (uSizeScale / max(uMinDepth, -mvPosition.z)), 0.8, 10.0);
           gl_Position = projectionMatrix * mvPosition;
@@ -76,10 +87,30 @@ export class PointCloudShaderMaterial extends ShaderMaterial {
         uniform vec3 uHighHeightColor;
         uniform sampler2D uClassPalette;
         uniform float uMaxAboveGround;
+        uniform float uBuildingCount;
         varying vec3 vColor;
         varying float vHeight;
         varying float vClass;
         varying float vAboveGround;
+        varying float vObject;
+
+        vec3 hsl(float hue, float saturation, float lightness) {
+          vec3 rgb = clamp(abs(mod(hue * 6.0 + vec3(0.0, 4.0, 2.0), 6.0) - 3.0) - 1.0, 0.0, 1.0);
+          return lightness + saturation * (rgb - 0.5) * (1.0 - abs(2.0 * lightness - 1.0));
+        }
+
+        // Every object gets its own colour, so neighbours that touch can still
+        // be told apart: buildings across reds and ambers, trees across greens.
+        // Ids advance by the golden ratio around the hue range, which keeps
+        // consecutive ids - usually neighbours - far apart in colour. Points in
+        // no object recede, with ground a shade warmer than the rest.
+        vec3 objectColor(float id, float code) {
+          if (id < 0.5) return (code > 1.5 && code < 2.5) ? vec3(0.27, 0.22, 0.17) : vec3(0.19, 0.21, 0.24);
+          float hue = fract(id * 0.6180339887);
+          float shade = fract(id * 0.7548776662);
+          if (id <= uBuildingCount + 0.5) return hsl(0.0 + 0.12 * hue, 0.75, 0.5 + 0.14 * shade);
+          return hsl(0.22 + 0.2 * hue, 0.6, 0.38 + 0.18 * shade);
+        }
 
         // Ground within a quarter metre either way is drawn in the same earth
         // tone the classification palette uses for ground, so the two views
@@ -115,7 +146,7 @@ export class PointCloudShaderMaterial extends ShaderMaterial {
           vec3 classColor = texture2D(uClassPalette, vec2((vClass + 0.5) / 256.0, 0.5)).rgb;
           vec3 finalColor = uColorMode < 0.5
             ? heightColor
-            : (uColorMode < 1.5 ? vColor : (uColorMode < 2.5 ? reliefColor : (uColorMode < 3.5 ? classColor : aboveGroundColor(vAboveGround))));
+            : (uColorMode < 1.5 ? vColor : (uColorMode < 2.5 ? reliefColor : (uColorMode < 3.5 ? classColor : (uColorMode < 4.5 ? aboveGroundColor(vAboveGround) : objectColor(vObject, vClass)))));
           gl_FragColor = vec4(finalColor, 1.0);
         }
       `,
@@ -137,6 +168,11 @@ export class PointCloudShaderMaterial extends ShaderMaterial {
 
   public setColorMode(mode: PointCloudColorMode): void {
     this.uniforms.uColorMode!.value = colorModeToNumber[mode];
+  }
+
+  /** Object ids up to this count are buildings; above it, trees. */
+  public setBuildingCount(count: number): void {
+    this.uniforms.uBuildingCount!.value = count;
   }
 
   public override dispose(): void {

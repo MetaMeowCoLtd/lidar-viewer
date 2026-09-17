@@ -11,7 +11,9 @@ only responsible for GPU resources and draw configuration.
 - ASPRS classification and per-pulse return fields, carried through decimation
 - Ground detection on a worker: classifies ground and low noise, and measures
   every point's height above ground, without overwriting existing classes
-- Colour by height, RGB, relief, ASPRS class or height above ground
+- Building and tree counting on a worker: finds each building and tree,
+  labels its points, traces its footprint or crown, and draws the outlines
+- Colour by height, RGB, relief, ASPRS class, height above ground or object
 - Immutable typed-array point clouds with bounds and optional RGB/intensity data
 - Deterministic procedural terrain/structure cloud generator
 - Voxel-grid decimation and a precomputed LOD pyramid

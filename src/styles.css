@@ -77,19 +77,11 @@ button { color: inherit; }
   opacity: 0.6;
 }
 
-/* Five colour treatments do not fit one row at this panel width, so the
-   control wraps to three over two, each row filling the full width. */
+/* Six colour treatments do not fit one row at this panel width, so the
+   control wraps to two rows of three. */
 .segmented-control-wrap {
   grid-auto-flow: row;
-  grid-template-columns: repeat(6, 1fr);
-}
-
-.segmented-control-wrap button {
-  grid-column: span 2;
-}
-
-.segmented-control-wrap button:nth-child(n + 4) {
-  grid-column: span 3;
+  grid-template-columns: repeat(3, 1fr);
 }
 
 /* The same stops the shader uses, so the key matches the render: a violet
@@ -191,4 +183,61 @@ button { color: inherit; }
     scrollbar-width: thin;
     scrollbar-color: rgba(132, 171, 205, .32) transparent;
   }
+}
+
+/* The count is the answer the panel exists to give, so it is set large. Each
+   figure carries a dot in its outline colour, which doubles as the key to the
+   lines drawn over the scan. */
+.object-tally {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.object-tally div {
+  padding: 10px 12px 9px;
+  border: 1px solid rgba(156, 207, 250, .12);
+  border-radius: 8px;
+  background: rgba(132, 171, 205, .06);
+}
+
+.object-tally strong {
+  display: block;
+  color: #eaf6fd;
+  font-family: "DM Mono", monospace;
+  font-size: 24px;
+  font-weight: 500;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.object-tally span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  color: #8ea3b4;
+  font-size: 9px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.object-tally span::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.object-tally-buildings span::before {
+  background: #ffb561;
+}
+
+.object-tally-trees span::before {
+  background: #86f0a2;
+}
+
+.outline-toggles {
+  margin-top: 12px;
 }

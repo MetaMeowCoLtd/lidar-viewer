@@ -14,6 +14,8 @@ import { PointCloudShaderMaterial } from "./point-cloud-shader-material.js";
 import { EyeDomeLighting } from "./eye-dome-lighting.js";
 import { viewerConfig } from "../config.js";
 import { heightAboveGroundRampTop } from "../core/statistics.js";
+import type { DetectedObject } from "../core/object-detection.js";
+import { ObjectOutlines } from "./object-outlines.js";
 
 export interface LodRenderSummary {
   readonly tileCount: number;
@@ -55,12 +57,17 @@ export class ThreePointCloudRenderer {
   private hasRgb = false;
   private hasClassification = false;
   private hasHeightAboveGround = false;
+  private hasObjects = false;
+  private readonly outlines = new ObjectOutlines();
 
   public constructor(
     private readonly scene: Scene,
     private readonly renderer: WebGLRenderer,
     private readonly camera: Camera,
-  ) {}
+  ) {
+    const size = renderer.getDrawingBufferSize(new Vector2());
+    this.outlines.setResolution(size.x, size.y);
+  }
 
   public setTiledPyramid(source: PointCloud, tiled: TiledPointCloudLodPyramid): void {
     this.disposeCloudResources();
@@ -74,6 +81,7 @@ export class ThreePointCloudRenderer {
     this.hasRgb = source.supportsColorMode("rgb");
     this.hasClassification = source.supportsColorMode("classification");
     this.hasHeightAboveGround = source.supportsColorMode("heightAboveGround");
+    this.hasObjects = source.supportsColorMode("objects");
 
     for (const tile of tiled.tiles) {
       const points = new Points(this.emptyGeometry, this.material);
@@ -123,7 +131,8 @@ export class ThreePointCloudRenderer {
     const unsupported =
       (mode === "rgb" && !this.hasRgb) ||
       (mode === "classification" && !this.hasClassification) ||
-      (mode === "heightAboveGround" && !this.hasHeightAboveGround);
+      (mode === "heightAboveGround" && !this.hasHeightAboveGround) ||
+      (mode === "objects" && !this.hasObjects);
     const supportedMode = unsupported ? "height" : mode;
     this.reliefEnabled = supportedMode === "relief";
     this.material?.setColorMode(supportedMode);
@@ -131,12 +140,28 @@ export class ThreePointCloudRenderer {
 
   public setSize(width: number, height: number): void {
     this.eyeDome?.setSize(width, height);
+    this.outlines.setResolution(width, height);
+  }
+
+  /**
+   * Outlines and object colours for the buildings and trees found in the
+   * current cloud. Call after the cloud carrying their ids is in place; a new
+   * cloud clears them.
+   */
+  public setObjects(objects: readonly DetectedObject[] | undefined): void {
+    this.outlines.setObjects(objects);
+    this.material?.setBuildingCount(objects?.filter((object) => object.kind === "building").length ?? 0);
+  }
+
+  public setOutlineVisibility(buildings: boolean, trees: boolean): void {
+    this.outlines.setVisibility(buildings, trees);
   }
 
   /** Call from the host application's single requestAnimationFrame loop. */
   public render(): void {
     if (!this.reliefEnabled) {
       this.renderer.render(this.scene, this.camera);
+      this.outlines.render(this.renderer, this.camera);
       return;
     }
     if (this.eyeDome === undefined) {
@@ -147,10 +172,12 @@ export class ThreePointCloudRenderer {
       this.eyeDome.setRadius(viewerConfig().eyeDomeLighting.radius);
     }
     this.eyeDome.render(this.scene, this.camera);
+    this.outlines.render(this.renderer, this.camera);
   }
 
   public dispose(): void {
     this.disposeCloudResources();
+    this.outlines.dispose();
     this.emptyGeometry.dispose();
     this.eyeDome?.dispose();
     this.eyeDome = undefined;
@@ -208,6 +235,8 @@ export class ThreePointCloudRenderer {
     this.hasRgb = false;
     this.hasClassification = false;
     this.hasHeightAboveGround = false;
+    this.hasObjects = false;
+    this.outlines.setObjects(undefined);
   }
 }
 
@@ -224,6 +253,13 @@ function createGeometry(cloud: PointCloud): BufferGeometry {
   }
   if (cloud.heightAboveGround !== undefined) {
     geometry.setAttribute("heightAboveGround", new BufferAttribute(cloud.heightAboveGround, 1));
+  }
+  if (cloud.objectId !== undefined) {
+    // Three.js binds a Uint32Array as an integer attribute, and WebGL refuses
+    // to draw when an integer attribute feeds a shader input declared as a
+    // float - every point in the scan silently disappears. The GPU gets a float
+    // copy instead, which holds ids exactly up to sixteen million objects.
+    geometry.setAttribute("objectId", new BufferAttribute(Float32Array.from(cloud.objectId), 1));
   }
   geometry.computeBoundingSphere();
   return geometry;

@@ -1,5 +1,6 @@
 import type { PointCloudPointShape } from "./core/point-cloud.js";
 import { defaultGroundDetectionOptions, type GroundDetectionOptions } from "./core/ground-detection.js";
+import { defaultObjectDetectionOptions, type ObjectDetectionOptions } from "./core/object-detection.js";
 
 export interface LodDivisors {
   readonly fine: number;
@@ -66,6 +67,8 @@ export interface ViewerConfig {
   readonly gpuPointBudget: number;
   /** Ground detection tuning, in the scan's units; see {@link GroundDetectionOptions}. */
   readonly groundDetection: GroundDetectionOptions;
+  /** Building and tree detection tuning, in the scan's units; see {@link ObjectDetectionOptions}. */
+  readonly objectDetection: ObjectDetectionOptions;
 }
 
 const fallback: ViewerConfig = {
@@ -84,6 +87,7 @@ const fallback: ViewerConfig = {
   tiling: { enabled: true, targetPointsPerTile: 2_000_000, buildWorkers: 16 },
   gpuPointBudget: 40_000_000,
   groundDetection: defaultGroundDetectionOptions,
+  objectDetection: defaultObjectDetectionOptions,
 };
 
 let active: ViewerConfig = fallback;
@@ -114,6 +118,7 @@ export async function loadViewerConfig(): Promise<ViewerConfig> {
         },
         tiling: { ...fallback.tiling, ...parsed.tiling },
         groundDetection: { ...fallback.groundDetection, ...parsed.groundDetection },
+        objectDetection: { ...fallback.objectDetection, ...parsed.objectDetection },
       };
     }
   } catch {

@@ -10,6 +10,7 @@ PointCloud (typed arrays, metadata, bounds)
   ├─ ProceduralCloudGenerator  → development/test source
   ├─ LAS / LAZ / PLY readers   → local scan sources
   ├─ detectGround (worker)     → ground class + height above ground
+  ├─ detectObjects (worker)    → buildings, trees, object ids and outlines
   └─ PointCloudLodPyramid
        └─ VoxelGridDownsampler → precomputed tiers
             └─ LidarViewer → one RAF loop, camera and OrbitControls
@@ -80,6 +81,54 @@ per square metre takes about 2.5 seconds. Synthetic scores are an upper bound:
 real scans with dense vegetation, embankments and very large flat roofs will do
 worse, and roofs wider than twice the largest window are indistinguishable from
 terrain to any filter of this kind.
+
+## Building and tree detection
+
+`detectObjects` works top-down, on a grid of everything standing more than two
+metres above the ground, sized so each cell holds about four points. No trained
+model is involved; three measurable signals separate a roof from a canopy:
+
+- Roughness: the fit of each 3 by 3 neighbourhood to a plane. A pitched roof
+  fits as well as a flat one. The fit may set aside two samples lying below the
+  plane, because a neighbour below a roof is its wall or eave; samples above are
+  never set aside, so a canopy stays rough.
+- Depth: the share of a cell's points more than a metre below its top. A laser
+  returns from inside a canopy, never from inside a roof.
+- Returns: when the file records them, the share of pulses that came back more
+  than once.
+
+Existing building and vegetation classes override the geometry for their cells.
+
+Buildings are connected roof-like patches, opened first to remove anything
+under three cells wide and then closed to rejoin a roof split by its ridge. They
+then grow back into rim cells whose top matches the roof, recovering edges that
+wall points made look deep, and absorb any connected structure taller than any
+tree, so a rough tower top is part of its tower rather than a stand of trees.
+Footprint area counts each rim cell for the share of it the roof covers,
+measured from its point count against the building's interior cells.
+
+Trees follow the method forestry tools use. Canopy excludes cells beside a
+building that reach most of its height, which are walls seen from the street,
+and stretches narrower than 2.5 m along their own narrowest direction, which
+are hedges. Treetops are local maxima within a window that widens with height;
+crowns grow from them as a watershed that never climbs above its own treetop,
+and a point far above a crown's top is not part of it. Crowns that are too
+small, too elongated, too slender for their height or taller than any tree are
+dropped.
+
+On a synthetic 300 m aerial neighbourhood with flat, pitched and L-shaped
+buildings, a terrace, overlapping crowns and decoys - a shed, hedges, a wall,
+lamp posts, cars - detection counts every building and every tree across three
+random scenes, at up to 95% tree precision, with footprints within 12%. On the
+real Shinjuku scan it counts 64 buildings and 728 trees in under two seconds,
+and reports the tallest building at 243 m, the height of the Tokyo Metropolitan
+Government Building.
+
+Known limits: buildings sharing a wall and a roofline count as one; two trees
+whose crowns merge without a dip between them count as one; a tree pressed
+against a wall can be absorbed by the building; and scans that see walls but
+not roofs, such as purely street-level ones, are outside what a top-down method
+can separate.
 
 ## Rendering approach
 

@@ -196,7 +196,7 @@ export function detectGround(
   }
 
   onProgress?.("Measuring height above ground", 0.9);
-  const heightAboveGround = measureHeightAboveGround(positions, classification, grid, surface);
+  const heightAboveGround = measureHeightAboveGround(positions, classification, grid, surface)!;
 
   onProgress?.("Done", 1);
   return {
@@ -220,8 +220,8 @@ function measureHeightAboveGround(
   positions: Float32Array,
   classification: Uint8Array,
   grid: GridGeometry,
-  fallback: Float32Array,
-): Float32Array {
+  fallback: Float32Array | undefined,
+): Float32Array | undefined {
   const cells = grid.cols * grid.rows;
   const ground = new Float32Array(cells).fill(Number.NaN);
   const counts = new Uint32Array(cells);
@@ -236,12 +236,34 @@ function measureHeightAboveGround(
     ground[cell] = count === 1 ? height : ground[cell]! + (height - ground[cell]!) / count;
   }
   const surface = fillEmptyCells(ground, grid.cols, grid.rows) ? ground : fallback;
+  if (surface === undefined) return undefined;
 
   const heights = new Float32Array(positions.length / 3);
   for (let point = 0, offset = 0; offset < positions.length; point += 1, offset += 3) {
     heights[point] = positions[offset + 1]! - sampleSurface(surface, grid, positions[offset]!, positions[offset + 2]!);
   }
   return heights;
+}
+
+/**
+ * Height above ground for a scan whose ground is already classified - by a
+ * survey contractor, say - without running the filter again. Re-deriving it
+ * would quietly overrule their judgement on every point they marked.
+ *
+ * Returns undefined when too few points are marked as ground to build a
+ * surface from: fewer than a hundred, or under half a percent of the scan.
+ */
+export function heightAboveClassifiedGround(
+  input: GroundDetectionInput & { readonly classification: Uint8Array },
+  options: GroundDetectionOptions = defaultGroundDetectionOptions,
+): Float32Array | undefined {
+  const { positions, bounds, classification } = input;
+  const pointCount = positions.length / 3;
+  let groundPoints = 0;
+  for (let point = 0; point < pointCount; point += 1) if (classification[point] === groundClass) groundPoints += 1;
+  if (groundPoints < Math.max(100, 0.005 * pointCount)) return undefined;
+  const grid = gridForExtent(bounds.min[0], bounds.min[2], bounds.size[0], bounds.size[2], options.cellSize, options.maxGridCells);
+  return measureHeightAboveGround(positions, classification, grid, undefined);
 }
 
 function validateOptions(options: GroundDetectionOptions): void {

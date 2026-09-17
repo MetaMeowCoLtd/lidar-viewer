@@ -1,4 +1,4 @@
-export type PointCloudColorMode = "height" | "rgb" | "relief" | "classification" | "heightAboveGround";
+export type PointCloudColorMode = "height" | "rgb" | "relief" | "classification" | "heightAboveGround" | "objects";
 export type PointCloudPointShape = "circle" | "square";
 
 export interface PointCloudBounds {
@@ -22,6 +22,8 @@ export interface PointCloudAttributes {
   readonly numberOfReturns?: Uint8Array;
   /** Height of each point above the ground beneath it, in the scan's units. */
   readonly heightAboveGround?: Float32Array;
+  /** The building or tree each point belongs to, numbered from one; zero for none. */
+  readonly objectId?: Uint32Array;
 }
 
 /**
@@ -37,6 +39,7 @@ export const pointCloudChannelNames = [
   "returnNumber",
   "numberOfReturns",
   "heightAboveGround",
+  "objectId",
 ] as const;
 
 export type PointCloudChannelName = (typeof pointCloudChannelNames)[number];
@@ -102,6 +105,7 @@ export class PointCloud {
   public readonly returnNumber: Uint8Array | undefined;
   public readonly numberOfReturns: Uint8Array | undefined;
   public readonly heightAboveGround: Float32Array | undefined;
+  public readonly objectId: Uint32Array | undefined;
   public readonly name: string;
   public readonly pointCount: number;
   public readonly bounds: PointCloudBounds;
@@ -115,6 +119,7 @@ export class PointCloud {
     returnNumber,
     numberOfReturns,
     heightAboveGround,
+    objectId,
     bounds,
     origin = zeroOrigin,
     name = "point-cloud",
@@ -135,6 +140,7 @@ export class PointCloud {
       ["returnNumber", returnNumber],
       ["numberOfReturns", numberOfReturns],
       ["heightAboveGround", heightAboveGround],
+      ["objectId", objectId],
     ] as const) {
       if (channel !== undefined && channel.length !== pointCount) {
         throw new Error(`${label} must contain one value per point`);
@@ -151,6 +157,7 @@ export class PointCloud {
     this.returnNumber = returnNumber;
     this.numberOfReturns = numberOfReturns;
     this.heightAboveGround = heightAboveGround;
+    this.objectId = objectId;
     this.name = name;
     this.pointCount = pointCount;
     this.bounds = bounds ?? calculateBounds(positions);
@@ -161,6 +168,7 @@ export class PointCloud {
     if (mode === "rgb") return this.colors !== undefined;
     if (mode === "classification") return this.classification !== undefined;
     if (mode === "heightAboveGround") return this.heightAboveGround !== undefined;
+    if (mode === "objects") return this.objectId !== undefined;
     return mode === "height" || mode === "relief";
   }
 

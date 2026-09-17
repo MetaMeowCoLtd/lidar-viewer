@@ -29,7 +29,7 @@ export class VoxelGridDownsampler {
       throw new Error("voxelSize must be a finite number greater than zero");
     }
 
-    const { positions, colors, intensity, classification, returnNumber, numberOfReturns, heightAboveGround, pointCount } = source;
+    const { positions, colors, intensity, classification, returnNumber, numberOfReturns, heightAboveGround, objectId, pointCount } = source;
     const originX = source.bounds.min[0];
     const originY = source.bounds.min[1];
     const originZ = source.bounds.min[2];
@@ -51,6 +51,8 @@ export class VoxelGridDownsampler {
     if (returnNumber !== undefined) stride += 2;
     const numberOfReturnsSlot = stride;
     if (numberOfReturns !== undefined) stride += 2;
+    const objectIdSlot = stride;
+    if (objectId !== undefined) stride += 2;
 
     let tableSize = 1 << 16;
     let mask = tableSize - 1;
@@ -125,6 +127,7 @@ export class VoxelGridDownsampler {
       if (classification !== undefined) castVote(sums, base + classificationSlot, classification[point]!);
       if (returnNumber !== undefined) castVote(sums, base + returnNumberSlot, returnNumber[point]!);
       if (numberOfReturns !== undefined) castVote(sums, base + numberOfReturnsSlot, numberOfReturns[point]!);
+      if (objectId !== undefined) castVote(sums, base + objectIdSlot, objectId[point]!);
     }
 
     const outputPositions = new Float32Array(cellCount * 3);
@@ -134,6 +137,7 @@ export class VoxelGridDownsampler {
     const outputClassification = classification === undefined ? undefined : new Uint8Array(cellCount);
     const outputReturnNumber = returnNumber === undefined ? undefined : new Uint8Array(cellCount);
     const outputNumberOfReturns = numberOfReturns === undefined ? undefined : new Uint8Array(cellCount);
+    const outputObjectId = objectId === undefined ? undefined : new Uint32Array(cellCount);
     for (let cell = 0; cell < cellCount; cell += 1) {
       const base = cell * stride;
       const offset = cell * 3;
@@ -151,6 +155,7 @@ export class VoxelGridDownsampler {
       if (outputClassification !== undefined) outputClassification[cell] = sums[base + classificationSlot]!;
       if (outputReturnNumber !== undefined) outputReturnNumber[cell] = sums[base + returnNumberSlot]!;
       if (outputNumberOfReturns !== undefined) outputNumberOfReturns[cell] = sums[base + numberOfReturnsSlot]!;
+      if (outputObjectId !== undefined) outputObjectId[cell] = sums[base + objectIdSlot]!;
     }
 
     return new PointCloud({
@@ -161,6 +166,7 @@ export class VoxelGridDownsampler {
       ...(outputClassification === undefined ? {} : { classification: outputClassification }),
       ...(outputReturnNumber === undefined ? {} : { returnNumber: outputReturnNumber }),
       ...(outputNumberOfReturns === undefined ? {} : { numberOfReturns: outputNumberOfReturns }),
+      ...(outputObjectId === undefined ? {} : { objectId: outputObjectId }),
       origin: source.origin,
       name,
     });
