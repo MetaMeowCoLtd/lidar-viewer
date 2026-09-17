@@ -121,10 +121,18 @@ export class LidarViewer {
     });
   }
 
-  public async load(source: PointCloud | Promise<PointCloud>, specs: readonly LodTierSpec[]): Promise<void> {
+  /**
+   * Shows a new scan. `onProgress` hears how far building its detail levels
+   * has got, from zero to one, for a load that takes long enough to report.
+   */
+  public async load(
+    source: PointCloud | Promise<PointCloud>,
+    specs: readonly LodTierSpec[],
+    onProgress?: (fraction: number) => void,
+  ): Promise<void> {
     this.assertNotDisposed();
     this.keepCameraOnNextReady = false;
-    await this.build(source, specs);
+    await this.build(source, specs, onProgress);
   }
 
   /**
@@ -140,13 +148,17 @@ export class LidarViewer {
     await this.build(cloud, this.lastSpecs);
   }
 
-  private async build(source: PointCloud | Promise<PointCloud>, specs: readonly LodTierSpec[]): Promise<void> {
+  private async build(
+    source: PointCloud | Promise<PointCloud>,
+    specs: readonly LodTierSpec[],
+    onProgress?: (fraction: number) => void,
+  ): Promise<void> {
     this.lastSpecs = specs;
     const tiling = viewerConfig().tiling;
     this.buildPool ??= new LodBuildPool(Math.min(navigator.hardwareConcurrency || 4, tiling.buildWorkers));
     const pool = this.buildPool;
     await this.session.load(source, specs.filter((spec) => spec.voxelSize === 0), (cloud) =>
-      TiledPointCloudLodPyramid.buildWithPool(cloud, specs, tiling, pool),
+      TiledPointCloudLodPyramid.buildWithPool(cloud, specs, tiling, pool, onProgress),
     );
   }
 
