@@ -15,6 +15,7 @@ import {
 } from "../src/index.js";
 import { readLasHeader } from "../src/import/las-header.js";
 import { readLasPoints } from "../src/import/las-reader.js";
+import { bufferSource } from "../src/import/byte-source.js";
 import { fileStem } from "../src/export/save-file.js";
 import { buildAerialScene } from "./support/aerial-scene.js";
 
@@ -88,13 +89,13 @@ describe("coordinate reference systems", () => {
 });
 
 describe("LAS export", () => {
-  it("round-trips every channel through the LAS reader, in world coordinates", () => {
+  it("round-trips every channel through the LAS reader, in world coordinates", async () => {
     const cloud = georeferencedCloud();
     const buffer = concat(writeLas(cloud, { createdAt: new Date(Date.UTC(2026, 8, 17)) }));
     const header = readLasHeader(buffer)!;
     expect(header).toMatchObject({ versionMajor: 1, versionMinor: 4, pointFormat: 7, pointLength: 44, pointCount: 3, headerSize: 375 });
 
-    const back = readLasPoints(buffer, header, "tile");
+    const back = await readLasPoints(bufferSource(buffer), header, "tile");
     for (let point = 0; point < 3; point += 1) {
       const written = cloud.worldPosition(point);
       const read = back.worldPosition(point);
@@ -143,12 +144,12 @@ describe("LAS export", () => {
     expect(view.getUint32(third + 40, true)).toBe(70_000);
   });
 
-  it("drops colour and extra bytes that the cloud does not have", () => {
+  it("drops colour and extra bytes that the cloud does not have", async () => {
     const cloud = new PointCloud({ positions: new Float32Array([1, 2, 3, 4, 5, 6]), classification: new Uint8Array([2, 5]) });
     const buffer = concat(writeLas(cloud, { chunkPoints: 1 }));
     const header = readLasHeader(buffer)!;
     expect(header).toMatchObject({ pointFormat: 6, pointLength: 30, recordCount: 0, pointCount: 2 });
-    const back = readLasPoints(buffer, header, "local");
+    const back = await readLasPoints(bufferSource(buffer), header, "local");
     expect(back.colors).toBeUndefined();
     expect(back.spatialReference).toBeUndefined();
     expect([...back.returnNumber!]).toEqual([1, 1]);
@@ -156,7 +157,7 @@ describe("LAS export", () => {
     expect(Array.from(back.worldPosition(1), (value) => Math.round(value * 1000) / 1000)).toEqual([4, 5, 6]);
   });
 
-  it("finds a coordinate system stored in an extended record after the points", () => {
+  it("finds a coordinate system stored in an extended record after the points", async () => {
     const written = new Uint8Array(concat(writeLas(new PointCloud({ positions: new Float32Array([1, 2, 3]) }))));
     const wkt = new TextEncoder().encode(utm54Wkt);
     const buffer = new ArrayBuffer(written.byteLength + 60 + wkt.byteLength);
@@ -171,25 +172,25 @@ describe("LAS export", () => {
     view.setBigUint64(235, BigInt(at), true);
     view.setUint32(243, 1, true);
 
-    const back = readLasPoints(buffer, readLasHeader(buffer)!, "extended");
+    const back = await readLasPoints(bufferSource(buffer), readLasHeader(buffer)!, "extended");
     expect(back.spatialReference?.epsg).toBe(32654);
     expect(back.spatialReference?.records[0]?.data.byteLength).toBe(wkt.byteLength);
   });
 
-  it("stretches intensity normalised to one across the 16-bit range", () => {
+  it("stretches intensity normalised to one across the 16-bit range", async () => {
     const cloud = new PointCloud({ positions: new Float32Array([0, 0, 0, 1, 1, 1]), intensity: new Float32Array([0.5, 1]) });
     const buffer = concat(writeLas(cloud));
-    const back = readLasPoints(buffer, readLasHeader(buffer)!, "normalised");
+    const back = await readLasPoints(bufferSource(buffer), readLasHeader(buffer)!, "normalised");
     expect([...back.intensity!]).toEqual([32768, 65535]);
   });
 
-  it("coarsens the scale when a millimetre step would overflow the stored integers", () => {
+  it("coarsens the scale when a millimetre step would overflow the stored integers", async () => {
     const cloud = new PointCloud({ positions: new Float32Array([0, 0, 0, 3_000_000, 10, -3_000_000]) });
     const buffer = concat(writeLas(cloud));
     const view = new DataView(buffer);
     expect(view.getFloat64(131, true)).toBeCloseTo(0.01, 12);
     expect(view.getFloat64(147, true)).toBeCloseTo(0.001, 12);
-    const back = readLasPoints(buffer, readLasHeader(buffer)!, "wide");
+    const back = await readLasPoints(bufferSource(buffer), readLasHeader(buffer)!, "wide");
     expect(back.worldPosition(1)[0]).toBeCloseTo(3_000_000, 1);
     expect(back.worldPosition(1)[2]).toBeCloseTo(-3_000_000, 1);
   });

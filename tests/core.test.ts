@@ -14,6 +14,7 @@ import {
 import { readBinaryPly } from "../src/import/binary-ply-reader.js";
 import { readLasHeader, layoutForPointFormat } from "../src/import/las-header.js";
 import { readLasPoints } from "../src/import/las-reader.js";
+import { bufferSource } from "../src/import/byte-source.js";
 import { classificationName, classificationColor, classificationPaletteBytes } from "../src/core/point-cloud-classification.js";
 
 describe("PointCloud", () => {
@@ -385,16 +386,16 @@ describe("LAS header", () => {
 });
 
 describe("LAS point reading", () => {
-  it("rebuilds world coordinates from scaled integers without a Float32 round trip", () => {
-    const cloud = readLasPoints(buildLas(), readLasHeader(buildLas())!, "scan");
+  it("rebuilds world coordinates from scaled integers without a Float32 round trip", async () => {
+    const cloud = await readLasPoints(bufferSource(buildLas()), readLasHeader(buildLas())!, "scan");
     expect(cloud.pointCount).toBe(2);
     expect(cloud.origin).toEqual([543000, 0, -4179000]);
     expect(cloud.worldPosition(0)).toEqual([543010.5, 20.5, -4178900.25]);
     expect(cloud.worldPosition(1)).toEqual([543210.5, 35.25, -4179100.75]);
   });
 
-  it("moves elevation onto the viewer's up axis and keeps the frame right-handed", () => {
-    const cloud = readLasPoints(buildLas(), readLasHeader(buildLas())!, "scan");
+  it("moves elevation onto the viewer's up axis and keeps the frame right-handed", async () => {
+    const cloud = await readLasPoints(bufferSource(buildLas()), readLasHeader(buildLas())!, "scan");
     // Elevation spans 14.75m against 200m east and 200.5m north, so the short
     // span landing on y is what proves the axes were not simply relabelled.
     expect(cloud.bounds.min).toEqual([10.5, 20.5, -100.75]);
@@ -403,23 +404,23 @@ describe("LAS point reading", () => {
     expect(cloud.positions[5]).toBeLessThan(cloud.positions[2]!);
   });
 
-  it("carries intensity through unscaled", () => {
-    const cloud = readLasPoints(buildLas(), readLasHeader(buildLas())!, "scan");
+  it("carries intensity through unscaled", async () => {
+    const cloud = await readLasPoints(bufferSource(buildLas()), readLasHeader(buildLas())!, "scan");
     expect([...cloud.intensity!]).toEqual([1234, 5678]);
   });
 
-  it("normalises colour whether the file stores 16-bit or 8-bit channels", () => {
+  it("normalises colour whether the file stores 16-bit or 8-bit channels", async () => {
     for (const colorMultiplier of [257, 1]) {
       const buffer = buildLas({ colorMultiplier });
-      const cloud = readLasPoints(buffer, readLasHeader(buffer)!, "scan");
+      const cloud = await readLasPoints(bufferSource(buffer), readLasHeader(buffer)!, "scan");
       expect([...cloud.colors!]).toEqual([10, 20, 30, 40, 50, 60]);
     }
   });
 
-  it("reads the records that are present when a file is truncated", () => {
+  it("reads the records that are present when a file is truncated", async () => {
     const full = buildLas();
     const cut = full.slice(0, full.byteLength - 26);
-    const cloud = readLasPoints(cut, readLasHeader(cut)!, "scan");
+    const cloud = await readLasPoints(bufferSource(cut), readLasHeader(cut)!, "scan");
     expect(cloud.pointCount).toBe(1);
     expect(cloud.worldPosition(0)).toEqual([543010.5, 20.5, -4178900.25]);
   });
@@ -490,15 +491,15 @@ function buildLas(options: LasFixtureOptions = {}): ArrayBuffer {
 
 
 describe("classification and return fields", () => {
-  it("unpacks the class from a legacy record without its flag bits", () => {
+  it("unpacks the class from a legacy record without its flag bits", async () => {
     const buffer = buildLas();
-    const cloud = readLasPoints(buffer, readLasHeader(buffer)!, "scan");
+    const cloud = await readLasPoints(bufferSource(buffer), readLasHeader(buffer)!, "scan");
     expect([...cloud.classification!]).toEqual([2, 6]);
   });
 
-  it("unpacks return number and return count from the byte they share", () => {
+  it("unpacks return number and return count from the byte they share", async () => {
     const buffer = buildLas();
-    const cloud = readLasPoints(buffer, readLasHeader(buffer)!, "scan");
+    const cloud = await readLasPoints(bufferSource(buffer), readLasHeader(buffer)!, "scan");
     expect([...cloud.returnNumber!]).toEqual([1, 2]);
     expect([...cloud.numberOfReturns!]).toEqual([1, 3]);
   });
@@ -602,9 +603,9 @@ describe("decimating categorical channels", () => {
 
 
 describe("bounds bracket their own points", () => {
-  it("measures the stored Float32, so no point falls outside a LAS cloud's bounds", () => {
+  it("measures the stored Float32, so no point falls outside a LAS cloud's bounds", async () => {
     const buffer = buildLas();
-    const cloud = readLasPoints(buffer, readLasHeader(buffer)!, "scan");
+    const cloud = await readLasPoints(bufferSource(buffer), readLasHeader(buffer)!, "scan");
     expectEveryPointInsideBounds(cloud);
   });
 

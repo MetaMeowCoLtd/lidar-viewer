@@ -3,6 +3,16 @@ import type { PointCloud } from "../core/point-cloud.js";
 import { layoutForPointFormat, type LasHeader } from "./las-header.js";
 import { LasPointBuilder, colorScaleFromSamples } from "./las-point-builder.js";
 import { readLasSpatialReference } from "./las-records.js";
+import type { ByteSource } from "./byte-source.js";
+import type { ReadProgress } from "./las-reader.js";
+
+/**
+ * laz-perf's WebAssembly memory is capped at 2 GB, and the compressed file has
+ * to fit inside it alongside the decoder's own state.
+ */
+export const maxLazBytes = 1.9 * 1024 * 1024 * 1024;
+const copyBlockBytes = 64 * 1024 * 1024;
+const progressInterval = 1 << 16;
 
 let modulePromise: Promise<LazPerfModule> | undefined;
 
@@ -34,42 +44,56 @@ function loadLazPerf(): Promise<LazPerfModule> {
  * shared builder. Nothing accumulates between the compressed input and the
  * destination buffers.
  */
-export async function readLazPoints(buffer: ArrayBuffer, header: LasHeader, name: string): Promise<PointCloud> {
+export async function readLazPoints(source: ByteSource, header: LasHeader, name: string, onProgress?: ReadProgress): Promise<PointCloud> {
   const layout = layoutForPointFormat(header.pointFormat);
   if (layout === undefined) throw new Error(`Unsupported LAS point format ${header.pointFormat}`);
+  if (source.size > maxLazBytes) {
+    throw new Error(
+      `This LAZ file is ${formatGigabytes(source.size)}; the browser's LAZ decoder can hold up to ${formatGigabytes(maxLazBytes)}. ` +
+        "Split it into tiles, or convert it to LAS, which has no such limit.",
+    );
+  }
 
   const lazPerf = await loadLazPerf();
-  const bytes = new Uint8Array(buffer);
+  const spatialReference = await readLasSpatialReference(source, header);
 
   // laz-perf reads from its own heap, so the compressed file has to be copied
-  // across the WebAssembly boundary once. It is freed as soon as the last
-  // record is out.
-  const filePointer = lazPerf._malloc(bytes.byteLength);
+  // across the WebAssembly boundary once. It goes in a block at a time, so the
+  // whole file never also sits in JavaScript memory. It is freed as soon as
+  // the last record is out.
+  const filePointer = lazPerf._malloc(source.size);
+  if (filePointer === 0) throw new Error("There is not enough memory to decompress this LAZ file");
   let recordPointer = 0;
   try {
-    lazPerf.HEAPU8.set(bytes, filePointer);
+    for (let offset = 0; offset < source.size; offset += copyBlockBytes) {
+      const block = await source.read(offset, copyBlockBytes);
+      // Looked up after every await: growing the heap replaces this view.
+      lazPerf.HEAPU8.set(block, filePointer + offset);
+    }
 
     const colorScale =
       layout.rgbOffset === undefined
         ? 1
-        : colorScaleFromSamples(sampleMaximumChannel(lazPerf, filePointer, bytes.byteLength, layout.rgbOffset));
+        : colorScaleFromSamples(sampleMaximumChannel(lazPerf, filePointer, source.size, layout.rgbOffset));
 
     const reader = new lazPerf.LASZip();
     try {
-      reader.open(filePointer, bytes.byteLength);
+      reader.open(filePointer, source.size);
       const recordLength = reader.getPointLength();
       const pointCount = Math.min(header.pointCount, reader.getCount());
       if (pointCount < 1) throw new Error("The LAZ file contains no readable point records");
 
       recordPointer = lazPerf._malloc(recordLength);
-      const builder = new LasPointBuilder(header, name, colorScale, readLasSpatialReference(buffer, header));
+      const builder = new LasPointBuilder(header, name, colorScale, spatialReference);
       const scratch = new Uint8Array(recordLength);
       const record = new DataView(scratch.buffer);
       for (let point = 0; point < pointCount; point += 1) {
         reader.getPoint(recordPointer);
         copyRecord(lazPerf, recordPointer, scratch);
         builder.add(record, 0);
+        if ((point + 1) % progressInterval === 0) onProgress?.((point + 1) / pointCount);
       }
+      onProgress?.(1);
       return builder.finish();
     } finally {
       reader.delete();
@@ -133,4 +157,8 @@ function sampleMaximumChannel(
  */
 function copyRecord(lazPerf: LazPerfModule, recordPointer: number, scratch: Uint8Array): void {
   scratch.set(lazPerf.HEAPU8.subarray(recordPointer, recordPointer + scratch.length));
+}
+
+function formatGigabytes(bytes: number): string {
+  return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
 }

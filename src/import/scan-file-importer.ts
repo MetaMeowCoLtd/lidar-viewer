@@ -4,6 +4,7 @@ import { parsePlyBuffer } from "./ply-file-importer.js";
 import { readLasHeader, minimumLasHeaderSize } from "./las-header.js";
 import { readLasPoints } from "./las-reader.js";
 import { readLazPoints } from "./laz-reader.js";
+import { blobSource, type ByteSource } from "./byte-source.js";
 
 /** Extensions offered in the file picker, in the order a user is likely to meet them. */
 export const supportedScanExtensions = [".las", ".laz", ".ply"] as const;
@@ -30,24 +31,29 @@ export async function importScanFile(file: File): Promise<PointCloud> {
   }
 
   const name = file.name.replace(/\.(las|laz|ply)$/i, "");
-  const buffer = await file.arrayBuffer();
-  return parseScanBuffer(buffer, name);
+  return importScan(blobSource(file), name);
 }
 
+/** Bytes read up front: enough for any LAS header and a PLY header. */
+const leadingBytes = 64 * 1024;
+
 /** Format dispatch, separated from the File plumbing so it can be exercised directly. */
-export async function parseScanBuffer(buffer: ArrayBuffer, name: string): Promise<PointCloud> {
-  if (buffer.byteLength >= minimumLasHeaderSize) {
-    const header = readLasHeader(buffer);
+export async function importScan(source: ByteSource, name: string, onProgress?: (fraction: number) => void): Promise<PointCloud> {
+  const leading = (await source.read(0, leadingBytes)).slice();
+  if (leading.byteLength >= minimumLasHeaderSize) {
+    const header = readLasHeader(leading.buffer);
     if (header !== undefined) {
-      return header.isCompressed ? readLazPoints(buffer, header, name) : readLasPoints(buffer, header, name);
+      return header.isCompressed ? readLazPoints(source, header, name, onProgress) : readLasPoints(source, header, name, onProgress);
     }
   }
-  if (looksLikePly(buffer)) return parsePlyBuffer(buffer, name);
+  if (looksLikePly(leading)) {
+    const whole = await source.read(0, source.size);
+    const buffer = whole.byteOffset === 0 && whole.byteLength === whole.buffer.byteLength ? whole.buffer : whole.slice().buffer;
+    return parsePlyBuffer(buffer as ArrayBuffer, name);
+  }
   throw new Error("That file is not a readable LAS, LAZ or PLY point cloud");
 }
 
-function looksLikePly(buffer: ArrayBuffer): boolean {
-  if (buffer.byteLength < 3) return false;
-  const magic = new Uint8Array(buffer, 0, 3);
-  return magic[0] === 0x70 && magic[1] === 0x6c && magic[2] === 0x79;
+function looksLikePly(bytes: Uint8Array): boolean {
+  return bytes.byteLength >= 3 && bytes[0] === 0x70 && bytes[1] === 0x6c && bytes[2] === 0x79;
 }
