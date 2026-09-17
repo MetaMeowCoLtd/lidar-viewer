@@ -1,12 +1,31 @@
 import { PLYLoader } from "three/examples/jsm/loaders/PLYLoader.js";
 import { PointCloud, chooseOrigin } from "../core/point-cloud.js";
 import { readBinaryPly } from "./binary-ply-reader.js";
+import type { ByteSource } from "./byte-source.js";
+import type { ReadProgress } from "./las-reader.js";
 
-/** Parses PLY bytes that a caller has already read. */
-export function parsePlyBuffer(buffer: ArrayBuffer, name: string): PointCloud {
-  const fastPath = readBinaryPly(buffer, name);
+/**
+ * ASCII and big-endian PLY go through Three's PLYLoader, which needs the whole
+ * file in memory and builds plain arrays several times its size; past this the
+ * tab runs out of memory before the loader finishes.
+ */
+const maxFallbackBytes = 512 * 1024 * 1024;
+
+/** Reads a PLY scan: binary little-endian by streaming, anything else through Three's loader. */
+export async function readPly(source: ByteSource, name: string, onProgress?: ReadProgress): Promise<PointCloud> {
+  const fastPath = await readBinaryPly(source, name, onProgress);
   if (fastPath !== undefined) return fastPath;
+  if (source.size > maxFallbackBytes) {
+    throw new Error("PLY files over 512 MB need to be binary little-endian. Convert it, for example with CloudCompare, and load it again.");
+  }
+  const whole = await source.read(0, source.size);
+  const buffer = whole.byteOffset === 0 && whole.byteLength === whole.buffer.byteLength ? whole.buffer : whole.slice().buffer;
+  const cloud = parsePlyWithLoader(buffer as ArrayBuffer, name);
+  onProgress?.(1);
+  return cloud;
+}
 
+function parsePlyWithLoader(buffer: ArrayBuffer, name: string): PointCloud {
   const geometry = new PLYLoader().parse(buffer);
   const position = geometry.getAttribute("position");
   if (position === undefined || position.itemSize < 3 || position.count === 0) {

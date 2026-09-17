@@ -1,4 +1,11 @@
 import { PointCloud, boundsFromExtent, chooseOrigin, type PointCloudOrigin } from "../core/point-cloud.js";
+import type { ByteSource } from "./byte-source.js";
+import type { ReadProgress } from "./las-reader.js";
+
+/** Bytes searched for the end of the header. */
+const headerLimit = 64 * 1024;
+/** Bytes of vertex records decoded per read. */
+const blockBytes = 16 * 1024 * 1024;
 
 interface PlyProperty {
   readonly name: string;
@@ -29,15 +36,16 @@ const readers: Record<string, { size: number; read: (view: DataView, offset: num
  * Reads little-endian binary PLY straight into typed arrays. Three's PLYLoader
  * accumulates every scalar into a plain Array first, which caps a load at
  * roughly forty million points; writing into the destination buffers directly
- * removes that ceiling and avoids the intermediate copy. Returns undefined for
- * anything this fast path does not recognise so the caller can fall back.
+ * removes that ceiling and avoids the intermediate copy. Vertex records are
+ * read a block at a time, so the file is never in memory whole. Returns
+ * undefined for anything this fast path does not recognise so the caller can
+ * fall back.
  *
  * This is also the only place that sees a georeferenced coordinate at full
  * precision, so it is where the cloud's local frame is established.
  */
-export function readBinaryPly(buffer: ArrayBuffer, name: string): PointCloud | undefined {
-  const headerLimit = Math.min(buffer.byteLength, 64 * 1024);
-  const headerText = new TextDecoder().decode(new Uint8Array(buffer, 0, headerLimit));
+export async function readBinaryPly(source: ByteSource, name: string, onProgress?: ReadProgress): Promise<PointCloud | undefined> {
+  const headerText = new TextDecoder().decode(await source.read(0, headerLimit));
   const terminator = headerText.indexOf("end_header\n");
   if (!headerText.startsWith("ply") || terminator === -1) return undefined;
   if (!/format\s+binary_little_endian/.test(headerText)) return undefined;
@@ -82,15 +90,15 @@ export function readBinaryPly(buffer: ArrayBuffer, name: string): PointCloud | u
     offsets.push(stride);
     stride += property.size;
   }
+  // The header is ASCII, so its character count is its byte count.
   const start = terminator + "end_header\n".length;
-  if (buffer.byteLength - start < vertexCount * stride) return undefined;
+  if (source.size - start < vertexCount * stride) return undefined;
 
-  const view = new DataView(buffer, start);
-  const readX = (base: number) => properties[ix]!.read(view, base + offsets[ix]!);
-  const readY = (base: number) => properties[iy]!.read(view, base + offsets[iy]!);
-  const readZ = (base: number) => properties[iz]!.read(view, base + offsets[iz]!);
+  const readX = (view: DataView, base: number) => properties[ix]!.read(view, base + offsets[ix]!);
+  const readY = (view: DataView, base: number) => properties[iy]!.read(view, base + offsets[iy]!);
+  const readZ = (view: DataView, base: number) => properties[iz]!.read(view, base + offsets[iz]!);
 
-  const origin = estimateOrigin(vertexCount, stride, readX, readY, readZ);
+  const origin = await estimateOrigin(source, start, vertexCount, stride, readX, readY, readZ);
 
   const positions = new Float32Array(vertexCount * 3);
   const hasRgb = ir !== -1 && ig !== -1 && ib !== -1;
@@ -102,13 +110,21 @@ export function readBinaryPly(buffer: ArrayBuffer, name: string): PointCloud | u
   const min: [number, number, number] = [Infinity, Infinity, Infinity];
   const max: [number, number, number] = [-Infinity, -Infinity, -Infinity];
 
+  const recordsPerBlock = Math.max(1, Math.floor(blockBytes / stride));
+  let view: DataView<ArrayBufferLike> = new DataView(new ArrayBuffer(0));
   for (let point = 0, base = 0, target = 0; point < vertexCount; point += 1, base += stride, target += 3) {
+    if (point % recordsPerBlock === 0) {
+      if (point > 0) onProgress?.(point / vertexCount);
+      const block = await source.read(start + point * stride, Math.min(recordsPerBlock, vertexCount - point) * stride);
+      view = new DataView(block.buffer, block.byteOffset, block.byteLength);
+      base = 0;
+    }
     // Both operands are still doubles here, so the subtraction happens before
     // anything is narrowed. Assigning into the Float32Array is the only
     // rounding step, and by then the magnitude is local rather than planetary.
-    positions[target] = readX(base) - origin[0];
-    positions[target + 1] = readY(base) - origin[1];
-    positions[target + 2] = readZ(base) - origin[2];
+    positions[target] = readX(view, base) - origin[0];
+    positions[target + 1] = readY(view, base) - origin[1];
+    positions[target + 2] = readZ(view, base) - origin[2];
 
     // Measure what was stored, not what was computed: that rounding can move a
     // coordinate just outside the double it came from, and bounds must bracket
@@ -135,6 +151,7 @@ export function readBinaryPly(buffer: ArrayBuffer, name: string): PointCloud | u
     }
   }
 
+  onProgress?.(1);
   return new PointCloud({
     positions,
     ...(colors === undefined ? {} : { colors }),
@@ -155,22 +172,31 @@ export function readBinaryPly(buffer: ArrayBuffer, name: string): PointCloud | u
  * over every vertex. On a forty-million-point scan that is a thousand reads
  * rather than a hundred and twenty million.
  */
-function estimateOrigin(
+async function estimateOrigin(
+  source: ByteSource,
+  start: number,
   vertexCount: number,
   stride: number,
-  readX: (base: number) => number,
-  readY: (base: number) => number,
-  readZ: (base: number) => number,
-): PointCloudOrigin {
-  const step = Math.max(1, Math.floor(vertexCount / 1024));
+  readX: (view: DataView, base: number) => number,
+  readY: (view: DataView, base: number) => number,
+  readZ: (view: DataView, base: number) => number,
+): Promise<PointCloudOrigin> {
+  // Evenly spaced runs of vertices rather than single ones, so a thousand
+  // samples cost a few dozen reads.
+  const runs = Math.min(32, vertexCount);
+  const runLength = Math.max(1, Math.min(32, Math.floor(vertexCount / runs)));
   const min: [number, number, number] = [Infinity, Infinity, Infinity];
   const max: [number, number, number] = [-Infinity, -Infinity, -Infinity];
-  for (let point = 0; point < vertexCount; point += step) {
-    const base = point * stride;
-    const sample = [readX(base), readY(base), readZ(base)];
-    for (let axis = 0; axis < 3; axis += 1) {
-      if (sample[axis]! < min[axis]!) min[axis] = sample[axis]!;
-      if (sample[axis]! > max[axis]!) max[axis] = sample[axis]!;
+  for (let run = 0; run < runs; run += 1) {
+    const first = Math.floor((run * vertexCount) / runs);
+    const block = await source.read(start + first * stride, runLength * stride);
+    const view = new DataView(block.buffer, block.byteOffset, block.byteLength);
+    for (let base = 0; base + stride <= block.byteLength; base += stride) {
+      const sample = [readX(view, base), readY(view, base), readZ(view, base)];
+      for (let axis = 0; axis < 3; axis += 1) {
+        if (sample[axis]! < min[axis]!) min[axis] = sample[axis]!;
+        if (sample[axis]! > max[axis]!) max[axis] = sample[axis]!;
+      }
     }
   }
   return chooseOrigin(min, max);

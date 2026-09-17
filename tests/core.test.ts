@@ -300,8 +300,8 @@ describe("georeferenced clouds", () => {
 describe("binary PLY reader precision", () => {
   const eastings = [543210.001, 543210.002, 543210.003];
 
-  it("keeps millimetre detail that Float32 world coordinates would destroy", () => {
-    const cloud = readBinaryPly(buildDoublePly(eastings), "utm-scan")!;
+  it("keeps millimetre detail that Float32 world coordinates would destroy", async () => {
+    const cloud = (await readBinaryPly(bufferSource(buildDoublePly(eastings)), "utm-scan"))!;
     expect(cloud).toBeDefined();
     expect(cloud.origin).toEqual([543000, 4179000, 0]);
 
@@ -317,8 +317,8 @@ describe("binary PLY reader precision", () => {
     }
   });
 
-  it("reports bounds in the local frame it established", () => {
-    const cloud = readBinaryPly(buildDoublePly(eastings), "utm-scan")!;
+  it("reports bounds in the local frame it established", async () => {
+    const cloud = (await readBinaryPly(bufferSource(buildDoublePly(eastings)), "utm-scan"))!;
     expect(cloud.bounds.min[0]).toBeCloseTo(210.001, 4);
     expect(cloud.bounds.max[0]).toBeCloseTo(210.003, 4);
     expect(cloud.bounds.diagonal).toBeLessThan(1);
@@ -609,8 +609,8 @@ describe("bounds bracket their own points", () => {
     expectEveryPointInsideBounds(cloud);
   });
 
-  it("does the same for the binary PLY path", () => {
-    const cloud = readBinaryPly(buildDoublePly([543210.001, 543210.002, 543210.003]), "scan")!;
+  it("does the same for the binary PLY path", async () => {
+    const cloud = (await readBinaryPly(bufferSource(buildDoublePly([543210.001, 543210.002, 543210.003])), "scan"))!;
     expectEveryPointInsideBounds(cloud);
   });
 

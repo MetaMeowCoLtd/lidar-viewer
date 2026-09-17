@@ -1,6 +1,6 @@
 import type { PointCloud } from "../core/point-cloud.js";
 import { viewerConfig } from "../config.js";
-import { parsePlyBuffer } from "./ply-file-importer.js";
+import { readPly } from "./ply-file-importer.js";
 import { readLasHeader, minimumLasHeaderSize } from "./las-header.js";
 import { readLasPoints } from "./las-reader.js";
 import { readLazPoints } from "./laz-reader.js";
@@ -46,11 +46,7 @@ export async function importScan(source: ByteSource, name: string, onProgress?: 
       return header.isCompressed ? readLazPoints(source, header, name, onProgress) : readLasPoints(source, header, name, onProgress);
     }
   }
-  if (looksLikePly(leading)) {
-    const whole = await source.read(0, source.size);
-    const buffer = whole.byteOffset === 0 && whole.byteLength === whole.buffer.byteLength ? whole.buffer : whole.slice().buffer;
-    return parsePlyBuffer(buffer as ArrayBuffer, name);
-  }
+  if (looksLikePly(leading)) return readPly(source, name, onProgress);
   throw new Error("That file is not a readable LAS, LAZ or PLY point cloud");
 }
 
