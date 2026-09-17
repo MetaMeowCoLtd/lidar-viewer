@@ -3,7 +3,7 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import type { PointCloud, PointCloudColorMode, PointCloudPointShape } from "../core/point-cloud.js";
 import { PointCloudLodPyramid, type LodTierSpec } from "../core/lod-pyramid.js";
 import { PointCloudSession } from "../core/point-cloud-session.js";
-import { TiledPointCloudLodPyramid } from "../core/tiled-lod-pyramid.js";
+import { TiledPointCloudLodPyramid, distanceToBounds } from "../core/tiled-lod-pyramid.js";
 import { LodBuildPool } from "../core/lod-build-pool.js";
 import { ThreePointCloudRenderer } from "./three-point-cloud-renderer.js";
 import { viewerConfig } from "../config.js";
@@ -285,6 +285,7 @@ export class LidarViewer {
     if (this.frameHandle !== undefined) return;
     const tick = () => {
       this.controls.update();
+      this.fitClippingPlanes();
       if (this.distanceBasedLodEnabled && this.activeTiledPyramid !== undefined) {
         this.pointCloudRenderer.applyCameraDistanceLod(this.camera.position.x, this.camera.position.y, this.camera.position.z, this.activeTiledPyramid);
         this.notifySummary();
@@ -341,6 +342,44 @@ export class LidarViewer {
     }
     this.lastSummary = summary;
     for (const listener of this.summaryListeners) listener(summary);
+  }
+
+  /**
+   * Keeps the near and far planes hugging the scan from wherever the camera is.
+   *
+   * A depth buffer spends its precision in proportion to the ratio of far to
+   * near. Planes fixed when a scan loads have to allow for the camera coming
+   * right up to a wall and for it pulling far back, a ratio in the tens of
+   * thousands, which at a normal viewing distance leaves depth steps tens of
+   * centimetres deep - enough for points behind a wall to win the depth test
+   * against the wall and show through it. Measured every frame, the planes
+   * bracket just the scan: the near plane stays in front of its closest point
+   * and the far plane just behind its farthest corner.
+   */
+  private fitClippingPlanes(): void {
+    const bounds = this.activePyramid?.tiers[0]?.cloud.bounds;
+    if (bounds === undefined) return;
+    const { x, y, z } = this.camera.position;
+    let farthest = 0;
+    for (let corner = 0; corner < 8; corner += 1) {
+      farthest = Math.max(
+        farthest,
+        Math.hypot(
+          x - (corner & 1 ? bounds.max[0] : bounds.min[0]),
+          y - (corner & 2 ? bounds.max[1] : bounds.min[1]),
+          z - (corner & 4 ? bounds.max[2] : bounds.min[2]),
+        ),
+      );
+    }
+    const far = farthest * 1.05 + 1;
+    // Inside the bounds the nearest point could be anywhere, so the near plane
+    // falls back to a fixed share of the far one - still far tighter than a
+    // plane chosen for every possible camera position at once.
+    const near = Math.max(distanceToBounds(x, y, z, bounds) * 0.5, far / 20_000, 0.01);
+    if (Math.abs(near - this.camera.near) < near * 0.01 && Math.abs(far - this.camera.far) < far * 0.01) return;
+    this.camera.near = near;
+    this.camera.far = far;
+    this.camera.updateProjectionMatrix();
   }
 
   private frameActiveCloud(): void {
