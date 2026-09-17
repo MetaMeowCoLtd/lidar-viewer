@@ -119,10 +119,12 @@ export class TiledPointCloudLodPyramid {
 
 /**
  * The share of a pooled build's progress given to partitioning, which runs on
- * the page's thread one point at a time; the per-tile builds that follow run
- * in parallel on workers and take roughly as long again.
+ * the page's thread one point at a time. The per-tile builds that follow run
+ * in parallel on workers and are much quicker: on the 60-million-point
+ * Shinjuku scan, about five seconds of partitioning against under one of
+ * building.
  */
-const partitionShare = 0.5;
+const partitionShare = 0.85;
 
 function partition(source: PointCloud, tiling: TilingConfig): readonly PointCloudTile[] {
   const tileSize = tileSizeFor(source, tiling);
