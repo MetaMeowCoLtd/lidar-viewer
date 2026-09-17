@@ -24,6 +24,13 @@ const minDepthFraction = 0.01;
 /** Bounds on a drawn dot's diameter in pixels, shared by the shader and picking. */
 const minDotSize = 0.8;
 export const maxDotSize = 10;
+/**
+ * A dot drawn for a decimated point grows to cover its voxel, up to this
+ * size. Circles on a square grid only close the gaps at their diagonals when
+ * a little wider than the grid spacing, hence the factor.
+ */
+const maxCoverDotSize = 40;
+const voxelCoverFactor = 1.3;
 
 export interface PointCloudShaderOptions {
   readonly pointSize?: number;
@@ -51,6 +58,8 @@ export class PointCloudShaderMaterial extends ShaderMaterial {
       uClassPalette: { value: createClassificationPalette() },
       uMaxAboveGround: { value: Math.max(options.maxAboveGround ?? 20, 1) },
       uBuildingCount: { value: 0 },
+      uVoxelSize: { value: 0 },
+      uPixelsPerUnit: { value: 0 },
     };
     super({
       uniforms,
@@ -69,6 +78,8 @@ export class PointCloudShaderMaterial extends ShaderMaterial {
         uniform float uPointSize;
         uniform float uSizeScale;
         uniform float uMinDepth;
+        uniform float uVoxelSize;
+        uniform float uPixelsPerUnit;
         void main() {
           vColor = color;
           vHeight = position.y;
@@ -76,7 +87,13 @@ export class PointCloudShaderMaterial extends ShaderMaterial {
           vAboveGround = heightAboveGround;
           vObject = objectId;
           vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-          gl_PointSize = clamp(uPointSize * (uSizeScale / max(uMinDepth, -mvPosition.z)), ${minDotSize.toFixed(1)}, ${maxDotSize.toFixed(1)});
+          float chosenSize = clamp(uPointSize * (uSizeScale / max(uMinDepth, -mvPosition.z)), ${minDotSize.toFixed(1)}, ${maxDotSize.toFixed(1)});
+          // A decimated point stands for its whole voxel. Drawn at the chosen
+          // size alone, a coarse tier's surfaces open up between its dots and
+          // whatever lies behind shows through them; covering the voxel keeps
+          // walls and roofs solid at every level of detail.
+          float coverSize = min(uVoxelSize * uPixelsPerUnit / max(uMinDepth, -mvPosition.z) * ${voxelCoverFactor.toFixed(2)}, ${maxCoverDotSize.toFixed(1)});
+          gl_PointSize = max(chosenSize, coverSize);
           gl_Position = projectionMatrix * mvPosition;
         }
       `,
@@ -181,6 +198,25 @@ export class PointCloudShaderMaterial extends ShaderMaterial {
   public dotRadius(depth: number): number {
     const size = this.uniforms.uPointSize!.value * (this.uniforms.uSizeScale!.value / Math.max(this.uniforms.uMinDepth!.value, depth));
     return Math.min(Math.max(size, minDotSize), maxDotSize) / 2;
+  }
+
+  /**
+   * The voxel edge of the tier about to be drawn, so its dots cover their
+   * voxels; zero for full resolution. The material is shared by every tile,
+   * and tiles show different tiers, so this is set per draw.
+   */
+  public setVoxelSize(voxelSize: number): void {
+    const uniform = this.uniforms.uVoxelSize!;
+    if (uniform.value === voxelSize) return;
+    uniform.value = voxelSize;
+    // Uniforms are otherwise only uploaded when the program changes, which it
+    // does not between tiles drawn with the same material.
+    this.uniformsNeedUpdate = true;
+  }
+
+  /** Pixels one unit spans at a distance of one unit: drawing height over twice the tangent of half the field of view. */
+  public setPixelsPerUnit(pixelsPerUnit: number): void {
+    this.uniforms.uPixelsPerUnit!.value = pixelsPerUnit;
   }
 
   /** Object ids up to this count are buildings; above it, trees. */

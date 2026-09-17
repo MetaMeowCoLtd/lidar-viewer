@@ -1,6 +1,8 @@
 import {
   BufferAttribute,
   BufferGeometry,
+  MathUtils,
+  PerspectiveCamera,
   Points,
   Scene,
   Vector2,
@@ -61,6 +63,7 @@ export class ThreePointCloudRenderer {
   private hasObjects = false;
   private readonly outlines = new ObjectOutlines();
   private readonly annotations = new MeasurementOverlay();
+  private readonly drawingSize = new Vector2();
 
   public constructor(
     private readonly scene: Scene,
@@ -86,10 +89,13 @@ export class ThreePointCloudRenderer {
     this.hasHeightAboveGround = source.supportsColorMode("heightAboveGround");
     this.hasObjects = source.supportsColorMode("objects");
 
+    const material = this.material;
     for (const tile of tiled.tiles) {
-      const points = new Points(this.emptyGeometry, this.material);
+      const points = new Points(this.emptyGeometry, material);
+      const state: TileRenderState = { id: tile.id, bounds: tile.bounds, points, activeTier: undefined };
+      points.onBeforeRender = () => material.setVoxelSize(state.activeTier?.voxelSize ?? 0);
       this.scene.add(points);
-      this.tileStates.set(tile.id, { id: tile.id, bounds: tile.bounds, points, activeTier: undefined });
+      this.tileStates.set(tile.id, state);
     }
   }
 
@@ -173,6 +179,10 @@ export class ThreePointCloudRenderer {
 
   /** Call from the host application's single requestAnimationFrame loop. */
   public render(): void {
+    if (this.material !== undefined && this.camera instanceof PerspectiveCamera) {
+      const height = this.renderer.getDrawingBufferSize(this.drawingSize).y;
+      this.material.setPixelsPerUnit(height / (2 * Math.tan(MathUtils.degToRad(this.camera.fov) / 2)));
+    }
     if (!this.reliefEnabled) {
       this.renderer.render(this.scene, this.camera);
       this.outlines.render(this.renderer, this.camera);
