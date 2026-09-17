@@ -433,3 +433,12 @@ button { color: inherit; }
   margin: -8px 0 14px;
   color: #f5c98a;
 }
+
+/* Under the import button while a scan is read and prepared. */
+.import-progress {
+  margin-top: 12px;
+}
+
+.import-progress .control-label {
+  margin-bottom: 0;
+}

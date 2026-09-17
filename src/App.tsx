@@ -28,6 +28,12 @@ type ExportKind = "inventory" | "geojson" | "las" | "classes";
 
 type ClickTool = "inspect" | "measure";
 
+/** How far an import has got: reading the file on its worker, then building its detail levels. */
+interface ImportProgress {
+  readonly stage: "reading" | "building";
+  readonly fraction: number;
+}
+
 interface Picks {
   readonly inspected?: PointDetails | undefined;
   readonly from?: PointDetails | undefined;
@@ -76,6 +82,9 @@ export function App() {
   const [count, setCount] = useState<CountState>({ status: "idle" });
   const countJobRef = useRef<ObjectDetectionJob | undefined>(undefined);
   const importJobRef = useRef<ScanImportJob | undefined>(undefined);
+  const [importProgress, setImportProgress] = useState<ImportProgress>();
+  // Counts imports, so progress from one that was superseded never lands on the bar of the next.
+  const importRunRef = useRef(0);
   const [sampling, setSampling] = useState<{ readonly loaded: number; readonly total: number }>();
   const [showBuildingOutlines, setShowBuildingOutlines] = useState(true);
   const [showTreeOutlines, setShowTreeOutlines] = useState(true);
@@ -134,6 +143,8 @@ export function App() {
     setPicks({});
     importJobRef.current?.cancel();
     importJobRef.current = undefined;
+    importRunRef.current += 1;
+    setImportProgress(undefined);
     groundJobRef.current?.cancel();
     groundJobRef.current = undefined;
     countJobRef.current?.cancel();
@@ -254,14 +265,21 @@ export function App() {
   }, [colorMode, source]);
 
   const loadFile = useCallback(async (file: File) => {
+    resetAnalysis();
+    const run = importRunRef.current;
     try {
-      resetAnalysis();
+      const report = (stage: ImportProgress["stage"], fraction: number) => {
+        if (importRunRef.current === run) setImportProgress({ stage, fraction });
+      };
       setSourceLabel(file.name);
       setStatus("processing");
       setStatusText("Reading local scan");
       setSampling(undefined);
+      report("reading", 0);
       const job = startScanImport(file, viewerConfig().maxImportPoints, (fraction) => {
-        if (importJobRef.current === job) setStatusText(`Reading local scan · ${Math.round(fraction * 100)}%`);
+        if (importJobRef.current !== job) return;
+        setStatusText(`Reading local scan · ${Math.round(fraction * 100)}%`);
+        report("reading", fraction);
       });
       importJobRef.current = job;
       const { cloud, sourcePointCount } = await job.result;
@@ -269,9 +287,12 @@ export function App() {
       if (importJobRef.current !== job) return;
       importJobRef.current = undefined;
       if (sourcePointCount > cloud.pointCount) setSampling({ loaded: cloud.pointCount, total: sourcePointCount });
-      await viewerRef.current?.load(cloud, createLodSpecs(cloud.bounds.diagonal));
+      report("building", 0);
+      await viewerRef.current?.load(cloud, createLodSpecs(cloud.bounds.diagonal), (fraction) => report("building", fraction));
+      if (importRunRef.current === run) setImportProgress(undefined);
     } catch (error) {
-      if (error instanceof ScanImportCancelled) return;
+      if (error instanceof ScanImportCancelled || importRunRef.current !== run) return;
+      setImportProgress(undefined);
       setStatus("error");
       setStatusText(error instanceof Error ? error.message : "Unable to load that scan");
     }
@@ -730,6 +751,7 @@ export function App() {
             <span><strong>Import a LiDAR scan</strong><small>Drop a .LAS, .LAZ or .PLY file or browse your device</small></span>
             <Icon name="arrow" />
           </button>
+          {importProgress === undefined ? null : <ImportProgressBar progress={importProgress} />}
           <input ref={fileInputRef} className="visually-hidden" type="file" accept={supportedScanExtensions.join(",")} onChange={handleFileInput} />
 
           <p className="panel-footnote">Everything stays local in your browser. No scan data is uploaded.</p>
@@ -846,6 +868,23 @@ function formatCoordinate(value: number): string {
 
 function formatLength(metres: number): string {
   return `${formatNumber(metres, 2)} m`;
+}
+
+function ImportProgressBar({ progress }: { progress: ImportProgress }) {
+  const percent = Math.round(progress.fraction * 100);
+  const [step, label] = progress.stage === "reading" ? [1, "Reading the file"] : [2, "Building detail levels"];
+  return (
+    <div className="import-progress">
+      <div className="control-label">
+        <span>{label}</span>
+        <strong>{`STEP ${step}/2 \u00b7 ${percent}%`}</strong>
+      </div>
+      <div className="analysis-progress" role="progressbar" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}>
+        {/* Keyed by stage, so the bar starts the second step from empty instead of sliding back from full. */}
+        <i key={progress.stage} style={{ width: `${percent}%` }} />
+      </div>
+    </div>
+  );
 }
 
 function ExportButton({ label, format, busy, disabled, onClick }: { label: string; format: string; busy: boolean; disabled: boolean; onClick: () => void }) {
