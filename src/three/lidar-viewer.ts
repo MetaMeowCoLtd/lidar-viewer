@@ -11,6 +11,8 @@ import type { DetectedObject } from "../core/object-detection.js";
 import { pickPoint, type PointHit } from "../core/point-picking.js";
 import { maxDotSize } from "./point-cloud-shader-material.js";
 import type { Annotations } from "./measurement-overlay.js";
+import type { TerrainModel } from "../core/terrain.js";
+import type { ContourSet } from "../core/contours.js";
 
 export type { LodRenderSummary } from "./three-point-cloud-renderer.js";
 export type { Annotations, MarkerAnnotation, MarkerTone } from "./measurement-overlay.js";
@@ -68,6 +70,7 @@ export class LidarViewer {
   private keepCameraOnNextReady = false;
   private readonly clickListeners = new Set<(hit: PointHit | undefined) => void>();
   private readonly frameListeners = new Set<() => void>();
+  private pointsVisible = true;
   private pressed: { x: number; y: number; time: number; pointerId: number } | undefined;
   private readonly onPointerDown = (event: PointerEvent) => {
     this.pressed = event.isPrimary && event.button === 0 ? { x: event.clientX, y: event.clientY, time: event.timeStamp, pointerId: event.pointerId } : undefined;
@@ -207,6 +210,23 @@ export class LidarViewer {
     this.pointCloudRenderer.setObjects(objects);
   }
 
+  /** The terrain surface and its contour lines; undefined clears them. */
+  public setTerrain(model: TerrainModel | undefined, contours: ContourSet | undefined): void {
+    this.assertNotDisposed();
+    this.pointCloudRenderer.setTerrain(model, contours);
+  }
+
+  public setTerrainVisibility(surface: boolean, contours: boolean): void {
+    this.assertNotDisposed();
+    this.pointCloudRenderer.setTerrainVisibility(surface, contours);
+  }
+
+  public setPointsVisible(visible: boolean): void {
+    this.assertNotDisposed();
+    this.pointsVisible = visible;
+    this.pointCloudRenderer.setPointsVisible(visible);
+  }
+
   public setOutlineVisibility(buildings: boolean, trees: boolean): void {
     this.assertNotDisposed();
     this.pointCloudRenderer.setOutlineVisibility(buildings, trees);
@@ -220,7 +240,8 @@ export class LidarViewer {
   public pickAt(clientX: number, clientY: number): PointHit | undefined {
     this.assertNotDisposed();
     const tiled = this.activeTiledPyramid;
-    if (tiled === undefined) return undefined;
+    // Hidden points are not there to be clicked on.
+    if (tiled === undefined || !this.pointsVisible) return undefined;
     const canvas = this.renderer.domElement;
     const rect = canvas.getBoundingClientRect();
     if (rect.width === 0 || rect.height === 0) return undefined;

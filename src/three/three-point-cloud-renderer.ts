@@ -14,6 +14,9 @@ import type { PointCloudLodTier } from "../core/lod-pyramid.js";
 import { distanceToBounds, type TiledPointCloudLodPyramid } from "../core/tiled-lod-pyramid.js";
 import { PointCloudShaderMaterial, maxDotSize } from "./point-cloud-shader-material.js";
 import { MeasurementOverlay, type Annotations } from "./measurement-overlay.js";
+import { TerrainLayer } from "./terrain-layer.js";
+import type { TerrainModel } from "../core/terrain.js";
+import type { ContourSet } from "../core/contours.js";
 import { EyeDomeLighting } from "./eye-dome-lighting.js";
 import { viewerConfig } from "../config.js";
 import { heightAboveGroundRampTop } from "../core/statistics.js";
@@ -64,14 +67,18 @@ export class ThreePointCloudRenderer {
   private readonly outlines = new ObjectOutlines();
   private readonly annotations = new MeasurementOverlay();
   private readonly drawingSize = new Vector2();
+  private readonly terrain: TerrainLayer;
+  private pointsVisible = true;
 
   public constructor(
     private readonly scene: Scene,
     private readonly renderer: WebGLRenderer,
     private readonly camera: Camera,
   ) {
+    this.terrain = new TerrainLayer(scene);
     const size = renderer.getDrawingBufferSize(new Vector2());
     this.outlines.setResolution(size.x, size.y);
+    this.terrain.setResolution(size.x, size.y);
     this.annotations.setResolution(size.x, size.y, renderer.getPixelRatio());
   }
 
@@ -92,6 +99,7 @@ export class ThreePointCloudRenderer {
     const material = this.material;
     for (const tile of tiled.tiles) {
       const points = new Points(this.emptyGeometry, material);
+      points.visible = this.pointsVisible;
       const state: TileRenderState = { id: tile.id, bounds: tile.bounds, points, activeTier: undefined };
       points.onBeforeRender = () => material.setVoxelSize(state.activeTier?.voxelSize ?? 0);
       this.scene.add(points);
@@ -150,7 +158,27 @@ export class ThreePointCloudRenderer {
   public setSize(width: number, height: number): void {
     this.eyeDome?.setSize(width, height);
     this.outlines.setResolution(width, height);
+    this.terrain.setResolution(width, height);
     this.annotations.setResolution(width, height, this.renderer.getPixelRatio());
+  }
+
+  /**
+   * The terrain surface and contour lines; undefined clears them. They belong
+   * to the scan rather than to a particular version of its cloud, so replacing
+   * the cloud leaves them in place.
+   */
+  public setTerrain(model: TerrainModel | undefined, contours: ContourSet | undefined): void {
+    this.terrain.setTerrain(model, contours);
+  }
+
+  public setTerrainVisibility(surface: boolean, contours: boolean): void {
+    this.terrain.setVisibility(surface, contours);
+  }
+
+  /** Hides the points, to look at the terrain or the outlines on their own. */
+  public setPointsVisible(visible: boolean): void {
+    this.pointsVisible = visible;
+    for (const state of this.tileStates.values()) state.points.visible = visible;
   }
 
   /** Picked points and measurements. They belong to the view, not the cloud, so a new cloud keeps them. */
@@ -185,7 +213,7 @@ export class ThreePointCloudRenderer {
     }
     if (!this.reliefEnabled) {
       this.renderer.render(this.scene, this.camera);
-      this.outlines.render(this.renderer, this.camera);
+      this.drawDepthTestedLines();
       this.annotations.render(this.renderer, this.camera);
       return;
     }
@@ -198,12 +226,19 @@ export class ThreePointCloudRenderer {
     }
     // Outlines are depth tested, so they go into the lighting pass while the
     // points' depth is still bound; the screen itself holds no depth for them.
-    this.eyeDome.render(this.scene, this.camera, () => this.outlines.render(this.renderer, this.camera));
+    this.eyeDome.render(this.scene, this.camera, () => this.drawDepthTestedLines());
     this.annotations.render(this.renderer, this.camera);
+  }
+
+  /** Lines laid on the scan, which must be drawn while its depth is still bound. */
+  private drawDepthTestedLines(): void {
+    this.terrain.renderContours(this.renderer, this.camera);
+    this.outlines.render(this.renderer, this.camera);
   }
 
   public dispose(): void {
     this.disposeCloudResources();
+    this.terrain.dispose();
     this.outlines.dispose();
     this.annotations.dispose();
     this.emptyGeometry.dispose();
