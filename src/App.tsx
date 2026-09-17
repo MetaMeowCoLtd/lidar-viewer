@@ -184,7 +184,7 @@ export function App() {
     const unsubscribe = viewer.session.subscribe((nextState) => {
       if (nextState.status === "processing") {
         setStatus("processing");
-        setStatusText(nextState.sourceName);
+        setStatusText("Building detail levels");
       }
       if (nextState.status === "ready") {
         setPyramid(nextState.pyramid);
