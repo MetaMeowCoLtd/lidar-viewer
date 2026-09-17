@@ -10,14 +10,19 @@ import { classificationColor, classificationName } from "./core/point-cloud-clas
 import { GroundDetectionCancelled, startGroundDetection, type GroundDetectionJob } from "./core/ground-detection-job.js";
 import type { GroundDetectionStats } from "./core/ground-detection.js";
 import { ObjectDetectionCancelled, startObjectDetection, type ObjectDetectionJob } from "./core/object-detection-job.js";
-import type { ObjectDetectionStats } from "./core/object-detection.js";
+import type { DetectedObject, ObjectDetectionStats } from "./core/object-detection.js";
 import { heightAboveGroundRampTop } from "./core/statistics.js";
 import { viewerConfig } from "./config.js";
+import { writeLas } from "./export/las-writer.js";
+import { classSummaryCsv, objectInventoryCsv, objectsGeoJson } from "./export/object-inventory.js";
+import { fileStem, saveFile } from "./export/save-file.js";
 
 const INITIAL_POINT_COUNT = 380_000;
 const budgetStep = 10_000;
 
 type ViewerStatus = "initializing" | "processing" | "ready" | "error";
+
+type ExportKind = "inventory" | "geojson" | "las" | "classes";
 
 type GroundState =
   | { readonly status: "idle" }
@@ -28,7 +33,14 @@ type GroundState =
 type CountState =
   | { readonly status: "idle" }
   | { readonly status: "running"; readonly stage: string; readonly fraction: number }
-  | { readonly status: "done"; readonly stats: ObjectDetectionStats; readonly tallestBuilding: number; readonly treeHeights: readonly [number, number]; readonly seconds: number }
+  | {
+      readonly status: "done";
+      readonly stats: ObjectDetectionStats;
+      readonly objects: readonly DetectedObject[];
+      readonly tallestBuilding: number;
+      readonly treeHeights: readonly [number, number];
+      readonly seconds: number;
+    }
   | { readonly status: "failed"; readonly message: string };
 
 export function App() {
@@ -56,6 +68,8 @@ export function App() {
   const [showBuildingOutlines, setShowBuildingOutlines] = useState(true);
   const [showTreeOutlines, setShowTreeOutlines] = useState(true);
   const sourceRef = useRef<PointCloud | undefined>(undefined);
+  const [exporting, setExporting] = useState<ExportKind>();
+  const [exportError, setExportError] = useState<string>();
 
   const source = pyramid?.tiers[0]?.cloud;
   const effectivePointBudget = Math.min(pointBudget, source?.pointCount ?? pointBudget);
@@ -64,6 +78,8 @@ export function App() {
   const supportsHeightAboveGround = source?.supportsColorMode("heightAboveGround") ?? false;
   const supportsObjects = source?.supportsColorMode("objects") ?? false;
   const analysing = ground.status === "running" || count.status === "running";
+  const exportBlocked = source === undefined || status !== "ready" || analysing || exporting !== undefined;
+  const counted = count.status === "done" && source?.objectId !== undefined;
   const budgetMaximum = source?.pointCount ?? viewerConfig().defaultPointBudget;
   const budgetSliderMax = Math.max(budgetStep, Math.ceil(budgetMaximum / budgetStep) * budgetStep);
 
@@ -82,6 +98,12 @@ export function App() {
   useLayoutEffect(() => {
     sourceRef.current = source;
   }, [source]);
+
+  // Exports read the objects of the count now on screen, not of the render that created the handler.
+  const countRef = useRef(count);
+  useLayoutEffect(() => {
+    countRef.current = count;
+  }, [count]);
 
   /** Abandons any analysis in flight and its results, for when the scan it was working on is replaced. */
   const resetAnalysis = useCallback(() => {
@@ -231,6 +253,7 @@ export function App() {
           heightAboveGround: result.heightAboveGround,
           bounds: cloud.bounds,
           origin: cloud.origin,
+          spatialReference: cloud.spatialReference,
           name: cloud.name,
         }),
       );
@@ -279,6 +302,7 @@ export function App() {
           objectId: result.objectId,
           bounds: cloud.bounds,
           origin: cloud.origin,
+          spatialReference: cloud.spatialReference,
           name: cloud.name,
         }),
       );
@@ -304,6 +328,7 @@ export function App() {
       setCount({
         status: "done",
         stats: result.stats,
+        objects: result.objects,
         tallestBuilding,
         treeHeights: [Number.isFinite(shortestTree) ? shortestTree : 0, tallestTree],
         seconds,
@@ -312,6 +337,33 @@ export function App() {
       if (error instanceof ObjectDetectionCancelled || countJobRef.current !== job) return;
       countJobRef.current = undefined;
       setCount({ status: "failed", message: error instanceof Error ? error.message : "Counting buildings and trees failed" });
+    }
+  }, []);
+
+  const exportScan = useCallback(async (kind: ExportKind) => {
+    const cloud = sourceRef.current;
+    if (cloud === undefined) return;
+    setExporting(kind);
+    setExportError(undefined);
+    try {
+      // Writing a large LAS file holds the main thread for a moment, so the
+      // button's "Preparing" label is given time to paint first. A timer rather
+      // than an animation frame, which never arrives in a hidden tab.
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      const stem = fileStem(cloud.name);
+      if (kind === "las") {
+        saveFile(writeLas(cloud) as BlobPart[], `${stem}-classified.las`, "application/vnd.las");
+      } else if (kind === "classes") {
+        saveFile([classSummaryCsv(cloud)], `${stem}-classes.csv`, "text/csv");
+      } else {
+        const objects = countRef.current.status === "done" ? countRef.current.objects : [];
+        if (kind === "inventory") saveFile([objectInventoryCsv(cloud, objects)], `${stem}-inventory.csv`, "text/csv");
+        else saveFile([objectsGeoJson(cloud, objects)], `${stem}-objects.geojson`, "application/geo+json");
+      }
+    } catch (error) {
+      setExportError(error instanceof Error ? error.message : "The export could not be written");
+    } finally {
+      setExporting(undefined);
     }
   }, []);
 
@@ -522,6 +574,22 @@ export function App() {
             ) : null}
           </div>
 
+          <div className="control-block">
+            <div className="control-label">
+              <span>Export</span>
+              <strong>{source?.spatialReference?.epsg === undefined ? (source?.isGeoreferenced ? "WORLD COORDS" : "LOCAL COORDS") : `EPSG:${source.spatialReference.epsg}`}</strong>
+            </div>
+            <div className="export-grid">
+              <ExportButton label="Inventory" format="CSV" busy={exporting === "inventory"} disabled={exportBlocked || !counted} onClick={() => void exportScan("inventory")} />
+              <ExportButton label="Map layer" format="GeoJSON" busy={exporting === "geojson"} disabled={exportBlocked || !counted} onClick={() => void exportScan("geojson")} />
+              <ExportButton label="Classified points" format="LAS" busy={exporting === "las"} disabled={exportBlocked || !supportsClassification} onClick={() => void exportScan("las")} />
+              <ExportButton label="Class summary" format="CSV" busy={exporting === "classes"} disabled={exportBlocked || !supportsClassification} onClick={() => void exportScan("classes")} />
+            </div>
+            <p className={exportError === undefined ? "panel-footnote" : "panel-footnote analysis-error"}>
+              {exportError ?? exportFootnote(counted, supportsClassification)}
+            </p>
+          </div>
+
           <button
             className={`drop-zone${isDragging ? " is-dragging" : ""}`}
             type="button"
@@ -576,6 +644,15 @@ function ToggleButton({ pressed, onClick, children }: { pressed: boolean; onClic
   return <button type="button" className={pressed ? "active" : ""} aria-pressed={pressed} onClick={onClick}>{children}</button>;
 }
 
+function ExportButton({ label, format, busy, disabled, onClick }: { label: string; format: string; busy: boolean; disabled: boolean; onClick: () => void }) {
+  return (
+    <button className="analysis-button export-button" type="button" disabled={disabled} aria-busy={busy} onClick={onClick}>
+      <span>{busy ? "Preparing…" : label}</span>
+      <small>{format}</small>
+    </button>
+  );
+}
+
 function ModeButton({ active, disabled, onClick, children }: { active: boolean; disabled?: boolean; onClick: () => void; children: ReactNode }) {
   return <button type="button" className={active ? "active" : ""} disabled={disabled} onClick={onClick}>{children}</button>;
 }
@@ -607,6 +684,15 @@ function formatRampHeight(metres: number): string {
 function channelsWithoutObjects(cloud: PointCloud) {
   const { objectId: _stale, ...channels } = definedChannels(cloud);
   return channels;
+}
+
+function exportFootnote(counted: boolean, classified: boolean): string {
+  if (!classified) {
+    return "Count buildings and trees, or detect ground, to give this scan something to export. Files are made on this device.";
+  }
+  const las = "LAS files are uncompressed; the browser cannot write LAZ.";
+  if (!counted) return `Classes can be exported now; the inventory and map layer need a count first. ${las}`;
+  return `Positions are in the scan's own coordinate system. ${las}`;
 }
 
 function countHeadline(count: CountState): string {

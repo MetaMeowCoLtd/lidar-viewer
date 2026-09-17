@@ -1,3 +1,5 @@
+import type { SpatialReference } from "./spatial-reference.js";
+
 export type PointCloudColorMode = "height" | "rgb" | "relief" | "classification" | "heightAboveGround" | "objects";
 export type PointCloudPointShape = "circle" | "square";
 
@@ -84,6 +86,8 @@ export interface PointCloudInit extends PointCloudAttributes {
   readonly bounds?: PointCloudBounds;
   /** Defaults to the world origin, which is what a non-georeferenced scan wants. */
   readonly origin?: PointCloudOrigin;
+  /** The coordinate system the scan's world coordinates are in, when its file declared one. */
+  readonly spatialReference?: SpatialReference | undefined;
 }
 
 /**
@@ -110,6 +114,7 @@ export class PointCloud {
   public readonly pointCount: number;
   public readonly bounds: PointCloudBounds;
   public readonly origin: PointCloudOrigin;
+  public readonly spatialReference: SpatialReference | undefined;
 
   public constructor({
     positions,
@@ -122,6 +127,7 @@ export class PointCloud {
     objectId,
     bounds,
     origin = zeroOrigin,
+    spatialReference,
     name = "point-cloud",
   }: PointCloudInit) {
     if (positions.length === 0 || positions.length % 3 !== 0) {
@@ -162,6 +168,7 @@ export class PointCloud {
     this.pointCount = pointCount;
     this.bounds = bounds ?? calculateBounds(positions);
     this.origin = origin;
+    this.spatialReference = spatialReference;
   }
 
   public supportsColorMode(mode: PointCloudColorMode): boolean {

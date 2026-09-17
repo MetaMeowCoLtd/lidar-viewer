@@ -2,6 +2,7 @@ import type { LazPerf as LazPerfModule } from "laz-perf";
 import type { PointCloud } from "../core/point-cloud.js";
 import { layoutForPointFormat, type LasHeader } from "./las-header.js";
 import { LasPointBuilder, colorScaleFromSamples } from "./las-point-builder.js";
+import { readLasSpatialReference } from "./las-records.js";
 
 let modulePromise: Promise<LazPerfModule> | undefined;
 
@@ -61,7 +62,7 @@ export async function readLazPoints(buffer: ArrayBuffer, header: LasHeader, name
       if (pointCount < 1) throw new Error("The LAZ file contains no readable point records");
 
       recordPointer = lazPerf._malloc(recordLength);
-      const builder = new LasPointBuilder(header, name, colorScale);
+      const builder = new LasPointBuilder(header, name, colorScale, readLasSpatialReference(buffer, header));
       const scratch = new Uint8Array(recordLength);
       const record = new DataView(scratch.buffer);
       for (let point = 0; point < pointCount; point += 1) {

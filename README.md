@@ -14,6 +14,12 @@ only responsible for GPU resources and draw configuration.
 - Building and tree counting on a worker: finds each building and tree,
   labels its points, traces its footprint or crown, and draws the outlines
 - Colour by height, RGB, relief, ASPRS class, height above ground or object
+- Export, made on the device: a CSV inventory of buildings and trees, a GeoJSON
+  map layer of footprints and treetops, a CSV class summary, and a classified
+  LAS 1.4 file carrying heights above ground and object ids as extra bytes.
+  Positions stay in the scan's own coordinate system, whose definition is
+  carried from the source file into the LAS export. LAS output is uncompressed:
+  the bundled laz-perf can read LAZ but not write it
 - Immutable typed-array point clouds with bounds and optional RGB/intensity data
 - Deterministic procedural terrain/structure cloud generator
 - Voxel-grid decimation and a precomputed LOD pyramid

@@ -11,6 +11,7 @@ PointCloud (typed arrays, metadata, bounds)
   ├─ LAS / LAZ / PLY readers   → local scan sources
   ├─ detectGround (worker)     → ground class + height above ground
   ├─ detectObjects (worker)    → buildings, trees, object ids and outlines
+  ├─ writeLas / inventory      → LAS 1.4, CSV and GeoJSON exports
   └─ PointCloudLodPyramid
        └─ VoxelGridDownsampler → precomputed tiers
             └─ LidarViewer → one RAF loop, camera and OrbitControls
@@ -129,6 +130,43 @@ whose crowns merge without a dip between them count as one; a tree pressed
 against a wall can be absorbed by the building; and scans that see walls but
 not roofs, such as purely street-level ones, are outside what a top-down method
 can separate.
+
+## Export
+
+Exports are generated in the browser and handed to it as downloads; nothing is
+uploaded. Every position is written in the scan's own world coordinates, in LAS
+axes (east, north, up), resolved in double precision from the local frame.
+
+- **Classified LAS.** LAS 1.4, point format 6, or 7 with colour: the first
+  formats with a full classification byte and fifteen returns. Height above
+  ground and object id have no standard field, so they are written as extra
+  bytes named `HeightAboveGround` and `ObjectId` and described in an extra-bytes
+  record, which PDAL, LAStools, CloudCompare and laspy read as dimensions. The
+  offset is the cloud's local origin and the scale a millimetre, coarsened only
+  when a scan is too wide for 32-bit integers at that step. Output is a list of
+  one-million-point chunks, so a large file is never one contiguous buffer;
+  writing four million points takes about half a second. The file was checked
+  against laspy, which reads back coordinates, colour, classes, returns, both
+  extra dimensions and the CRS unchanged.
+- **Coordinate system.** A LAS reader keeps the source's CRS records (GeoTIFF
+  keys and WKT, from the variable-length records or LAS 1.4's extended records
+  after the points) on the cloud byte for byte, and the LAS export writes them
+  back. The EPSG code is read from the root of a WKT definition, or the
+  horizontal half of a compound one, or from GeoTIFF's projected or geographic
+  key. A source that only carried GeoTIFF keys has them passed through, though
+  LAS 1.4 formally asks for WKT; the major readers accept both.
+- **Inventory CSV and GeoJSON.** One row or feature per building and tree.
+  Buildings are footprint polygons, wound anticlockwise; trees are treetop
+  points with a crown radius. RFC 7946 GeoJSON is longitude and latitude, and
+  reprojecting would need a projection library and database, so the layer
+  keeps projected coordinates and names the system with the legacy `crs`
+  member, which QGIS and GDAL read. Without a known EPSG code the member is
+  omitted.
+- **Class summary CSV.** Points per ASPRS class, for any classified scan.
+
+Not supported: writing LAZ, since the laz-perf build decompresses only, and
+fields the viewer does not load - GPS time, scan angle, point source id and
+other extra bytes - are not carried into the LAS export.
 
 ## Rendering approach
 

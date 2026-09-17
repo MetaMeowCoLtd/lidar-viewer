@@ -1,4 +1,5 @@
 import { PointCloud, boundsFromExtent, chooseOrigin, type PointCloudOrigin } from "../core/point-cloud.js";
+import type { SpatialReference } from "../core/spatial-reference.js";
 import {
   intensityOffset,
   returnByteOffset,
@@ -61,6 +62,7 @@ export class LasPointBuilder {
     private readonly name: string,
     /** Divisor that brings this file's colour channels into the 0-255 range. */
     colorScale: number,
+    private readonly spatialReference?: SpatialReference,
   ) {
     const layout = layoutForPointFormat(header.pointFormat);
     if (layout === undefined) throw new Error(`Unsupported LAS point format ${header.pointFormat}`);
@@ -150,6 +152,7 @@ export class LasPointBuilder {
       numberOfReturns: truncate ? this.numberOfReturns.subarray(0, this.written) : this.numberOfReturns,
       bounds: boundsFromExtent(this.min, this.max),
       origin: this.origin,
+      spatialReference: this.spatialReference,
       name: this.name,
     });
   }

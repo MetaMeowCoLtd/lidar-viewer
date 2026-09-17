@@ -1,4 +1,5 @@
 export * from "./core/point-cloud.js";
+export * from "./core/spatial-reference.js";
 export * from "./core/voxel-grid-downsampler.js";
 export * from "./core/lod-pyramid.js";
 export * from "./core/point-cloud-tiler.js";
@@ -13,6 +14,8 @@ export * from "./core/statistics.js";
 export * from "./core/raster-outline.js";
 export * from "./core/object-detection.js";
 export * from "./core/object-detection-job.js";
+export * from "./export/las-writer.js";
+export * from "./export/object-inventory.js";
 export * from "./three/point-cloud-shader-material.js";
 export * from "./three/three-point-cloud-renderer.js";
 export * from "./three/lidar-viewer.js";

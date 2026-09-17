@@ -241,3 +241,25 @@ button { color: inherit; }
 .outline-toggles {
   margin-top: 12px;
 }
+
+/* Four exports in two columns: what is exported on top, its format beneath. */
+.export-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.export-button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  text-align: left;
+}
+
+.export-button small {
+  color: rgba(185, 222, 240, .62);
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: .08em;
+}

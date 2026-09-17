@@ -1,6 +1,7 @@
 import type { PointCloud } from "../core/point-cloud.js";
 import { layoutForPointFormat, type LasHeader } from "./las-header.js";
 import { LasPointBuilder, colorScaleFromSamples } from "./las-point-builder.js";
+import { readLasSpatialReference } from "./las-records.js";
 
 /**
  * Reads uncompressed LAS point records. Records are fixed width and the file
@@ -24,7 +25,7 @@ export function readLasPoints(buffer: ArrayBuffer, header: LasHeader, name: stri
       ? 1
       : colorScaleFromSamples(sampleMaximumChannel(view, header.pointLength, readable, layout.rgbOffset));
 
-  const builder = new LasPointBuilder(header, name, colorScale);
+  const builder = new LasPointBuilder(header, name, colorScale, readLasSpatialReference(buffer, header));
   for (let point = 0, base = 0; point < readable; point += 1, base += header.pointLength) {
     builder.add(view, base);
   }

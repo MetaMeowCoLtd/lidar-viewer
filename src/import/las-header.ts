@@ -8,6 +8,12 @@
 export interface LasHeader {
   readonly versionMajor: number;
   readonly versionMinor: number;
+  /** Size of the public header block; variable-length records start here. */
+  readonly headerSize: number;
+  readonly recordCount: number;
+  /** Where LAS 1.4's extended records start, after the point data; zero when there are none. */
+  readonly extendedRecordOffset: number;
+  readonly extendedRecordCount: number;
   /** Byte offset of the first point record. */
   readonly pointDataOffset: number;
   /** Format id with the compression flag stripped; 0 through 10. */
@@ -111,9 +117,13 @@ export function readLasHeader(buffer: ArrayBuffer): LasHeader | undefined {
   // whenever the true count does not fit, or simply whenever the writer felt
   // like it, so prefer the wide field when the header is long enough to hold it.
   let pointCount = legacyPointCount;
+  let extendedRecordOffset = 0;
+  let extendedRecordCount = 0;
   if (versionMajor >= 1 && versionMinor >= 4 && headerSize >= 375 && buffer.byteLength >= 255) {
     const widePointCount = Number(view.getBigUint64(247, true));
     if (widePointCount > 0) pointCount = widePointCount;
+    extendedRecordOffset = Number(view.getBigUint64(235, true));
+    extendedRecordCount = view.getUint32(243, true);
   }
   if (!Number.isSafeInteger(pointCount) || pointCount < 1) return undefined;
 
@@ -147,6 +157,10 @@ export function readLasHeader(buffer: ArrayBuffer): LasHeader | undefined {
   return {
     versionMajor,
     versionMinor,
+    headerSize,
+    recordCount: view.getUint32(100, true),
+    extendedRecordOffset,
+    extendedRecordCount,
     pointDataOffset,
     pointFormat,
     pointLength,
