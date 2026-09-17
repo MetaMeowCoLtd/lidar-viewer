@@ -12,6 +12,7 @@ export * from "./core/point-cloud-classification.js";
 export * from "./core/elevation-grid.js";
 export * from "./core/ground-detection.js";
 export * from "./core/ground-detection-job.js";
+export * from "./core/terrain.js";
 export * from "./core/statistics.js";
 export * from "./core/raster-outline.js";
 export * from "./core/object-detection.js";
