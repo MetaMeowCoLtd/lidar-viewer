@@ -131,6 +131,30 @@ against a wall can be absorbed by the building; and scans that see walls but
 not roofs, such as purely street-level ones, are outside what a top-down method
 can separate.
 
+## Inspecting and measuring
+
+A click is answered on screen rather than with a ray, because points have no
+surfaces for a ray to hit. `pickPoint` projects points with the camera's own
+view-projection matrix and takes, of the points whose drawn dot covers the
+cursor, the nearest to the camera - the one the depth test left visible. Dot
+size is computed by the same formula as the vertex shader, so the pick agrees
+with the picture. When the cursor falls in a gap, the closest point within
+eight pixels is taken instead. Tiles whose bounds project clear of the cursor
+are skipped, and points always come from each tile's full-resolution tier, so a
+reading is a real measured point, never a decimated average.
+
+A press counts as a click only if it moves less than five pixels and lasts less
+than 600 ms, so orbiting and panning never pick. `describePoint` reports the
+point in map coordinates (east, north, elevation) with the channels the cloud
+carries; `measureBetween` gives straight-line, horizontal and vertical distance
+and slope, computed from map coordinates so "vertical" is elevation. Markers
+and the measured line - drawn with its horizontal and vertical legs - are a
+separate overlay pass that ignores depth. The distance label is HTML,
+positioned from the viewer's per-frame callback without going through React
+state. An inspected point is dropped when an analysis replaces the cloud,
+because its class and height may have changed; a measurement is only positions
+and survives.
+
 ## Export
 
 Exports are generated in the browser and handed to it as downloads; nothing is
