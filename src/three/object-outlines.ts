@@ -1,4 +1,4 @@
-import { GreaterDepth, LessEqualDepth, Scene, type Camera, type DepthModes, type WebGLRenderer } from "three";
+import { Scene, type Camera, type WebGLRenderer } from "three";
 import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 import { LineSegments2 } from "three/examples/jsm/lines/LineSegments2.js";
 import { LineSegmentsGeometry } from "three/examples/jsm/lines/LineSegmentsGeometry.js";
@@ -16,8 +16,6 @@ const crownSegments = 28;
  * points are drawn at that distance.
  */
 const depthPull = 0.02;
-/** Opacity of the parts of an outline that the scan hides. */
-const hiddenOpacity = 0.16;
 
 /**
  * Outlines drawn over the scan for every detected building and tree, in a
@@ -30,21 +28,20 @@ const hiddenOpacity = 0.16;
  * dozens of corners they buried the scan they were meant to annotate.
  *
  * Outlines are depth tested against the points, so a tree ring behind a tower
- * is behind it on screen rather than painted over its wall. The hidden parts
- * are still drawn, faintly, in a second pass that only passes where the scan
- * is in front: for a count, knowing an object is there matters, but it must
- * not read as sitting in front of what hides it. WebGL draws plain lines one
- * pixel wide on nearly every platform, too faint over millions of points, so
- * these are Three.js's screen-space lines with a real width.
+ * is hidden by the tower rather than painted over its wall. Drawing the hidden
+ * parts faintly was tried and dropped: close to a tower, dozens of faint rings
+ * across its wall still read as green over the building.
+ *
+ * WebGL draws plain lines one pixel wide on nearly every platform, too faint
+ * over millions of points, so these are Three.js's screen-space lines with a
+ * real width.
  */
 export class ObjectOutlines {
   private readonly scene = new Scene();
-  private readonly buildingMaterial = outlineMaterial(0xffb561, 0.9, LessEqualDepth);
-  private readonly treeMaterial = outlineMaterial(0x86f0a2, 0.9, LessEqualDepth);
-  private readonly hiddenBuildingMaterial = outlineMaterial(0xffb561, hiddenOpacity, GreaterDepth);
-  private readonly hiddenTreeMaterial = outlineMaterial(0x86f0a2, hiddenOpacity, GreaterDepth);
-  private buildings: LineSegments2[] = [];
-  private trees: LineSegments2[] = [];
+  private readonly buildingMaterial = outlineMaterial(0xffb561);
+  private readonly treeMaterial = outlineMaterial(0x86f0a2);
+  private buildings: LineSegments2 | undefined;
+  private trees: LineSegments2 | undefined;
   private showBuildings = true;
   private showTrees = true;
 
@@ -54,12 +51,12 @@ export class ObjectOutlines {
     const buildingSegments = roofOutlines(objects.filter((object): object is DetectedBuilding => object.kind === "building"));
     const treeSegments = crownRings(objects.filter((object): object is DetectedTree => object.kind === "tree"));
     if (buildingSegments.length > 0) {
-      this.buildings = linesOf(buildingSegments, this.buildingMaterial, this.hiddenBuildingMaterial);
-      this.scene.add(...this.buildings);
+      this.buildings = segmentsOf(buildingSegments, this.buildingMaterial);
+      this.scene.add(this.buildings);
     }
     if (treeSegments.length > 0) {
-      this.trees = linesOf(treeSegments, this.treeMaterial, this.hiddenTreeMaterial);
-      this.scene.add(...this.trees);
+      this.trees = segmentsOf(treeSegments, this.treeMaterial);
+      this.scene.add(this.trees);
     }
     this.applyVisibility();
   }
@@ -72,7 +69,8 @@ export class ObjectOutlines {
 
   /** Line width is in pixels, so the materials need the size of the surface they draw into. */
   public setResolution(width: number, height: number): void {
-    for (const material of this.materials()) material.resolution.set(width, height);
+    this.buildingMaterial.resolution.set(width, height);
+    this.treeMaterial.resolution.set(width, height);
   }
 
   /**
@@ -81,7 +79,7 @@ export class ObjectOutlines {
    * outlines can be tested against them.
    */
   public render(renderer: WebGLRenderer, camera: Camera): void {
-    const anything = (this.showBuildings && this.buildings.length > 0) || (this.showTrees && this.trees.length > 0);
+    const anything = (this.buildings?.visible ?? false) || (this.trees?.visible ?? false);
     if (!anything) return;
     const autoClear = renderer.autoClear;
     renderer.autoClear = false;
@@ -91,38 +89,35 @@ export class ObjectOutlines {
 
   public dispose(): void {
     this.clear();
-    for (const material of this.materials()) material.dispose();
-  }
-
-  private materials(): LineMaterial[] {
-    return [this.buildingMaterial, this.treeMaterial, this.hiddenBuildingMaterial, this.hiddenTreeMaterial];
+    this.buildingMaterial.dispose();
+    this.treeMaterial.dispose();
   }
 
   private applyVisibility(): void {
-    for (const lines of this.buildings) lines.visible = this.showBuildings;
-    for (const lines of this.trees) lines.visible = this.showTrees;
+    if (this.buildings !== undefined) this.buildings.visible = this.showBuildings;
+    if (this.trees !== undefined) this.trees.visible = this.showTrees;
   }
 
   private clear(): void {
-    const all = [...this.buildings, ...this.trees];
-    this.scene.remove(...all);
-    // The visible and hidden passes share one geometry.
-    for (const geometry of new Set(all.map((lines) => lines.geometry))) geometry.dispose();
-    this.buildings = [];
-    this.trees = [];
+    for (const lines of [this.buildings, this.trees]) {
+      if (lines === undefined) continue;
+      this.scene.remove(lines);
+      lines.geometry.dispose();
+    }
+    this.buildings = undefined;
+    this.trees = undefined;
   }
 }
 
-function outlineMaterial(color: number, opacity: number, depthFunc: DepthModes): LineMaterial {
+function outlineMaterial(color: number): LineMaterial {
   const material = new LineMaterial({
     color,
     linewidth: 1.6,
     transparent: true,
-    opacity,
+    opacity: 0.9,
     depthTest: true,
     depthWrite: false,
   });
-  material.depthFunc = depthFunc;
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uDepthPull = { value: 1 - depthPull };
     shader.vertexShader = shader.vertexShader
@@ -135,19 +130,13 @@ function outlineMaterial(color: number, opacity: number, depthFunc: DepthModes):
   return material;
 }
 
-/** The same segments drawn twice: where the scan hides them, faintly, and where it does not, fully. */
-function linesOf(positions: number[], visible: LineMaterial, hidden: LineMaterial): LineSegments2[] {
+function segmentsOf(positions: number[], material: LineMaterial): LineSegments2 {
   const geometry = new LineSegmentsGeometry();
   geometry.setPositions(positions);
-  return [
-    { material: hidden, order: 10 },
-    { material: visible, order: 11 },
-  ].map(({ material, order }) => {
-    const lines = new LineSegments2(geometry, material);
-    lines.renderOrder = order;
-    lines.frustumCulled = false;
-    return lines;
-  });
+  const lines = new LineSegments2(geometry, material);
+  lines.renderOrder = 10;
+  lines.frustumCulled = false;
+  return lines;
 }
 
 function roofOutlines(buildings: readonly DetectedBuilding[]): number[] {
