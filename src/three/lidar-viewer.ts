@@ -297,6 +297,28 @@ export class LidarViewer {
     return () => this.frameListeners.delete(listener);
   }
 
+  /** Frames the whole scan again, as when it was first loaded. */
+  public resetView(): void {
+    this.assertNotDisposed();
+    this.frameActiveCloud();
+  }
+
+  /** Slowly circles the scan, for a showcase view no one is steering. */
+  public setAutoRotate(enabled: boolean, speed = 0.6): void {
+    this.assertNotDisposed();
+    this.controls.autoRotate = enabled;
+    this.controls.autoRotateSpeed = speed;
+  }
+
+  /**
+   * Turns wheel and pinch zoom on or off. A viewer embedded in a scrolling
+   * page must let the wheel scroll the page instead of trapping it.
+   */
+  public setZoomEnabled(enabled: boolean): void {
+    this.assertNotDisposed();
+    this.controls.enableZoom = enabled;
+  }
+
   public setColorMode(mode: PointCloudColorMode): void {
     this.assertNotDisposed();
     this.colorMode = mode;
