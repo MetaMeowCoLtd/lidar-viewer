@@ -186,8 +186,9 @@ export class ThreePointCloudRenderer {
       this.eyeDome.setStrength(viewerConfig().eyeDomeLighting.strength);
       this.eyeDome.setRadius(viewerConfig().eyeDomeLighting.radius);
     }
-    this.eyeDome.render(this.scene, this.camera);
-    this.outlines.render(this.renderer, this.camera);
+    // Outlines are depth tested, so they go into the lighting pass while the
+    // points' depth is still bound; the screen itself holds no depth for them.
+    this.eyeDome.render(this.scene, this.camera, () => this.outlines.render(this.renderer, this.camera));
     this.annotations.render(this.renderer, this.camera);
   }
 

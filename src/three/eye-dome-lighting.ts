@@ -113,13 +113,19 @@ export class EyeDomeLighting {
     this.material.uniforms.uRadius!.value = radius;
   }
 
-  public render(scene: Scene, camera: Camera): void {
+  /**
+   * `drawInScene` runs while the scene's colour and depth are still bound, for
+   * overlays that must be depth tested against the points. It draws before the
+   * lighting is applied; anything that does not write depth is left unshaded.
+   */
+  public render(scene: Scene, camera: Camera, drawInScene?: () => void): void {
     const perspective = camera as PerspectiveCamera;
     this.material.uniforms.uNear!.value = perspective.near ?? 0.1;
     this.material.uniforms.uFar!.value = perspective.far ?? 1000;
     this.renderer.setRenderTarget(this.target);
     this.renderer.clear();
     this.renderer.render(scene, camera);
+    drawInScene?.();
     this.renderer.setRenderTarget(null);
     this.renderer.render(this.quadScene, this.quadCamera);
   }
