@@ -16,6 +16,7 @@ import { viewerConfig } from "./config.js";
 import { writeLas } from "./export/las-writer.js";
 import { classSummaryCsv, objectInventoryCsv, objectsGeoJson } from "./export/object-inventory.js";
 import { fileStem, saveFile } from "./export/save-file.js";
+import { describePoint, measureBetween, type PointDetails } from "./core/point-inspection.js";
 
 const INITIAL_POINT_COUNT = 380_000;
 const budgetStep = 10_000;
@@ -23,6 +24,14 @@ const budgetStep = 10_000;
 type ViewerStatus = "initializing" | "processing" | "ready" | "error";
 
 type ExportKind = "inventory" | "geojson" | "las" | "classes";
+
+type ClickTool = "inspect" | "measure";
+
+interface Picks {
+  readonly inspected?: PointDetails | undefined;
+  readonly from?: PointDetails | undefined;
+  readonly to?: PointDetails | undefined;
+}
 
 type GroundState =
   | { readonly status: "idle" }
@@ -70,6 +79,10 @@ export function App() {
   const sourceRef = useRef<PointCloud | undefined>(undefined);
   const [exporting, setExporting] = useState<ExportKind>();
   const [exportError, setExportError] = useState<string>();
+  const [clickTool, setClickTool] = useState<ClickTool>("inspect");
+  const clickToolRef = useRef(clickTool);
+  const [picks, setPicks] = useState<Picks>({});
+  const measureLabelRef = useRef<HTMLDivElement>(null);
 
   const source = pyramid?.tiers[0]?.cloud;
   const effectivePointBudget = Math.min(pointBudget, source?.pointCount ?? pointBudget);
@@ -80,6 +93,7 @@ export function App() {
   const analysing = ground.status === "running" || count.status === "running";
   const exportBlocked = source === undefined || status !== "ready" || analysing || exporting !== undefined;
   const counted = count.status === "done" && source?.objectId !== undefined;
+  const showsPickCard = (clickTool === "inspect" && picks.inspected !== undefined) || (clickTool === "measure" && picks.from !== undefined);
   const budgetMaximum = source?.pointCount ?? viewerConfig().defaultPointBudget;
   const budgetSliderMax = Math.max(budgetStep, Math.ceil(budgetMaximum / budgetStep) * budgetStep);
 
@@ -105,8 +119,13 @@ export function App() {
     countRef.current = count;
   }, [count]);
 
+  useLayoutEffect(() => {
+    clickToolRef.current = clickTool;
+  }, [clickTool]);
+
   /** Abandons any analysis in flight and its results, for when the scan it was working on is replaced. */
   const resetAnalysis = useCallback(() => {
+    setPicks({});
     groundJobRef.current?.cancel();
     groundJobRef.current = undefined;
     countJobRef.current?.cancel();
@@ -136,6 +155,28 @@ export function App() {
     });
     viewerRef.current = viewer;
     const unsubscribeTier = viewer.onLodSummaryChange(setLodSummary);
+    const unsubscribeClick = viewer.onPointClick((hit) => {
+      const details = hit === undefined ? undefined : describePoint(hit.cloud, hit.index);
+      if (clickToolRef.current === "inspect") {
+        setPicks((current) => ({ ...current, inspected: details }));
+        return;
+      }
+      // A miss while measuring is most likely a slip, so it keeps what was measured.
+      if (details === undefined) return;
+      setPicks((current) =>
+        current.from === undefined || current.to !== undefined ? { inspected: current.inspected, from: details } : { ...current, to: details },
+      );
+    });
+    // The measurement label follows its line as the camera moves, written
+    // straight to the element each frame rather than through React state.
+    const unsubscribeFrame = viewer.onFrame(() => {
+      const label = measureLabelRef.current;
+      const anchor = label?.dataset.anchor;
+      if (label === null || anchor === undefined) return;
+      const spot = viewer.projectToCanvas(JSON.parse(anchor) as [number, number, number]);
+      label.style.visibility = spot.visible ? "visible" : "hidden";
+      label.style.transform = `translate(${spot.x.toFixed(1)}px, ${spot.y.toFixed(1)}px) translate(-50%, -140%)`;
+    });
     const unsubscribe = viewer.session.subscribe((nextState) => {
       if (nextState.status === "processing") {
         setStatus("processing");
@@ -162,6 +203,8 @@ export function App() {
     return () => {
       unsubscribe();
       unsubscribeTier();
+      unsubscribeClick();
+      unsubscribeFrame();
       resizeObserver.disconnect();
       viewer.dispose();
       viewerRef.current = undefined;
@@ -367,6 +410,37 @@ export function App() {
     }
   }, []);
 
+  // A point's class, height and object change when an analysis replaces the
+  // cloud, so what was inspected is dropped; a measurement is only positions,
+  // which no analysis moves, so it stays.
+  useEffect(() => {
+    setPicks((current) => (current.inspected === undefined ? current : { from: current.from, to: current.to }));
+  }, [source]);
+
+  useEffect(() => {
+    const viewer = viewerRef.current;
+    if (viewer === undefined) return;
+    if (clickTool === "inspect") {
+      viewer.setAnnotations({ markers: picks.inspected === undefined ? [] : [{ position: picks.inspected.local, tone: "inspect" }] });
+      return;
+    }
+    viewer.setAnnotations({
+      markers: [
+        ...(picks.from === undefined ? [] : [{ position: picks.from.local, tone: "from" as const }]),
+        ...(picks.to === undefined ? [] : [{ position: picks.to.local, tone: "to" as const }]),
+      ],
+      ...(picks.from === undefined || picks.to === undefined ? {} : { measurement: { from: picks.from.local, to: picks.to.local } }),
+    });
+  }, [clickTool, picks]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setPicks({});
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
   useEffect(() => {
     viewerRef.current?.setOutlineVisibility(showBuildingOutlines, showTreeOutlines);
   }, [showBuildingOutlines, showTreeOutlines]);
@@ -393,7 +467,7 @@ export function App() {
   };
 
   return (
-    <main className={uiHidden ? "app-shell ui-hidden" : "app-shell"}>
+    <main className={["app-shell", uiHidden ? "ui-hidden" : "", showsPickCard ? "has-pick-card" : ""].filter(Boolean).join(" ")}>
       <section className="viewer-shell" aria-label="Interactive point cloud viewer">
         <canvas ref={canvasRef} className="point-cloud-canvas" />
         <div className="atmosphere atmosphere-one" />
@@ -418,6 +492,28 @@ export function App() {
 
         <div className="orbit-hint"><Icon name="orbit" /><span>DRAG TO ORBIT</span><span className="hint-separator">·</span><span>SCROLL TO ZOOM</span><span className="hint-separator">·</span><span>H TO HIDE UI</span></div>
 
+        {clickTool === "inspect" && picks.inspected !== undefined && source !== undefined ? (
+          <PointCard
+            point={picks.inspected}
+            georeferenced={source.isGeoreferenced}
+            object={count.status === "done" ? count.objects.find((object) => object.id === picks.inspected?.objectId) : undefined}
+            onClose={() => setPicks((current) => ({ from: current.from, to: current.to }))}
+          />
+        ) : null}
+        {clickTool === "measure" && picks.from !== undefined ? (
+          <MeasureCard from={picks.from} to={picks.to} onClose={() => setPicks((current) => ({ inspected: current.inspected }))} />
+        ) : null}
+        {clickTool === "measure" && picks.from !== undefined && picks.to !== undefined ? (
+          <div
+            ref={measureLabelRef}
+            className="measure-label"
+            aria-hidden="true"
+            data-anchor={JSON.stringify(midpoint(picks.from.local, picks.to.local))}
+          >
+            {formatLength(measureBetween(picks.from, picks.to).distance)}
+          </div>
+        ) : null}
+
         <aside className="command-panel" aria-label="Point cloud controls">
           <div className="panel-heading">
             <div>
@@ -434,6 +530,19 @@ export function App() {
               <strong title={sourceLabel}>{sourceLabel}</strong>
               <small>{statusText}</small>
             </div>
+          </div>
+
+          <div className="control-block">
+            <div className="control-label"><span>Click the scan to</span></div>
+            <div className="segmented-control" role="group" aria-label="Click tool">
+              <ModeButton active={clickTool === "inspect"} onClick={() => setClickTool("inspect")}>Inspect a point</ModeButton>
+              <ModeButton active={clickTool === "measure"} onClick={() => setClickTool("measure")}>Measure</ModeButton>
+            </div>
+            <p className="panel-footnote">
+              {clickTool === "inspect"
+                ? "Click any point to see where it is, its class and its height. Esc clears."
+                : "Click two points to measure the distance and height between them. Esc clears."}
+            </p>
           </div>
 
           <div className="control-block">
@@ -642,6 +751,82 @@ function ControlRow({ label, value, children }: { label: string; value: string; 
 /** A button that stays pressed or released, for switches that are not mutually exclusive. */
 function ToggleButton({ pressed, onClick, children }: { pressed: boolean; onClick: () => void; children: ReactNode }) {
   return <button type="button" className={pressed ? "active" : ""} aria-pressed={pressed} onClick={onClick}>{children}</button>;
+}
+
+function PointCard({ point, georeferenced, object, onClose }: { point: PointDetails; georeferenced: boolean; object: DetectedObject | undefined; onClose: () => void }) {
+  const rows: [string, string][] = [
+    ["East", formatCoordinate(point.map[0])],
+    ["North", formatCoordinate(point.map[1])],
+    ["Elevation", formatLength(point.map[2])],
+  ];
+  if (point.classification !== undefined) rows.push(["Class", `${classificationName(point.classification)} (${point.classification})`]);
+  if (point.heightAboveGround !== undefined) rows.push(["Above ground", formatLength(point.heightAboveGround)]);
+  if (object !== undefined) {
+    rows.push(["Object", `${object.kind === "building" ? "Building" : "Tree"} ${object.id} \u00b7 ${formatLength(object.height)} tall`]);
+  } else if (point.objectId !== undefined) {
+    rows.push(["Object", `#${point.objectId}`]);
+  }
+  if (point.returnNumber !== undefined && point.numberOfReturns !== undefined && point.numberOfReturns > 0) {
+    rows.push(["Return", `${point.returnNumber} of ${point.numberOfReturns}`]);
+  }
+  if (point.intensity !== undefined) rows.push(["Intensity", formatNumber(point.intensity, 0)]);
+  return (
+    <section className="pick-card" aria-label="Inspected point" aria-live="polite">
+      <header>
+        <span>
+          {point.color === undefined ? null : <i className="pick-swatch" style={{ background: `rgb(${point.color.join(",")})` }} />}
+          {georeferenced ? "POINT" : "POINT \u00b7 LOCAL COORDINATES"}
+        </span>
+        <button type="button" onClick={onClose} aria-label="Clear the inspected point">{"\u00d7"}</button>
+      </header>
+      <dl>{rows.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
+    </section>
+  );
+}
+
+function MeasureCard({ from, to, onClose }: { from: PointDetails; to: PointDetails | undefined; onClose: () => void }) {
+  const measurement = to === undefined ? undefined : measureBetween(from, to);
+  return (
+    <section className="pick-card" aria-label="Measurement" aria-live="polite">
+      <header>
+        <span>MEASUREMENT</span>
+        <button type="button" onClick={onClose} aria-label="Clear the measurement">{"\u00d7"}</button>
+      </header>
+      {to === undefined || measurement === undefined ? (
+        <p><i className="pick-dot pick-dot-from" />A is at {formatLength(from.map[2])} elevation. Click a second point.</p>
+      ) : (
+        <>
+          <dl>
+            <div><dt>Distance</dt><dd className="pick-headline">{formatLength(measurement.distance)}</dd></div>
+            <div><dt>Horizontal</dt><dd>{formatLength(measurement.horizontal)}</dd></div>
+            <div><dt>Height</dt><dd>{`${measurement.vertical >= 0 ? "+" : "\u2212"}${formatLength(Math.abs(measurement.vertical))}`}</dd></div>
+            <div><dt>Slope</dt><dd>{`${measurement.slopeDegrees.toFixed(1)}\u00b0`}</dd></div>
+          </dl>
+          <p>
+            <i className="pick-dot pick-dot-from" />A {formatLength(from.map[2])}
+            <i className="pick-dot pick-dot-to" />B {formatLength(to.map[2])}
+            <span className="pick-hint">Click again to start over</span>
+          </p>
+        </>
+      )}
+    </section>
+  );
+}
+
+function midpoint(a: readonly [number, number, number], b: readonly [number, number, number]): [number, number, number] {
+  return [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2];
+}
+
+function formatNumber(value: number, digits: number): string {
+  return value.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
+}
+
+function formatCoordinate(value: number): string {
+  return formatNumber(value, 2);
+}
+
+function formatLength(metres: number): string {
+  return `${formatNumber(metres, 2)} m`;
 }
 
 function ExportButton({ label, format, busy, disabled, onClick }: { label: string; format: string; busy: boolean; disabled: boolean; onClick: () => void }) {
