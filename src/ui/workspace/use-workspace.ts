@@ -8,6 +8,7 @@ import { GroundDetectionCancelled, startGroundDetection, type GroundDetectionJob
 import { ObjectDetectionCancelled, startObjectDetection, type ObjectDetectionJob } from "../../core/object-detection-job.js";
 import { heightAboveGroundRampTop } from "../../core/statistics.js";
 import { viewerConfig } from "../../config.js";
+import { createLodSpecs, sampleDiagonal } from "../lod-specs.js";
 import { writeLas } from "../../export/las-writer.js";
 import { classSummaryCsv, objectInventoryCsv, objectsGeoJson } from "../../export/object-inventory.js";
 import { fileStem, saveFile } from "../../export/save-file.js";
@@ -168,7 +169,7 @@ export function useWorkspace(options: WorkspaceOptions) {
     setSourceLabel(sampleName);
     void viewer.load(
       new ProceduralCloudGenerator().generate({ pointCount: samplePointCount, seed, name: sampleName }),
-      createLodSpecs(115),
+      createLodSpecs(sampleDiagonal),
     );
   }, [resetAnalysis]);
 
@@ -611,18 +612,6 @@ export function useWorkspace(options: WorkspaceOptions) {
 }
 
 export type Workspace = ReturnType<typeof useWorkspace>;
-
-function createLodSpecs(diagonal: number) {
-  const scale = Math.max(diagonal, 1);
-  const { fine, balanced, lean } = viewerConfig().lodDivisors;
-  const distance = viewerConfig().distanceLod.distanceMultipliers;
-  return [
-    { id: "full", voxelSize: 0, minCameraDistance: scale * distance.full },
-    { id: "fine", voxelSize: scale / fine, minCameraDistance: scale * distance.fine },
-    { id: "balanced", voxelSize: scale / balanced, minCameraDistance: scale * distance.balanced },
-    { id: "lean", voxelSize: scale / lean, minCameraDistance: scale * distance.lean },
-  ];
-}
 
 /** A cloud's channels without its object ids, which a new classification makes stale. */
 function channelsWithoutObjects(cloud: PointCloud) {
