@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { LidarViewer } from "../../three/lidar-viewer.js";
 import { ProceduralCloudGenerator } from "../../core/procedural-cloud-generator.js";
-import { createLodSpecs, sampleDiagonal } from "../lod-specs.js";
+import { createLodSpecs } from "../lod-specs.js";
 
 /**
  * The hero's live scene: the sample city turning slowly in a real viewer, so
@@ -30,7 +30,8 @@ export function LandingPreview() {
     });
     observer.observe(canvas.parentElement!);
     viewer.start();
-    void viewer.load(new ProceduralCloudGenerator().generate({ pointCount: 250_000, seed: 21, name: "Sample city block" }), createLodSpecs(sampleDiagonal));
+    const cloud = new ProceduralCloudGenerator().generate({ pointCount: 320_000, seed: 21, name: "Sample city block" });
+    void viewer.load(cloud, createLodSpecs(cloud.bounds.diagonal));
     return () => {
       unsubscribe();
       observer.disconnect();

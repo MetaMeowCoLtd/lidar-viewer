@@ -13,6 +13,3 @@ export function createLodSpecs(diagonal: number): LodTierSpec[] {
     { id: "lean", voxelSize: scale / lean, minCameraDistance: scale * distance.lean },
   ];
 }
-
-/** The procedural sample scene's diagonal, which its detail levels are scaled to. */
-export const sampleDiagonal = 115;

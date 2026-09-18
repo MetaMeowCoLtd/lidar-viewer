@@ -8,7 +8,7 @@ import { GroundDetectionCancelled, startGroundDetection, type GroundDetectionJob
 import { ObjectDetectionCancelled, startObjectDetection, type ObjectDetectionJob } from "../../core/object-detection-job.js";
 import { heightAboveGroundRampTop } from "../../core/statistics.js";
 import { viewerConfig } from "../../config.js";
-import { createLodSpecs, sampleDiagonal } from "../lod-specs.js";
+import { createLodSpecs } from "../lod-specs.js";
 import { writeLas } from "../../export/las-writer.js";
 import { classSummaryCsv, objectInventoryCsv, objectsGeoJson } from "../../export/object-inventory.js";
 import { fileStem, saveFile } from "../../export/save-file.js";
@@ -28,7 +28,7 @@ import type {
   ViewerStatus,
 } from "./types.js";
 
-const samplePointCount = 380_000;
+const samplePointCount = 600_000;
 const sampleName = "Sample city block";
 
 export interface WorkspaceOptions {
@@ -167,10 +167,8 @@ export function useWorkspace(options: WorkspaceOptions) {
     resetAnalysis();
     setSampling(undefined);
     setSourceLabel(sampleName);
-    void viewer.load(
-      new ProceduralCloudGenerator().generate({ pointCount: samplePointCount, seed, name: sampleName }),
-      createLodSpecs(sampleDiagonal),
-    );
+    const cloud = new ProceduralCloudGenerator().generate({ pointCount: samplePointCount, seed, name: sampleName });
+    void viewer.load(cloud, createLodSpecs(cloud.bounds.diagonal));
   }, [resetAnalysis]);
 
   useEffect(() => {
@@ -180,6 +178,9 @@ export function useWorkspace(options: WorkspaceOptions) {
       pointBudget: viewerConfig().defaultPointBudget,
       pointSize: viewerConfig().pointSize.default,
       distanceBasedLod: viewerConfig().distanceLod.enabledByDefault,
+      // The viewport is the whole window here, so a scan can sit closer than
+      // the configured default without running out of the frame.
+      framingDistance: viewerConfig().camera.framingDistance * 0.72,
     });
     viewerRef.current = viewer;
     const unsubscribeTier = viewer.onLodSummaryChange(setLodSummary);
