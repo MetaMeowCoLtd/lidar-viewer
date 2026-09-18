@@ -1,0 +1,53 @@
+import type { PointCloudColorMode } from "../../core/point-cloud.js";
+
+export interface ColourChoice {
+  readonly value: PointCloudColorMode;
+  readonly label: string;
+  readonly hint?: string;
+  readonly disabled: boolean;
+}
+
+const labels: Record<PointCloudColorMode, string> = {
+  height: "Height",
+  rgb: "RGB",
+  relief: "Relief",
+  classification: "Classes",
+  heightAboveGround: "Above ground",
+  objects: "Objects",
+};
+
+export function colorModeLabel(mode: PointCloudColorMode): string {
+  return labels[mode];
+}
+
+/** What each colour mode shows, and what a scan must carry before it can. */
+export function colorModeChoices(supports: {
+  rgb: boolean;
+  classification: boolean;
+  heightAboveGround: boolean;
+  objects: boolean;
+}): readonly ColourChoice[] {
+  return [
+    { value: "rgb", label: labels.rgb, hint: supports.rgb ? "The scan's own colour" : "This scan has no colour", disabled: !supports.rgb },
+    { value: "height", label: labels.height, hint: "Elevation, low to high", disabled: false },
+    { value: "relief", label: labels.relief, hint: "Shaded to bring out shape", disabled: false },
+    {
+      value: "classification",
+      label: labels.classification,
+      hint: supports.classification ? "Ground, buildings, vegetation" : "Detect ground or count first",
+      disabled: !supports.classification,
+    },
+    {
+      value: "heightAboveGround",
+      label: labels.heightAboveGround,
+      hint: supports.heightAboveGround ? "How high each point stands" : "Detect ground first",
+      disabled: !supports.heightAboveGround,
+    },
+    {
+      value: "objects",
+      label: labels.objects,
+      hint: supports.objects ? "A colour per building and tree" : "Count buildings and trees first",
+      disabled: !supports.objects,
+    },
+  ];
+}
