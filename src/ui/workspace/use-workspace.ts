@@ -55,7 +55,7 @@ export function useWorkspace(options: WorkspaceOptions) {
   const viewerRef = useRef<LidarViewer | undefined>(undefined);
   const [pyramid, setPyramid] = useState<PointCloudLodPyramid>();
   const [status, setStatus] = useState<ViewerStatus>("initializing");
-  const [statusText, setStatusText] = useState("Starting the viewer");
+  const [statusText, setStatusText] = useState("No scan open");
   const [pointBudget, setPointBudget] = useState(() => viewerConfig().defaultPointBudget);
   const [pointSize, setPointSize] = useState(() => viewerConfig().pointSize.default);
   const [colorMode, setColorMode] = useState<PointCloudColorMode>("rgb");

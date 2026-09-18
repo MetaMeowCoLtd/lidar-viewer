@@ -35,7 +35,9 @@ only responsible for GPU resources and draw configuration.
 - Point-budget LOD selection and transaction-safe loading session
 - Three.js `Points` adapter using a custom shader material
 - A UI-free `LidarViewer` composition root with one render loop and OrbitControls
-- A React control surface with drag-and-drop import, held outside scene state
+- A landing page at `#/` and a workspace at `#/app`: a tool rail with scan,
+  view, analysis and settings panels, a full-window viewport with its own
+  toolbar, colour menu, legend and inspector, and a status line
 
 Everything runs in the browser. No scan data is uploaded.
 

@@ -258,6 +258,24 @@ themselves.
   a timer, which background tabs throttle. On a 10-million-point scan the
   longest stall during a load fell from 1.4 s to about 0.1 s.
 
+## The interface
+
+Two pages behind a hash route, which GitHub Pages serves without rewrites: a
+landing page, and the workspace at `#/app`.
+
+`useWorkspace` holds the whole working state - the scan, the analyses, what was
+clicked, how it is drawn - and is the only place that talks to the imperative
+viewer. Components below it are presentational, which is what keeps the layout
+free to change: the panels, the viewport overlays and the status line all read
+the same hook.
+
+The workspace is a tool rail with one panel open at a time rather than a single
+scrolling column of every control, so the scan keeps the window and the
+analyses read as three numbered steps with their dependencies visible. Things
+that belong to the scan sit over it - the click tools, the colour menu with its
+legend, and an inspector for whatever was last clicked - while the exports live
+in one menu in the top bar, each item saying why it is unavailable when it is.
+
 ## Rendering approach
 
 The renderer uses one `THREE.Points` draw call for the active tier and a custom
