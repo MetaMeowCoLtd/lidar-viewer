@@ -309,6 +309,8 @@ export function useWorkspace(options: WorkspaceOptions) {
 
   const openFilePicker = useCallback(() => fileInputRef.current?.click(), []);
 
+  const resetView = useCallback(() => viewerRef.current?.resetView(), []);
+
   const detectGround = useCallback(async () => {
     const viewer = viewerRef.current;
     const cloud = sourceRef.current;
@@ -538,6 +540,7 @@ export function useWorkspace(options: WorkspaceOptions) {
       : undefined;
 
   return {
+    maxImportPoints: viewerConfig().maxImportPoints,
     canvasRef,
     fileInputRef,
     measureLabelRef,
@@ -607,6 +610,7 @@ export function useWorkspace(options: WorkspaceOptions) {
       loadFile,
       loadSample,
       openFilePicker,
+      resetView,
     },
   };
 }
