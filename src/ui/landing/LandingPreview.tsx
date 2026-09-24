@@ -16,7 +16,7 @@ export function LandingPreview() {
   useEffect(() => {
     const canvas = canvasRef.current;
     if (canvas === null) return;
-    const viewer = new LidarViewer(canvas, { pointBudget: 400_000, pointSize: 2.4, framingDistance: 0.62 });
+    const viewer = new LidarViewer(canvas, { pointBudget: 500_000, pointSize: 2.4, framingDistance: 0.52 });
     canvas.style.touchAction = "pan-y";
     viewer.setZoomEnabled(false);
     viewer.setAutoRotate(!window.matchMedia("(prefers-reduced-motion: reduce)").matches, 0.5);
@@ -30,7 +30,7 @@ export function LandingPreview() {
     });
     observer.observe(canvas.parentElement!);
     viewer.start();
-    const cloud = new ProceduralCloudGenerator().generate({ pointCount: 320_000, seed: 21, name: "Sample city block" });
+    const cloud = new ProceduralCloudGenerator().generate({ pointCount: 450_000, seed: 21, name: "Sample riverside town" });
     void viewer.load(cloud, createLodSpecs(cloud.bounds.diagonal));
     return () => {
       unsubscribe();

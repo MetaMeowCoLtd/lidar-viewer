@@ -28,8 +28,8 @@ import type {
   ViewerStatus,
 } from "./types.js";
 
-const samplePointCount = 600_000;
-const sampleName = "Sample city block";
+const samplePointCount = 1_000_000;
+const sampleName = "Sample riverside town";
 
 export interface WorkspaceOptions {
   /** Load the procedural sample as soon as the viewer starts. */
@@ -180,7 +180,7 @@ export function useWorkspace(options: WorkspaceOptions) {
       distanceBasedLod: viewerConfig().distanceLod.enabledByDefault,
       // The viewport is the whole window here, so a scan can sit closer than
       // the configured default without running out of the frame.
-      framingDistance: viewerConfig().camera.framingDistance * 0.72,
+      framingDistance: viewerConfig().camera.framingDistance * 0.5,
     });
     viewerRef.current = viewer;
     const unsubscribeTier = viewer.onLodSummaryChange(setLodSummary);
