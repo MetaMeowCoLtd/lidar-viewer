@@ -87,11 +87,6 @@
   padding-top: 4px;
 }
 
-.side-title {
-  margin: 0;
-  font-size: 15px;
-  font-weight: 700;
-}
 
 .side-actions {
   display: grid;
@@ -802,16 +797,7 @@
   color: var(--text-2);
 }
 
-.ws-status-found {
-  color: var(--text-3);
-}
 
-.ws-status-right {
-  display: flex;
-  gap: 14px;
-  margin-left: auto;
-  font-family: var(--mono);
-}
 
 /* Menus */
 .menu {

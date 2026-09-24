@@ -26,6 +26,7 @@ export function TopBar({ workspace, sidebarOpen, onToggleSidebar }: { workspace:
           <Icon name="file" />
           <strong>{sourceLabel}</strong>
           <span>{formatCount(source.pointCount)} points</span>
+          <span>{`${Math.round(source.bounds.size[0])} × ${Math.round(source.bounds.size[2])} m`}</span>
           <span>{crs === undefined ? (source.isGeoreferenced ? "World coordinates" : "Local coordinates") : `EPSG:${crs}`}</span>
         </div>
       )}

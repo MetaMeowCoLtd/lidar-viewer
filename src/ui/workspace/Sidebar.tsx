@@ -1,14 +1,14 @@
 import type { ReactNode } from "react";
 import { Icon, type IconName } from "../icons.js";
 import { Note, ProgressBar, Segmented, Toggle } from "../controls.js";
-import { formatCount, formatOrigin, formatShare, ordinalSuffix } from "../format.js";
+import { formatCount, formatShare, ordinalSuffix } from "../format.js";
 import { countSummary, groundSummary, noiseSummary, qualitySummary, terrainSummary } from "./analysis-text.js";
 import type { Workspace } from "./use-workspace.js";
 import type { CountState, GroundState, NoiseState, QualityState, TerrainState } from "./types.js";
 
 /**
- * Everything about the scan in one column: what it is, one button that
- * analyses it, and a card per result. Each card carries the controls for what
+ * The workflow in one column: one button that analyses the scan, and a card
+ * per result. Each card carries the controls for what
  * it produced - the noise's visibility beside the noise, the terrain's layers
  * beside the terrain, the outlines beside the count - so nothing has to be
  * looked for in another panel.
@@ -17,30 +17,20 @@ export function Sidebar({ workspace }: { workspace: Workspace }) {
   const { source } = workspace;
   return (
     <aside className="ws-panel ws-sidebar" aria-label="Scan and analysis">
-      <ScanSummary workspace={workspace} />
+      <ThinningNote workspace={workspace} />
       {source === undefined ? null : <Analysis workspace={workspace} />}
     </aside>
   );
 }
 
-function ScanSummary({ workspace }: { workspace: Workspace }) {
-  const { source, sourceLabel, sampling } = workspace;
-  if (source === undefined) return null;
+/** Said once, where it matters: the scan on screen is not the whole file. */
+function ThinningNote({ workspace }: { workspace: Workspace }) {
+  const { sampling } = workspace;
+  if (sampling === undefined) return null;
+  const every = Math.ceil(sampling.total / sampling.loaded);
   return (
-    <section className="side-section side-scan">
-      <strong className="side-scan-name" title={sourceLabel}>
-        {sourceLabel}
-      </strong>
-      <p className="side-scan-facts">
-        <span>{formatCount(source.pointCount)} points</span>
-        <span>{`${Math.round(source.bounds.size[0])} × ${Math.round(source.bounds.size[2])} m`}</span>
-        <span>{source.spatialReference?.epsg === undefined ? formatOrigin(source) : `EPSG:${source.spatialReference.epsg}`}</span>
-      </p>
-      {sampling === undefined ? null : (
-        <Note tone="warning">
-          {`Every ${Math.ceil(sampling.total / sampling.loaded)}${ordinalSuffix(Math.ceil(sampling.total / sampling.loaded))} of ${formatCount(sampling.total)} points is loaded, spread evenly.`}
-        </Note>
-      )}
+    <section className="side-section">
+      <Note tone="warning">{`Every ${every}${ordinalSuffix(every)} of ${formatCount(sampling.total)} points is loaded, spread evenly.`}</Note>
     </section>
   );
 }
