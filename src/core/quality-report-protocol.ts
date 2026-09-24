@@ -10,6 +10,7 @@ export interface QualityReportRequest {
   readonly numberOfReturns?: Uint8Array;
   readonly pointSourceId?: Uint16Array;
   readonly checkpoints?: readonly Checkpoint[];
+  readonly thinning?: { readonly loaded: number; readonly total: number };
   readonly options: QualityReportOptions;
 }
 

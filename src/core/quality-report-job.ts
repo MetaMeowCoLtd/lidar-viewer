@@ -20,6 +20,7 @@ export function startQualityReport(
   checkpoints: readonly Checkpoint[] | undefined,
   options: QualityReportOptions,
   onProgress?: QualityReportProgress,
+  thinning?: { readonly loaded: number; readonly total: number },
 ): QualityReportJob {
   const worker = new Worker(new URL("./quality-report-worker.ts", import.meta.url), { type: "module" });
   let cancel: () => void = () => undefined;
@@ -58,6 +59,7 @@ export function startQualityReport(
       ...(cloud.numberOfReturns === undefined ? {} : { numberOfReturns: cloud.numberOfReturns }),
       ...(cloud.pointSourceId === undefined ? {} : { pointSourceId: cloud.pointSourceId }),
       ...(checkpoints === undefined ? {} : { checkpoints }),
+      ...(thinning === undefined ? {} : { thinning }),
       options,
     };
     worker.postMessage(request);

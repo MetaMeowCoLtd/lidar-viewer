@@ -99,6 +99,10 @@ export function useWorkspace(options: WorkspaceOptions) {
   // Counts imports, so progress from one that was superseded never lands on the bar of the next.
   const importRunRef = useRef(0);
   const [sampling, setSampling] = useState<Sampling>();
+  const samplingRef = useRef<Sampling | undefined>(undefined);
+  useLayoutEffect(() => {
+    samplingRef.current = sampling;
+  }, [sampling]);
   const [showBuildingOutlines, setShowBuildingOutlines] = useState(true);
   const [showTreeOutlines, setShowTreeOutlines] = useState(true);
   const sourceRef = useRef<PointCloud | undefined>(undefined);
@@ -593,9 +597,16 @@ export function useWorkspace(options: WorkspaceOptions) {
     qualityJobRef.current?.cancel();
     const started = performance.now();
     setQuality({ status: "running", stage: "Starting", fraction: 0 });
-    const job = startQualityReport(cloud, checkpointsRef.current?.checkpoints, defaultQualityReportOptions, (stage, fraction) => {
-      if (qualityJobRef.current === job) setQuality({ status: "running", stage, fraction });
-    });
+    const job = startQualityReport(
+      cloud,
+      checkpointsRef.current?.checkpoints,
+      defaultQualityReportOptions,
+      (stage, fraction) => {
+        if (qualityJobRef.current === job) setQuality({ status: "running", stage, fraction });
+      },
+      // A scan thinned on import is rated for the file it came from, and says so.
+      samplingRef.current,
+    );
     qualityJobRef.current = job;
     try {
       const report = await job.result;
@@ -662,7 +673,13 @@ export function useWorkspace(options: WorkspaceOptions) {
     [],
   );
 
-  /** Runs analyses one after another, stopping at the first that does not finish. */
+  /**
+   * Runs analyses one after another. A step that fails shows its error on its
+   * own card and the rest still run: the quality report, say, needs nothing
+   * from the object count, and one failure should not leave every later card
+   * silently untouched. Only starting another run, or opening another scan,
+   * stops the sequence.
+   */
   const runSteps = useCallback(
     async (steps: ReadonlyArray<{ label: string; run: () => Promise<boolean>; relabels: boolean }>) => {
       const run = ++pipelineRunRef.current;
@@ -672,8 +689,10 @@ export function useWorkspace(options: WorkspaceOptions) {
           if (pipelineRunRef.current !== run) return;
           setPipeline({ step: index + 1, total: steps.length, label: step.label });
           const before = sourceRef.current;
-          if (!(await step.run()) || pipelineRunRef.current !== run) return;
-          if (step.relabels) await afterSourceChanges(before);
+          const finished = await step.run();
+          if (pipelineRunRef.current !== run) return;
+          // Only a finished step swaps in a relabelled cloud to wait for.
+          if (finished && step.relabels) await afterSourceChanges(before);
         }
       } finally {
         if (pipelineRunRef.current === run) setPipeline(undefined);
