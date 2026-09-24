@@ -884,6 +884,12 @@
   grid-template-rows: minmax(0, 1fr);
 }
 
+/* With the rail and panel gone the viewport is the only child, and would
+   otherwise fall into the first, content-sized column. */
+.ws.is-bare .ws-body {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 @media (max-width: 860px) {
   /* Stacked: the scan on top, the open panel as a sheet under it, the rail at
      the bottom where a thumb reaches. */
