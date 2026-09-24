@@ -11,11 +11,14 @@ export function progressHeadline(state: NoiseState | GroundState | TerrainState 
 export function qualitySummary(quality: QualityState, checkpointCount: number): string {
   if (quality.status === "failed") return quality.message;
   if (quality.status !== "done") {
-    return `Checks the survey the way it is signed off: point density against the USGS quality levels, coverage gaps, alignment between flight strips, noise${checkpointCount > 0 ? `, and vertical accuracy at ${checkpointCount} checkpoints` : ", and vertical accuracy once you add checkpoints"}.`;
+    return `Not run yet: press ▶ or Analyze scan. Checks point density against the USGS quality levels, coverage gaps, alignment between flight strips and noise${checkpointCount > 0 ? `, and vertical accuracy at ${checkpointCount} checkpoints` : ". Vertical accuracy needs surveyed checkpoints; without them the rest of the report still runs"}.`;
   }
   const { report } = quality;
   const level = report.qualityLevel === undefined ? "below QL3" : report.qualityLevel;
-  return `Meets ${level}. Built in ${quality.seconds.toFixed(1)} s; open the report for the heatmap and every figure.`;
+  const failed = report.checks.filter((check) => check.status === "fail").length;
+  const review = report.checks.filter((check) => check.status === "review").length;
+  const verdict = failed > 0 ? `${failed} check${failed === 1 ? "" : "s"} failed` : review > 0 ? `${review} to review` : "every check passed";
+  return `Meets ${level}; ${verdict}. Built in ${quality.seconds.toFixed(1)} s; open the report for the heatmap and every figure.`;
 }
 
 export function noiseSummary(noise: NoiseState): string {

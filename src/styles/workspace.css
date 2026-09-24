@@ -1057,6 +1057,27 @@
   }
 }
 
+.report-verdict th {
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.check {
+  display: inline-block;
+  min-width: 74px;
+  padding: 2px 8px;
+  border-radius: 3px;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.check-pass { background: var(--success); color: var(--on-success); }
+.check-fail { background: var(--danger); }
+.check-review { background: var(--warning); color: #1c1300; }
+.check-skipped { background: var(--surface-3); color: var(--text-2); }
+
 /* H hides the frame and leaves the scan. */
 .ws.is-bare .ws-top,
 .ws.is-bare .ws-panel,

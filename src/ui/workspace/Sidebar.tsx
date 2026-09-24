@@ -232,9 +232,15 @@ function QualityCard({ workspace, busy }: { workspace: Workspace; busy: boolean 
             <dd>{`${report.density.median.toFixed(1)} /m²`}</dd>
           </div>
           <div>
-            <dt>No returns</dt>
-            <dd>{`${(report.coverage.gapShare * 100).toFixed(2)} %`}</dd>
+            <dt>Voids</dt>
+            <dd>{`${report.coverage.voids.toLocaleString("en-US")} · ${Math.round(report.coverage.voidArea).toLocaleString("en-US")} m²`}</dd>
           </div>
+          {report.precision === undefined ? null : (
+            <div>
+              <dt>Precision (hard surfaces)</dt>
+              <dd>{cm(report.precision.hardSurface)}</dd>
+            </div>
+          )}
           {report.strips === undefined || report.strips.pairs.length === 0 ? null : (
             <div>
               <dt>Strip offset (RMS)</dt>
@@ -254,7 +260,7 @@ function QualityCard({ workspace, busy }: { workspace: Workspace; busy: boolean 
         </dl>
       )}
       <p className="side-checkpoints">
-        {checkpoints === undefined ? "No checkpoints yet." : `${checkpoints.checkpoints.length} checkpoints · ${checkpoints.source}`}
+        {checkpoints === undefined ? "No checkpoints: accuracy is skipped." : `${checkpoints.checkpoints.length} checkpoints · ${checkpoints.source}`}
         <label className="link-btn">
           {checkpoints === undefined ? "Add checkpoints (CSV)" : "Replace"}
           <input

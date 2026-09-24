@@ -5,6 +5,7 @@ import { densityHeatmapUrl } from "../../export/quality-report-html.js";
 import type { Workspace } from "./use-workspace.js";
 
 const cm = (metres: number) => `${(metres * 100).toFixed(1)} cm`;
+const checkLabels = { pass: "Pass", fail: "Fail", review: "Review", skipped: "Not checked" } as const;
 const percent = (share: number) => `${(share * 100).toFixed(share < 0.01 ? 2 : 1)} %`;
 
 /** The quality report over the workspace: the density heatmap and every figure, with a download. */
@@ -23,7 +24,8 @@ export function QualityReportDialog({ workspace }: { workspace: Workspace }) {
   }, [quality]);
 
   if (!quality.reportOpen || report === undefined || source === undefined) return null;
-  const { density, coverage, strips, noise, accuracy } = report;
+  const { density, coverage, strips, noise, accuracy, precision, thinning } = report;
+  const thinned = thinning !== undefined && thinning.total > thinning.loaded;
   const epsg = source.spatialReference?.epsg;
 
   return (
@@ -41,6 +43,26 @@ export function QualityReportDialog({ workspace }: { workspace: Workspace }) {
         </header>
 
         <div className="dialog-body">
+          {thinned ? (
+            <p className="note note-warning">{`Thinned on import to ${thinning.loaded.toLocaleString("en-US")} of ${thinning.total.toLocaleString("en-US")} points: file densities are scaled up ${(thinning.total / thinning.loaded).toFixed(2)}×, and voids and precision measured on the thinned copy are conservative.`}</p>
+          ) : null}
+          <section>
+            <h3>Verdict</h3>
+            <table className="report-table report-verdict">
+              <tbody>
+                {report.checks.map((check) => (
+                  <tr key={check.name}>
+                    <td>
+                      <span className={`check check-${check.status}`}>{checkLabels[check.status]}</span>
+                    </td>
+                    <th>{check.name}</th>
+                    <td>{check.detail}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </section>
+
           <section className="report-grid">
             <figure>
               {heatmap === undefined ? null : <img src={heatmap} alt="Point density heatmap, north up" />}
@@ -54,7 +76,8 @@ export function QualityReportDialog({ workspace }: { workspace: Workspace }) {
             <div className="report-figures">
               <h3>Density</h3>
               <dl className="stat-list">
-                <div><dt>{density.firstReturnsOnly ? "Median, first returns" : "Median, all points"}</dt><dd>{`${density.median.toFixed(1)} /m²`}</dd></div>
+                <div><dt>{density.firstReturnsOnly ? "Median, first returns" : "Median, all points"}</dt><dd>{`${density.fullMedian.toFixed(1)} /m²`}</dd></div>
+                <div><dt>Point spacing</dt><dd>{`${density.spacing.toFixed(2)} m`}</dd></div>
                 <div><dt>95 % of the area reaches</dt><dd>{`${density.p5.toFixed(1)} /m²`}</dd></div>
                 <div><dt>Below 8 /m² (QL1)</dt><dd>{percent(density.belowEight)}</dd></div>
                 <div><dt>Below 2 /m² (QL2)</dt><dd>{percent(density.belowTwo)}</dd></div>
@@ -62,9 +85,19 @@ export function QualityReportDialog({ workspace }: { workspace: Workspace }) {
               <h3>Coverage</h3>
               <dl className="stat-list">
                 <div><dt>Footprint</dt><dd>{`${Math.round(coverage.footprintArea).toLocaleString("en-US")} m²`}</dd></div>
-                <div><dt>No returns</dt><dd>{`${percent(coverage.gapShare)} · ${coverage.gapRegions} patches`}</dd></div>
-                <div><dt>Largest patch</dt><dd>{`${Math.round(coverage.largestGapArea)} m²`}</dd></div>
+                <div><dt>{`Voids (≥ ${coverage.voidThreshold.toFixed(1)} m²)`}</dt><dd>{`${coverage.voids.toLocaleString("en-US")} · ${Math.round(coverage.voidArea).toLocaleString("en-US")} m²`}</dd></div>
+                <div><dt>Largest</dt><dd>{`${Math.round(coverage.largestGapArea)} m²`}</dd></div>
+                <div><dt>Scattered empty cells</dt><dd>{coverage.scatteredCells.toLocaleString("en-US")}</dd></div>
               </dl>
+              <h3>Flat-surface precision</h3>
+              {precision === undefined ? (
+                <p className="note">Not enough flat, level ground to measure.</p>
+              ) : (
+                <dl className="stat-list">
+                  <div><dt>Hard, level surfaces</dt><dd>{`${cm(precision.hardSurface)} RMS`}</dd></div>
+                  <div><dt>All level ground</dt><dd>{`${cm(precision.allLevel)} RMS`}</dd></div>
+                </dl>
+              )}
               <h3>Noise</h3>
               <p className="note">{noise.labelled ? `${noise.points.toLocaleString("en-US")} points (${percent(noise.share)}) labelled as noise and left out of these figures.` : "Noise has not been found yet."}</p>
             </div>
@@ -78,7 +111,7 @@ export function QualityReportDialog({ workspace }: { workspace: Workspace }) {
               <p className="note">{strips.strips.length < 2 ? "Only one flight line in the scan." : "The strips do not overlap on enough flat ground to compare."}</p>
             ) : (
               <>
-                <p className="note">{`${strips.strips.length} flight lines, ${percent(strips.overlapShare)} of the footprint seen twice. Compared on flat ground both saw; over about 5 cm points to a boresight or trajectory error.`}</p>
+                <p className="note">{`${strips.strips.length} flight lines, ${percent(strips.overlapShare)} of the footprint seen twice. Compared on flat ground both saw; the USGS allows 8 cm for QL1 and QL2, and more points to a boresight or trajectory error.`}</p>
                 <table className="report-table">
                   <thead><tr><th>Strips</th><th>Flat cells</th><th>Median offset</th><th>RMS offset</th></tr></thead>
                   <tbody>
