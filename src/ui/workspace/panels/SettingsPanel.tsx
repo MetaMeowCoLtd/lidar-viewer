@@ -62,7 +62,32 @@ export function SettingsPanel({ workspace }: { workspace: Workspace }) {
         </dl>
       </Field>
 
-      <Note>Press H to hide the panels and give the whole window to the scan.</Note>
+      <Field label="Navigation">
+        <dl className="stat-list">
+          <div>
+            <dt>Turn</dt>
+            <dd>Drag</dd>
+          </div>
+          <div>
+            <dt>Pan</dt>
+            <dd>Right-drag · Shift-drag</dd>
+          </div>
+          <div>
+            <dt>Zoom to cursor</dt>
+            <dd>Scroll · pinch</dd>
+          </div>
+          <div>
+            <dt>Fly to a point</dt>
+            <dd>Double-click</dd>
+          </div>
+          <div>
+            <dt>Move · up and down</dt>
+            <dd>W A S D · Q E</dd>
+          </div>
+        </dl>
+      </Field>
+
+      <Note>The view turns and zooms around whatever is under the cursor. Press H to hide the panels and give the whole window to the scan.</Note>
     </div>
   );
 }
