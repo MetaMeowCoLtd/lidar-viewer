@@ -12,7 +12,7 @@ export function ScanPanel({ workspace }: { workspace: Workspace }) {
       <h2 className="panel-title">Scan</h2>
 
       {source === undefined ? (
-        <Note>No scan is open. Choose a file or load the sample city to get started.</Note>
+        <Note>No scan is open. Choose a file or load the sample survey to get started.</Note>
       ) : (
         <div className="scan-card">
           <strong title={sourceLabel}>{sourceLabel}</strong>
@@ -46,7 +46,7 @@ export function ScanPanel({ workspace }: { workspace: Workspace }) {
           <Icon name="folder" /> Open a scan
         </button>
         <button type="button" className="btn btn-block" onClick={() => actions.loadSample()}>
-          <Icon name="city" /> Load the sample city
+          <Icon name="city" /> Load the sample survey
         </button>
       </div>
 

@@ -111,8 +111,8 @@ export function Viewport({ workspace }: { workspace: Workspace }) {
       {importProgress === undefined ? null : (
         <div className="ws-loading" aria-live="polite">
           <p>
-            {importProgress.stage === "reading" ? "Reading the file" : "Building detail levels"}
-            <span>{`step ${importProgress.stage === "reading" ? 1 : 2} of 2 · ${Math.round(importProgress.fraction * 100)}%`}</span>
+            {importProgress.stage === "reading" ? "Reading the file" : importProgress.stage === "simulating" ? "Simulating the survey flight" : "Building detail levels"}
+            <span>{`step ${importProgress.stage === "building" ? 2 : 1} of 2 · ${Math.round(importProgress.fraction * 100)}%`}</span>
           </p>
           <ProgressBar label="Opening the scan" fraction={importProgress.fraction} />
         </div>
@@ -124,13 +124,13 @@ export function Viewport({ workspace }: { workspace: Workspace }) {
             <Icon name="upload" />
           </span>
           <h2>Open a LiDAR scan</h2>
-          <p>Drop a LAS, LAZ or PLY file anywhere here, or start with the sample city. Nothing is uploaded.</p>
+          <p>Drop a LAS, LAZ or PLY file anywhere here, or start with the sample survey. Nothing is uploaded.</p>
           <div className="ws-empty-actions">
             <button type="button" className="btn btn-primary btn-lg" onClick={actions.openFilePicker}>
               <Icon name="folder" /> Choose a file
             </button>
             <button type="button" className="btn btn-lg" onClick={() => actions.loadSample()}>
-              <Icon name="city" /> Load the sample city
+              <Icon name="city" /> Load the sample survey
             </button>
           </div>
           <small>{`Up to ${formatCount(workspace.maxImportPoints)} points on this machine`}</small>

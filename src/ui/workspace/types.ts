@@ -11,9 +11,9 @@ export type ClickTool = "inspect" | "measure";
 
 export type LodMode = "manual" | "distance";
 
-/** How far an import has got: reading the file on its worker, then building its detail levels. */
+/** How far an import has got: reading the file (or flying the sample survey) on a worker, then building its detail levels. */
 export interface ImportProgress {
-  readonly stage: "reading" | "building";
+  readonly stage: "reading" | "simulating" | "building";
   readonly fraction: number;
 }
 

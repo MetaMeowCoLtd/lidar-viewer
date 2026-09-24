@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { PointCloud, definedChannels, type PointCloudColorMode, type PointCloudPointShape } from "../../core/point-cloud.js";
 import type { PointCloudLodPyramid } from "../../core/lod-pyramid.js";
-import { ProceduralCloudGenerator } from "../../core/procedural-cloud-generator.js";
+import { generateSampleCloud } from "../../core/sample-job.js";
 import { ScanImportCancelled, startScanImport, type ScanImportJob } from "../../import/scan-import-job.js";
 import { LidarViewer, type LodRenderSummary } from "../../three/lidar-viewer.js";
 import { GroundDetectionCancelled, startGroundDetection, type GroundDetectionJob } from "../../core/ground-detection-job.js";
@@ -29,7 +29,7 @@ import type {
 } from "./types.js";
 
 const samplePointCount = 1_000_000;
-const sampleName = "Sample riverside town";
+const sampleName = "Sample quarry survey";
 
 export interface WorkspaceOptions {
   /** Load the procedural sample as soon as the viewer starts. */
@@ -162,14 +162,32 @@ export function useWorkspace(options: WorkspaceOptions) {
     clearTerrain();
   }, [clearTerrain]);
 
-  const loadSample = useCallback((seed = Math.floor(Math.random() * 1_000_000)) => {
+  const loadSample = useCallback(async (seed = Math.floor(Math.random() * 1_000_000)) => {
     const viewer = viewerRef.current;
     if (viewer === undefined) return;
     resetAnalysis();
+    const run = importRunRef.current;
+    const report = (stage: ImportProgress["stage"], fraction: number) => {
+      if (importRunRef.current === run) setImportProgress({ stage, fraction });
+    };
     setSampling(undefined);
     setSourceLabel(sampleName);
-    const cloud = new ProceduralCloudGenerator().generate({ pointCount: samplePointCount, seed, name: sampleName });
-    void viewer.load(cloud, createLodSpecs(cloud.bounds.diagonal));
+    setStatus("processing");
+    setStatusText("Simulating the survey flight");
+    report("simulating", 0);
+    try {
+      const cloud = await generateSampleCloud({ pointCount: samplePointCount, seed, name: sampleName }, (fraction) => report("simulating", fraction));
+      // Another scan was chosen while this one was being flown.
+      if (importRunRef.current !== run) return;
+      report("building", 0);
+      await viewer.load(cloud, createLodSpecs(cloud.bounds.diagonal), (fraction) => report("building", fraction));
+      if (importRunRef.current === run) setImportProgress(undefined);
+    } catch (error) {
+      if (importRunRef.current !== run) return;
+      setImportProgress(undefined);
+      setStatus("error");
+      setStatusText(error instanceof Error ? error.message : "The sample survey couldn't be made");
+    }
   }, [resetAnalysis]);
 
   useEffect(() => {
@@ -228,7 +246,7 @@ export function useWorkspace(options: WorkspaceOptions) {
     });
     resizeObserver.observe(canvas.parentElement!);
     viewer.start();
-    if (loadSampleOnStart) loadSample(21);
+    if (loadSampleOnStart) void loadSample(21);
 
     return () => {
       unsubscribe();

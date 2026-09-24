@@ -12,7 +12,7 @@ export function StatusBar({ workspace }: { workspace: Workspace }) {
 
   let message = statusText;
   if (importProgress !== undefined) {
-    const label = importProgress.stage === "reading" ? "Reading the file" : "Building detail levels";
+    const label = importProgress.stage === "reading" ? "Reading the file" : importProgress.stage === "simulating" ? "Simulating the survey flight" : "Building detail levels";
     message = `${label} · ${Math.round(importProgress.fraction * 100)}%`;
   } else if (analysis.ground.status === "running") message = `${analysis.ground.stage}…`;
   else if (analysis.terrain.status === "running") message = `${analysis.terrain.stage}…`;

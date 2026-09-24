@@ -12,7 +12,7 @@ const features: readonly { icon: IconName; title: string; text: string }[] = [
 ];
 
 const steps: readonly { title: string; text: string }[] = [
-  { title: "Open a scan", text: "Drop a LAS, LAZ or PLY file, or start with the sample city." },
+  { title: "Open a scan", text: "Drop a LAS, LAZ or PLY file, or start with the sample survey." },
   { title: "Analyze", text: "Find the ground, build the terrain and count buildings and trees in seconds." },
   { title: "Export", text: "Download results ready for QGIS, ArcGIS or your CAD tool." },
 ];
@@ -51,7 +51,7 @@ export function Landing() {
                 Open the app <Icon name="arrowRight" />
               </a>
               <a className="btn btn-lg" href={sampleHref}>
-                <Icon name="city" /> Try the sample city
+                <Icon name="city" /> Try the sample survey
               </a>
             </div>
             <ul className="lp-facts">
