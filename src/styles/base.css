@@ -207,17 +207,7 @@ a {
   background: var(--accent-hover);
 }
 
-.btn-ghost {
-  border-color: transparent;
-  background: transparent;
-  color: var(--text-2);
-}
 
-.btn-ghost:hover:not(:disabled) {
-  border-color: transparent;
-  background: var(--surface-hover);
-  color: var(--text);
-}
 
 .btn-lg {
   min-height: 44px;
