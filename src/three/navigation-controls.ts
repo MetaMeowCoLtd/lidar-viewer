@@ -16,7 +16,25 @@ const inertiaDecay = 5.5;
 /** Pointer moves older than this at release do not fling. */
 const flingWindow = 90;
 
-type Drag = "orbit" | "pan";
+/**
+ * What a drag does, after Unreal Engine's viewport: walk (left), look (right),
+ * pan (middle, or left and right together), and with Alt held, orbit (left),
+ * dolly (right) and pan (middle). A finger always orbits.
+ */
+type Drag = "orbit" | "pan" | "walk" | "look" | "dolly";
+
+/** Look and walk turn the camera in place, a little gentler than an orbit around a point. */
+const lookPerHeight = Math.PI * 1.1;
+
+function mouseDrag(buttons: number, alt: boolean, panModifier: boolean): Drag | undefined {
+  const left = (buttons & 1) !== 0;
+  const right = (buttons & 2) !== 0;
+  const middle = (buttons & 4) !== 0;
+  if (middle || (left && right)) return "pan";
+  if (left) return alt ? "orbit" : panModifier ? "pan" : "walk";
+  if (right) return alt ? "dolly" : "look";
+  return undefined;
+}
 
 interface Flight {
   readonly fromPosition: Vector3;
@@ -29,25 +47,26 @@ interface Flight {
 }
 
 /**
- * Navigation in the style of 3D modelling and point-cloud tools, replacing an
- * orbit around one fixed centre:
+ * Navigation laid out like Unreal Engine's level viewport, so moving through a
+ * scan feels like moving through a 3D scene rather than spinning a model:
  *
- * - Left drag turns the view around the point under the cursor, not around
- *   the middle of the scan, so whatever was grabbed stays put.
- * - Right drag, middle drag or Shift + left drag pans, keeping the grabbed
- *   point under the cursor.
- * - The wheel zooms towards the point under the cursor, in steps proportional
- *   to the distance to it, so it slows down near a surface instead of near an
- *   arbitrary target, and never gets stuck.
- * - Double-click flies to the point clicked.
- * - W A S D or the arrow keys move across the ground - forward, left, back,
- *   right as the view faces - Q and E move down and up, and Shift moves
- *   three times faster. Keys only steer the view while it has focus, so the
- *   arrows still work in the panels; clicking the scan gives it focus.
- * - One finger turns and two fingers pinch and pan on a touch screen.
+ * - Left drag walks: up and down moves forward and back over the ground,
+ *   left and right turns.
+ * - Right drag looks around from where the camera stands. While it is held,
+ *   W A S D fly in the direction of view, Q and E drop and rise, and the
+ *   wheel sets how fast.
+ * - Middle drag, or left and right together, pans - the grabbed point stays
+ *   under the cursor.
+ * - Alt + left drag orbits around the point under the cursor, Alt + right
+ *   drag dollies towards it, Alt + middle pans.
+ * - The wheel zooms towards the point under the cursor; double-click flies to
+ *   a point.
+ * - W A S D and the arrows also work without a button held, once the view
+ *   has focus; Shift triples their speed.
+ * - On a touch screen one finger orbits and two pinch and pan.
  *
- * Dragging follows the pointer exactly, with no lag; a flick carries on and
- * slows to a stop, and the wheel eases in over a few frames.
+ * Dragging follows the pointer exactly. An orbit or pan flicked and released
+ * carries on and slows to a stop; walking and looking stop dead, as in Unreal.
  */
 export class NavigationControls {
   /** The point the view is centred on; auto-rotation turns around it. */
@@ -77,6 +96,10 @@ export class NavigationControls {
   private readonly keyVelocity = new Vector3();
   /** How far away the scene was when the keys went down, which sets how fast they move. */
   private keyRange = 10;
+  /** A multiplier on flying speed, set with the wheel while looking around, as in Unreal. */
+  private flySpeed = 1;
+  /** How far away the scene was when a walk or dolly began, which sets how far a pixel of drag moves. */
+  private dragRange = 10;
   private readonly sceneCenter = new Vector3();
   private sceneRadius = 100;
   private groundY = 0;
@@ -206,8 +229,9 @@ export class NavigationControls {
     this.lastMove = event.timeStamp;
 
     if (this.pointers.size === 1) {
-      const pan = event.button === 1 || event.button === 2 || event.shiftKey || event.ctrlKey || event.metaKey;
-      this.beginDrag(pan ? "pan" : "orbit", event.clientX, event.clientY);
+      // An embedded preview that cannot zoom is a turntable: every drag orbits.
+      const drag = event.pointerType !== "mouse" || !this.enableZoom ? "orbit" : mouseDrag(event.buttons, event.altKey, event.shiftKey || event.ctrlKey || event.metaKey);
+      this.beginDrag(drag ?? "walk", event.clientX, event.clientY);
     } else if (this.pointers.size === 2) {
       const [a, b] = [...this.pointers.values()] as [{ x: number; y: number }, { x: number; y: number }];
       this.pinchDistance = Math.hypot(a.x - b.x, a.y - b.y);
@@ -235,14 +259,46 @@ export class NavigationControls {
     const dx = event.clientX - previous.x;
     const dy = event.clientY - previous.y;
     this.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
-    if (this.drag === "orbit") {
-      const perPixel = turnPerHeight / Math.max(1, this.element.clientHeight);
-      const yaw = -dx * perPixel;
-      const pitch = -dy * perPixel;
-      this.orbit(this.pivot, yaw, pitch);
-      this.orbitVelocity.lerp(new Vector2(yaw / elapsed, pitch / elapsed), 0.6);
-    } else {
-      this.panTo(event.clientX, event.clientY, elapsed);
+
+    // Pressing or releasing a second mouse button mid-drag changes what the drag does, as in Unreal.
+    if (event.pointerType === "mouse" && this.enableZoom) {
+      const drag = mouseDrag(event.buttons, event.altKey, event.shiftKey || event.ctrlKey || event.metaKey);
+      if (drag !== undefined && drag !== this.drag) {
+        this.stopMotion();
+        this.beginDrag(drag, event.clientX, event.clientY);
+        return;
+      }
+    }
+
+    const height = Math.max(1, this.element.clientHeight);
+    switch (this.drag) {
+      case "orbit": {
+        const perPixel = turnPerHeight / height;
+        const yaw = -dx * perPixel;
+        const pitch = -dy * perPixel;
+        this.orbit(this.pivot, yaw, pitch);
+        this.orbitVelocity.lerp(new Vector2(yaw / elapsed, pitch / elapsed), 0.6);
+        break;
+      }
+      case "look": {
+        const perPixel = lookPerHeight / height;
+        this.orbit(this.camera.position.clone(), -dx * perPixel, -dy * perPixel);
+        break;
+      }
+      case "walk": {
+        // Turn with the sideways motion, and move over the ground with the vertical.
+        this.orbit(this.camera.position.clone(), (-dx * lookPerHeight) / height, 0);
+        const forward = this.groundForward();
+        this.translate(forward.multiplyScalar((-dy / height) * this.dragRange * 1.5));
+        break;
+      }
+      case "dolly": {
+        const forward = this.camera.getWorldDirection(new Vector3());
+        this.translate(forward.multiplyScalar((-dy / height) * this.dragRange * 2));
+        break;
+      }
+      default:
+        this.panTo(event.clientX, event.clientY, elapsed);
     }
   };
 
@@ -269,6 +325,11 @@ export class NavigationControls {
     if (!this.enableZoom) return;
     event.preventDefault();
     this.flight = undefined;
+    if (this.drag === "look") {
+      // While looking around, the wheel sets flying speed rather than zooming.
+      this.flySpeed = clamp(this.flySpeed * (event.deltaY < 0 ? 1.25 : 0.8), 0.1, 10);
+      return;
+    }
     const scale = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? 100 : 1;
     // One burst of scrolling in one place zooms towards one point; picking it again every event would be wasted work.
     const last = this.zoomPointAt;
@@ -293,7 +354,14 @@ export class NavigationControls {
     this.pivot.copy(this.pointUnder(clientX, clientY));
     if (drag === "orbit") this.target.copy(this.pivot);
     this.panPlane.setFromNormalAndCoplanarPoint(this.camera.getWorldDirection(new Vector3()), this.pivot);
-    this.element.style.cursor = drag === "pan" ? "grabbing" : "";
+    if (drag === "walk" || drag === "dolly" || drag === "look") {
+      // A pixel of drag covers more ground the further away the scene is.
+      const rect = this.element.getBoundingClientRect();
+      const reference = drag === "dolly" ? this.pivot : this.pointUnder(rect.left + rect.width / 2, rect.top + rect.height / 2);
+      this.dragRange = clamp(this.camera.position.distanceTo(reference), 2, this.sceneRadius * 3);
+      if (drag === "look") this.keyRange = this.dragRange;
+    }
+    this.element.style.cursor = drag === "pan" ? "grabbing" : drag === "look" ? "crosshair" : drag === "walk" ? "move" : "";
     this.showMarker();
   }
 
@@ -314,7 +382,7 @@ export class NavigationControls {
     if (event.target !== this.element && event.target !== document.body) return;
     const key = movementKey(event.code);
     if (key === undefined) return;
-    if (!["forward", "back", "left", "right", "up", "down"].some((held) => this.keys.has(held))) {
+    if (this.drag !== "look" && !["forward", "back", "left", "right", "up", "down"].some((held) => this.keys.has(held))) {
       // Speed is set by how far away the scene in the middle of the view is, measured as movement starts.
       const rect = this.element.getBoundingClientRect();
       this.keyRange = this.camera.position.distanceTo(this.pointUnder(rect.left + rect.width / 2, rect.top + rect.height / 2));
@@ -336,12 +404,9 @@ export class NavigationControls {
   private moveWithKeys(dt: number): void {
     const wanted = new Vector3();
     if (this.keys.size > 0) {
+      // Keys fly where the camera looks, as in Unreal: W towards the centre of the view.
       const forward = this.camera.getWorldDirection(new Vector3());
-      forward.y = 0;
-      // Looking straight down, "forward" is towards the top of the screen.
-      if (forward.lengthSq() < 1e-4) forward.copy(up).applyQuaternion(this.camera.quaternion).setY(0);
-      forward.normalize();
-      const right = new Vector3().crossVectors(forward, up).normalize();
+      const right = new Vector3().crossVectors(this.groundForward(), up).normalize();
       if (this.keys.has("forward")) wanted.add(forward);
       if (this.keys.has("back")) wanted.sub(forward);
       if (this.keys.has("right")) wanted.add(right);
@@ -349,11 +414,19 @@ export class NavigationControls {
       if (this.keys.has("up")) wanted.add(up);
       if (this.keys.has("down")) wanted.sub(up);
       // Speed follows how far away the scene is, so the same key covers a street up close and a valley from above.
-      const speed = clamp(this.keyRange, 2, this.sceneRadius * 2) * 0.6 * (this.keys.has("fast") ? 3 : 1);
+      const speed = clamp(this.keyRange, 2, this.sceneRadius * 2) * 0.6 * this.flySpeed * (this.keys.has("fast") ? 3 : 1);
       if (wanted.lengthSq() > 0) wanted.normalize().multiplyScalar(speed);
     }
     this.keyVelocity.lerp(wanted, 1 - Math.exp(-10 * dt));
     if (this.keyVelocity.lengthSq() > 1e-6) this.translate(this.keyVelocity.clone().multiplyScalar(dt));
+  }
+
+  /** The horizontal direction the camera faces; looking straight down, the top of the screen. */
+  private groundForward(): Vector3 {
+    const forward = this.camera.getWorldDirection(new Vector3());
+    forward.y = 0;
+    if (forward.lengthSq() < 1e-4) forward.copy(up).applyQuaternion(this.camera.quaternion).setY(0);
+    return forward.normalize();
   }
 
   // -------------------------------------------------------------- motion
