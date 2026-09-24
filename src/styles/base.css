@@ -31,6 +31,91 @@
   --mono: "DM Mono", ui-monospace, "SFMono-Regular", monospace;
   --shadow-popover: 0 16px 40px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.35);
   --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  /* Translucent panels floating over the scan, and the backdrop the scan is drawn on. */
+  --glass: rgba(14, 18, 24, 0.86);
+  --glass-strong: rgba(14, 18, 24, 0.92);
+  --glass-soft: rgba(14, 18, 24, 0.7);
+  --scrim: rgba(5, 7, 10, 0.85);
+  --viewer-bg: #05070a;
+  --nav-glass: rgba(7, 9, 13, 0.72);
+  --hero-glow: rgba(82, 199, 255, 0.09);
+  --preview-bg: radial-gradient(circle at 50% 40%, #111a24, #07090d 75%);
+  --border-hover: rgba(255, 255, 255, 0.2);
+  --on-success: #04120c;
+}
+
+/* Light theme: warm-neutral paper, dark ink, a deeper accent that keeps its
+   contrast on white. The scan sits on a soft grey so both bright roofs and
+   dark asphalt stay readable. Used when chosen, or when the system asks for
+   light and nothing was chosen. */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f3f5f8;
+  --surface: #ffffff;
+  --surface-2: #eef1f5;
+  --surface-3: #e2e7ed;
+  --surface-hover: rgba(15, 23, 42, 0.05);
+  --border: rgba(15, 23, 42, 0.09);
+  --border-strong: rgba(15, 23, 42, 0.16);
+  --border-hover: rgba(15, 23, 42, 0.28);
+  --text: #111827;
+  --text-2: #4b5563;
+  --text-3: #7b8594;
+  --accent: #0a7fc2;
+  --accent-hover: #086aa3;
+  --accent-soft: rgba(10, 127, 194, 0.1);
+  --on-accent: #ffffff;
+  --success: #12966a;
+  --warning: #b7791f;
+  --danger: #cf4a3a;
+  --building: #d97a1f;
+  --tree: #2d9a52;
+  --shadow-popover: 0 16px 40px rgba(15, 23, 42, 0.14), 0 2px 8px rgba(15, 23, 42, 0.08);
+  --glass: rgba(255, 255, 255, 0.88);
+  --glass-strong: rgba(255, 255, 255, 0.95);
+  --glass-soft: rgba(255, 255, 255, 0.78);
+  --scrim: rgba(255, 255, 255, 0.9);
+  --viewer-bg: #dde3ea;
+  --nav-glass: rgba(243, 245, 248, 0.8);
+  --hero-glow: rgba(10, 127, 194, 0.08);
+  --preview-bg: radial-gradient(circle at 50% 40%, #eef2f6, #d6dde5 75%);
+  --on-success: #ffffff;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    color-scheme: light;
+    --bg: #f3f5f8;
+    --surface: #ffffff;
+    --surface-2: #eef1f5;
+    --surface-3: #e2e7ed;
+    --surface-hover: rgba(15, 23, 42, 0.05);
+    --border: rgba(15, 23, 42, 0.09);
+    --border-strong: rgba(15, 23, 42, 0.16);
+    --border-hover: rgba(15, 23, 42, 0.28);
+    --text: #111827;
+    --text-2: #4b5563;
+    --text-3: #7b8594;
+    --accent: #0a7fc2;
+    --accent-hover: #086aa3;
+    --accent-soft: rgba(10, 127, 194, 0.1);
+    --on-accent: #ffffff;
+    --success: #12966a;
+    --warning: #b7791f;
+    --danger: #cf4a3a;
+    --building: #d97a1f;
+    --tree: #2d9a52;
+    --shadow-popover: 0 16px 40px rgba(15, 23, 42, 0.14), 0 2px 8px rgba(15, 23, 42, 0.08);
+    --glass: rgba(255, 255, 255, 0.88);
+    --glass-strong: rgba(255, 255, 255, 0.95);
+    --glass-soft: rgba(255, 255, 255, 0.78);
+    --scrim: rgba(255, 255, 255, 0.9);
+    --viewer-bg: #dde3ea;
+    --nav-glass: rgba(243, 245, 248, 0.8);
+    --hero-glow: rgba(10, 127, 194, 0.08);
+    --preview-bg: radial-gradient(circle at 50% 40%, #eef2f6, #d6dde5 75%);
+    --on-success: #ffffff;
+  }
 }
 
 *,
@@ -103,7 +188,7 @@ a {
 
 .btn:hover:not(:disabled) {
   background: var(--surface-3);
-  border-color: rgba(255, 255, 255, 0.2);
+  border-color: var(--border-hover);
 }
 
 .btn:disabled {

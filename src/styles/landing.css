@@ -3,7 +3,7 @@
 .lp {
   min-height: 100vh;
   background:
-    radial-gradient(60rem 36rem at 78% -10%, rgba(82, 199, 255, 0.09), transparent 70%),
+    radial-gradient(60rem 36rem at 78% -10%, var(--hero-glow), transparent 70%),
     var(--bg);
 }
 
@@ -17,7 +17,7 @@
   max-width: 1200px;
   margin: 0 auto;
   padding: 14px 24px;
-  background: rgba(7, 9, 13, 0.72);
+  background: var(--nav-glass);
   backdrop-filter: blur(14px);
 }
 
@@ -120,7 +120,7 @@
   overflow: hidden;
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-lg);
-  background: radial-gradient(circle at 50% 40%, #111a24, #07090d 75%);
+  background: var(--preview-bg);
 }
 
 .lp-preview canvas {
@@ -146,7 +146,7 @@
   padding: 5px 10px;
   border: 1px solid var(--border);
   border-radius: 999px;
-  background: rgba(7, 9, 13, 0.7);
+  background: var(--glass-soft);
   color: var(--text-2);
   font-size: 12px;
   pointer-events: none;

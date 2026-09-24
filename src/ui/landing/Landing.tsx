@@ -1,3 +1,4 @@
+import { ThemeToggle } from "../ThemeToggle.js";
 import { Icon, type IconName } from "../icons.js";
 import { appHref, sampleHref } from "../router.js";
 import { LandingPreview } from "./LandingPreview.js";
@@ -30,6 +31,7 @@ export function Landing() {
           <a href="#how-it-works" onClick={scrollTo("how-it-works")}>How it works</a>
           <a href="#privacy" onClick={scrollTo("privacy")}>Privacy</a>
         </nav>
+        <ThemeToggle />
         <a className="btn btn-primary" href={appHref}>
           Open the app
         </a>
