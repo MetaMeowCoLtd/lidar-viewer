@@ -20,6 +20,7 @@ scope.onmessage = (event: MessageEvent<SampleRequest>) => {
       data.intensity.buffer as ArrayBuffer,
       data.returnNumber.buffer as ArrayBuffer,
       data.numberOfReturns.buffer as ArrayBuffer,
+      data.pointSourceId.buffer as ArrayBuffer,
     ]);
   } catch (error) {
     scope.postMessage({ kind: "failed", message: error instanceof Error ? error.message : "Simulating the sample survey failed" });

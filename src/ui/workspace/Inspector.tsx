@@ -59,6 +59,9 @@ function PointBody({ point, object }: { point: PointDetails; object: DetectedObj
   if (point.returnNumber !== undefined && point.numberOfReturns !== undefined && point.numberOfReturns > 0) {
     rows.push(["Return", `${point.returnNumber} of ${point.numberOfReturns}`]);
   }
+  if (point.pointSourceId !== undefined && point.pointSourceId > 0) {
+    rows.push(["Flight line", String(point.pointSourceId)]);
+  }
   if (point.intensity !== undefined) rows.push(["Intensity", formatNumber(point.intensity, 0)]);
 
   return (

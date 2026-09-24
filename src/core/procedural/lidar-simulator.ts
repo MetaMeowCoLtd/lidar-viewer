@@ -321,6 +321,9 @@ class PointSink {
   public intensity = new Float32Array(0);
   public returnNumber = new Uint8Array(0);
   public numberOfReturns = new Uint8Array(0);
+  public pointSourceId = new Uint16Array(0);
+  /** The flight line being flown, stamped on every point as its LAS point source ID. */
+  public strip = 1;
 
   public constructor(capacity: number) {
     this.grow(Math.max(16, capacity));
@@ -338,6 +341,7 @@ class PointSink {
     this.intensity[this.count] = intensity;
     this.returnNumber[this.count] = returnNumber;
     this.numberOfReturns[this.count] = numberOfReturns;
+    this.pointSourceId[this.count] = this.strip;
     this.count += 1;
   }
 
@@ -357,6 +361,9 @@ class PointSink {
     const numberOfReturns = new Uint8Array(capacity);
     numberOfReturns.set(this.numberOfReturns);
     this.numberOfReturns = numberOfReturns;
+    const pointSourceId = new Uint16Array(capacity);
+    pointSourceId.set(this.pointSourceId);
+    this.pointSourceId = pointSourceId;
   }
 }
 
@@ -379,6 +386,11 @@ class Scanner {
     private readonly random: Random,
     private readonly sink: PointSink | undefined,
   ) {}
+
+  /** Starts a new flight line: its number goes on every point as the point source ID. */
+  public setStrip(strip: number): void {
+    if (this.sink !== undefined) this.sink.strip = strip;
+  }
 
   public setStripError(dx: number, dy: number): void {
     this.stripDx = dx;
@@ -639,6 +651,7 @@ export interface SimulatedSurvey {
   readonly intensity: Float32Array;
   readonly returnNumber: Uint8Array;
   readonly numberOfReturns: Uint8Array;
+  readonly pointSourceId: Uint16Array;
   readonly pointCount: number;
 }
 
@@ -657,6 +670,7 @@ function fly(flight: Flight, random: Random, scanner: Scanner, onStrip?: (strip:
   stripZs.forEach((stripZ, strip) => {
     const heading = strip % 2 === 0 ? 1 : -1;
     // Each strip sits a couple of centimetres off the others: boresight and trajectory error.
+    scanner.setStrip(strip + 1);
     scanner.setStripError(gaussian(random) * 0.03, gaussian(random) * 0.025);
     for (let line = 0; line < linesPerStrip; line += 1) {
       const along = start + (heading > 0 ? line : linesPerStrip - 1 - line) * spacing;
@@ -733,6 +747,7 @@ function trimTo(sink: PointSink, target: number): SimulatedSurvey {
       intensity: sink.intensity.slice(0, count),
       returnNumber: sink.returnNumber.slice(0, count),
       numberOfReturns: sink.numberOfReturns.slice(0, count),
+      pointSourceId: sink.pointSourceId.slice(0, count),
       pointCount: count,
     };
   }
@@ -741,6 +756,7 @@ function trimTo(sink: PointSink, target: number): SimulatedSurvey {
   const intensity = new Float32Array(target);
   const returnNumber = new Uint8Array(target);
   const numberOfReturns = new Uint8Array(target);
+  const pointSourceId = new Uint16Array(target);
   let kept = 0;
   for (let index = 0; index < count && kept < target; index += 1) {
     // Keep a point whenever the running share of kept points falls behind.
@@ -756,8 +772,9 @@ function trimTo(sink: PointSink, target: number): SimulatedSurvey {
     intensity[kept] = sink.intensity[index]!;
     returnNumber[kept] = sink.returnNumber[index]!;
     numberOfReturns[kept] = sink.numberOfReturns[index]!;
+    pointSourceId[kept] = sink.pointSourceId[index]!;
     kept += 1;
   }
-  return { positions, colors, intensity, returnNumber, numberOfReturns, pointCount: kept };
+  return { positions, colors, intensity, returnNumber, numberOfReturns, pointSourceId, pointCount: kept };
 }
 

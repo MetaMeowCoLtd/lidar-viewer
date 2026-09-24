@@ -23,6 +23,7 @@ export interface ProceduralCloudData {
   readonly intensity: Float32Array;
   readonly returnNumber: Uint8Array;
   readonly numberOfReturns: Uint8Array;
+  readonly pointSourceId: Uint16Array;
 }
 
 /**
@@ -58,6 +59,7 @@ export class ProceduralCloudGenerator {
       intensity: survey.intensity,
       returnNumber: survey.returnNumber,
       numberOfReturns: survey.numberOfReturns,
+      pointSourceId: survey.pointSourceId,
     };
   }
 }

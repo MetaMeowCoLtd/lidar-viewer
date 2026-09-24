@@ -17,6 +17,8 @@ export interface PointDetails {
   readonly intensity?: number;
   readonly returnNumber?: number;
   readonly numberOfReturns?: number;
+  /** The flight line the point was captured on (LAS point source ID). */
+  readonly pointSourceId?: number;
   readonly color?: readonly [number, number, number];
 }
 
@@ -36,6 +38,7 @@ export function describePoint(cloud: PointCloud, index: number): PointDetails {
     ...(cloud.intensity === undefined ? {} : { intensity: cloud.intensity[index]! }),
     ...(cloud.returnNumber === undefined ? {} : { returnNumber: cloud.returnNumber[index]! }),
     ...(cloud.numberOfReturns === undefined ? {} : { numberOfReturns: cloud.numberOfReturns[index]! }),
+    ...(cloud.pointSourceId === undefined ? {} : { pointSourceId: cloud.pointSourceId[index]! }),
     ...(cloud.colors === undefined
       ? {}
       : { color: [cloud.colors[offset]!, cloud.colors[offset + 1]!, cloud.colors[offset + 2]!] as const }),
