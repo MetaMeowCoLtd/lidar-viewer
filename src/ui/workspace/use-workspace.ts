@@ -20,6 +20,7 @@ import { describePoint } from "../../core/point-inspection.js";
 import { TerrainCancelled, startTerrainBuild, type TerrainJob } from "../../core/terrain-job.js";
 import { NoiseDetectionCancelled, startNoiseDetection, type NoiseDetectionJob } from "../../core/noise-detection-job.js";
 import { withoutNoise } from "../../export/clean.js";
+import { gpuSupported } from "../../gpu/gpu-context.js";
 import type { NoiseDisplay } from "../../three/point-cloud-shader-material.js";
 import { contoursGeoJson, terrainGeoTiff } from "../../export/terrain-export.js";
 import type {
@@ -81,6 +82,12 @@ export function useWorkspace(options: WorkspaceOptions) {
   const checkpointsRef = useRef<CheckpointSet | undefined>(undefined);
   const [reportOpen, setReportOpen] = useState(false);
   const [noise, setNoise] = useState<NoiseState>({ status: "idle" });
+  // Heavy analysis stages run on the GPU wherever the browser offers WebGPU; the CPU path is always there.
+  const [useGpu, setUseGpu] = useState(() => gpuSupported());
+  const useGpuRef = useRef(useGpu);
+  useEffect(() => {
+    useGpuRef.current = useGpu;
+  }, [useGpu]);
   const noiseJobRef = useRef<NoiseDetectionJob | undefined>(undefined);
   const [noiseDisplay, setNoiseDisplay] = useState<NoiseDisplay>("hidden");
   const [ground, setGround] = useState<GroundState>({ status: "idle" });
@@ -380,9 +387,14 @@ export function useWorkspace(options: WorkspaceOptions) {
     noiseJobRef.current?.cancel();
     const started = performance.now();
     setNoise({ status: "running", stage: "Starting", fraction: 0 });
-    const job = startNoiseDetection(cloud, viewerConfig().noiseDetection, (stage, fraction) => {
-      if (noiseJobRef.current === job) setNoise({ status: "running", stage, fraction });
-    });
+    const job = startNoiseDetection(
+      cloud,
+      viewerConfig().noiseDetection,
+      (stage, fraction) => {
+        if (noiseJobRef.current === job) setNoise({ status: "running", stage, fraction });
+      },
+      useGpuRef.current,
+    );
     noiseJobRef.current = job;
     try {
       const result = await job.result;
@@ -408,7 +420,7 @@ export function useWorkspace(options: WorkspaceOptions) {
       if (noiseJobRef.current !== job) return false;
       noiseJobRef.current = undefined;
       setNoiseDisplay("hidden");
-      setNoise({ status: "done", stats: result.stats, seconds: (performance.now() - started) / 1000 });
+      setNoise({ status: "done", stats: result.stats, seconds: (performance.now() - started) / 1000, onGpu: result.usedGpu });
       return true;
     } catch (error) {
       if (error instanceof NoiseDetectionCancelled || noiseJobRef.current !== job) return false;
@@ -425,9 +437,14 @@ export function useWorkspace(options: WorkspaceOptions) {
     groundJobRef.current?.cancel();
     const started = performance.now();
     setGround({ status: "running", stage: "Starting", fraction: 0 });
-    const job = startGroundDetection(cloud, viewerConfig().groundDetection, (stage, fraction) => {
-      if (groundJobRef.current === job) setGround({ status: "running", stage, fraction });
-    });
+    const job = startGroundDetection(
+      cloud,
+      viewerConfig().groundDetection,
+      (stage, fraction) => {
+        if (groundJobRef.current === job) setGround({ status: "running", stage, fraction });
+      },
+      useGpuRef.current,
+    );
     groundJobRef.current = job;
     try {
       const result = await job.result;
@@ -460,7 +477,7 @@ export function useWorkspace(options: WorkspaceOptions) {
       // New ground means a new terrain; the old one describes ground that is gone.
       clearTerrain();
       setColorMode("heightAboveGround");
-      setGround({ status: "done", stats: result.stats, seconds: (performance.now() - started) / 1000 });
+      setGround({ status: "done", stats: result.stats, seconds: (performance.now() - started) / 1000, onGpu: result.usedGpu });
       return true;
     } catch (error) {
       if (error instanceof GroundDetectionCancelled || groundJobRef.current !== job) return false;
@@ -807,6 +824,11 @@ export function useWorkspace(options: WorkspaceOptions) {
       noiseDisplay,
       setNoiseDisplay,
       noisePoints,
+    },
+    compute: {
+      gpuSupported: gpuSupported(),
+      useGpu,
+      setUseGpu,
     },
     detail: {
       lodMode,

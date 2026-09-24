@@ -30,7 +30,7 @@ export function noiseSummary(noise: NoiseState): string {
   if (stats.isolatedLow > 0) parts.push(`${formatCount(stats.isolatedLow)} stray at or below it`);
   if (stats.lowOutliers > 0) parts.push(`${formatCount(stats.lowOutliers)} far below the ground`);
   if (stats.alreadyLabelled > 0) parts.push(`${formatCount(stats.alreadyLabelled)} already labelled in the file`);
-  return `${formatCount(stats.total)} points are noise (${formatShare(stats.total, stats.pointCount)}): ${parts.join(", ")}. They are hidden; highlight them below to check. Found in ${seconds.toFixed(1)} s.`;
+  return `${formatCount(stats.total)} points are noise (${formatShare(stats.total, stats.pointCount)}): ${parts.join(", ")}. They are hidden; highlight them below to check. Found in ${seconds.toFixed(1)} s${noise.onGpu ? " on the GPU" : ""}.`;
 }
 
 export function groundSummary(ground: GroundState): string {
@@ -43,7 +43,7 @@ export function groundSummary(ground: GroundState): string {
   if (stats.lowNoisePoints > 0) parts.push(`${formatCount(stats.lowNoisePoints)} flagged as low noise`);
   if (stats.preservedPoints > 0) parts.push(`existing classes kept on ${formatCount(stats.preservedPoints)}`);
   const cell = stats.cellSize < 10 ? stats.cellSize.toFixed(1) : String(Math.round(stats.cellSize));
-  return `${parts.join(", ")}. Surface built on a ${cell} m grid in ${seconds.toFixed(1)} s.`;
+  return `${parts.join(", ")}. Surface built on a ${cell} m grid in ${seconds.toFixed(1)} s${ground.onGpu === true ? " on the GPU" : ""}.`;
 }
 
 export function terrainSummary(terrain: TerrainState, hasGround: boolean, originY: number): string {

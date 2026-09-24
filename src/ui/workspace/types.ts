@@ -53,13 +53,13 @@ export interface CheckpointSet {
 export type NoiseState =
   | { readonly status: "idle" }
   | { readonly status: "running"; readonly stage: string; readonly fraction: number }
-  | { readonly status: "done"; readonly stats: NoiseDetectionStats; readonly seconds: number }
+  | { readonly status: "done"; readonly stats: NoiseDetectionStats; readonly seconds: number; readonly onGpu: boolean }
   | { readonly status: "failed"; readonly message: string };
 
 export type GroundState =
   | { readonly status: "idle" }
   | { readonly status: "running"; readonly stage: string; readonly fraction: number }
-  | { readonly status: "done"; readonly stats: GroundDetectionStats; readonly seconds: number }
+  | { readonly status: "done"; readonly stats: GroundDetectionStats; readonly seconds: number; readonly onGpu?: boolean }
   | { readonly status: "failed"; readonly message: string };
 
 export type TerrainState =

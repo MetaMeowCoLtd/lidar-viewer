@@ -7,7 +7,8 @@ import type {
 import type { GroundDetectionMessage, GroundDetectionRequest } from "./ground-detection-protocol.js";
 
 export interface GroundDetectionJob {
-  readonly result: Promise<GroundDetectionResult>;
+  /** The result, and whether the surface openings ran on the GPU. */
+  readonly result: Promise<GroundDetectionResult & { readonly usedGpu: boolean }>;
   /** Stops the work at once. The result promise rejects with {@link GroundDetectionCancelled}. */
   cancel(): void;
 }
@@ -35,11 +36,12 @@ export function startGroundDetection(
   cloud: PointCloud,
   options: GroundDetectionOptions,
   onProgress?: GroundDetectionProgress,
+  useGpu = false,
 ): GroundDetectionJob {
   const worker = new Worker(new URL("./ground-detection-worker.ts", import.meta.url), { type: "module" });
   let cancel: () => void = () => undefined;
 
-  const result = new Promise<GroundDetectionResult>((resolve, reject) => {
+  const result = new Promise<GroundDetectionResult & { readonly usedGpu: boolean }>((resolve, reject) => {
     let settled = false;
     const settle = (): boolean => {
       if (settled) return false;
@@ -61,7 +63,7 @@ export function startGroundDetection(
       }
       if (!settle()) return;
       if (message.kind === "done") {
-        resolve({ classification: message.classification, heightAboveGround: message.heightAboveGround, stats: message.stats });
+        resolve({ classification: message.classification, heightAboveGround: message.heightAboveGround, stats: message.stats, usedGpu: message.usedGpu });
       } else {
         reject(new Error(message.message));
       }
@@ -75,6 +77,7 @@ export function startGroundDetection(
       bounds: cloud.bounds,
       ...(cloud.classification === undefined ? {} : { classification: cloud.classification }),
       options,
+      useGpu,
     };
     worker.postMessage(request);
   });

@@ -3,7 +3,8 @@ import type { NoiseDetectionOptions, NoiseDetectionProgress, NoiseDetectionResul
 import type { NoiseDetectionMessage, NoiseDetectionRequest } from "./noise-detection-protocol.js";
 
 export interface NoiseDetectionJob {
-  readonly result: Promise<NoiseDetectionResult>;
+  /** The result, and whether the neighbour search ran on the GPU. */
+  readonly result: Promise<NoiseDetectionResult & { readonly usedGpu: boolean }>;
   /** Stops the work at once. The result promise rejects with {@link NoiseDetectionCancelled}. */
   cancel(): void;
 }
@@ -20,11 +21,11 @@ export class NoiseDetectionCancelled extends Error {
  * positions are copied rather than transferred so the cloud stays drawable,
  * and the worker is terminated as soon as the job settles or is cancelled.
  */
-export function startNoiseDetection(cloud: PointCloud, options: NoiseDetectionOptions, onProgress?: NoiseDetectionProgress): NoiseDetectionJob {
+export function startNoiseDetection(cloud: PointCloud, options: NoiseDetectionOptions, onProgress?: NoiseDetectionProgress, useGpu = false): NoiseDetectionJob {
   const worker = new Worker(new URL("./noise-detection-worker.ts", import.meta.url), { type: "module" });
   let cancel: () => void = () => undefined;
 
-  const result = new Promise<NoiseDetectionResult>((resolve, reject) => {
+  const result = new Promise<NoiseDetectionResult & { readonly usedGpu: boolean }>((resolve, reject) => {
     let settled = false;
     const settle = (): boolean => {
       if (settled) return false;
@@ -44,7 +45,7 @@ export function startNoiseDetection(cloud: PointCloud, options: NoiseDetectionOp
         return;
       }
       if (!settle()) return;
-      if (message.kind === "done") resolve({ classification: message.classification, stats: message.stats });
+      if (message.kind === "done") resolve({ classification: message.classification, stats: message.stats, usedGpu: message.usedGpu });
       else reject(new Error(message.message));
     };
     worker.onerror = (event) => {
@@ -55,6 +56,7 @@ export function startNoiseDetection(cloud: PointCloud, options: NoiseDetectionOp
       bounds: cloud.bounds,
       ...(cloud.classification === undefined ? {} : { classification: cloud.classification }),
       options,
+      useGpu,
     };
     worker.postMessage(request);
   });

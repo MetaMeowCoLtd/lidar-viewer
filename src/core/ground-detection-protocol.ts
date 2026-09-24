@@ -6,6 +6,8 @@ export interface GroundDetectionRequest {
   readonly bounds: PointCloudBounds;
   readonly classification?: Uint8Array;
   readonly options: GroundDetectionOptions;
+  /** Try the surface openings on the GPU, falling back to the CPU. */
+  readonly useGpu?: boolean;
 }
 
 export type GroundDetectionMessage =
@@ -15,5 +17,6 @@ export type GroundDetectionMessage =
       readonly classification: Uint8Array;
       readonly heightAboveGround: Float32Array;
       readonly stats: GroundDetectionStats;
+      readonly usedGpu: boolean;
     }
   | { readonly kind: "failed"; readonly message: string };

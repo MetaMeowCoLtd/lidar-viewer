@@ -1,6 +1,7 @@
 import { Field, Menu, Note, Segmented } from "../controls.js";
 import { formatCount } from "../format.js";
 import { viewerConfig } from "../../config.js";
+import { benchmarkHref } from "../router.js";
 import type { Workspace } from "./use-workspace.js";
 
 const budgetStep = 10_000;
@@ -68,6 +69,26 @@ export function DisplayMenu({ workspace }: { workspace: Workspace }) {
           ) : (
             <Note>Detail follows the camera: full resolution up close, lighter far away.</Note>
           )}
+
+          <Field label="Processing">
+            <Segmented
+              label="Processing"
+              value={workspace.compute.useGpu ? "gpu" : "cpu"}
+              choices={[
+                { value: "gpu", label: "GPU (WebGPU)", disabled: !workspace.compute.gpuSupported },
+                { value: "cpu", label: "CPU" },
+              ]}
+              onChange={(value) => workspace.compute.setUseGpu(value === "gpu")}
+            />
+          </Field>
+          <Note>
+            {workspace.compute.gpuSupported
+              ? "Noise and ground detection run their heaviest stage as GPU compute shaders, with the CPU as fallback. "
+              : "This browser has no WebGPU, so everything runs on the CPU. "}
+            <a className="link-btn" href={benchmarkHref}>
+              Compare CPU and GPU
+            </a>
+          </Note>
 
           <Field label="Moving around · Unreal Engine style">
             <dl className="stat-list">
