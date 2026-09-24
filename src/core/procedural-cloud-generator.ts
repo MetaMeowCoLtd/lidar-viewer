@@ -14,7 +14,7 @@ export interface ProceduralCloudOptions {
 /** The sample sits in ETRS89 / UTM zone 30N, the way a survey delivered in Spain would. */
 export const sampleEpsg = 25830;
 /** Map coordinates of the local frame's origin: easting, elevation, and northing negated (z runs south). */
-export const sampleOrigin: PointCloudOrigin = [451_200, 610, -4_473_600];
+export const sampleOrigin: PointCloudOrigin = [451_200, 520, -4_473_600];
 
 /** The raw channels of a generated sample, ready to cross a worker boundary. */
 export interface ProceduralCloudData {
@@ -26,15 +26,18 @@ export interface ProceduralCloudData {
 }
 
 /**
- * A synthetic drone LiDAR survey to open the app with: a 460 × 360 m block
- * over an aggregate quarry, its processing pad and stockpiles, a transmission
- * line through a forest, a plantation, a creek, a farm and a rural road.
+ * A synthetic drone LiDAR survey to open the app with: a 190 × 144 m block
+ * over a manufacturing plant and its surroundings - the production hall with
+ * plant and solar on its roof, a warehouse with trailers at the docks, silos,
+ * a tank farm and pipe rack, the office car park, yard stockpiles, a graded
+ * expansion plot with its stormwater pond, a substation, fences, light
+ * columns, a road with a distribution line, and woodland.
  *
- * It is made by simulating the flight rather than by placing points - six
- * overlapping strips from a scanning laser, traced through the site - so it
- * has what real captures have: scan lines, overlap, LiDAR shadows, canopy
- * penetration with multiple returns, sparse hits on conductors, gaps over
- * water, intensity and camera colour. See {@link simulateSurvey}.
+ * It is made by simulating the flight rather than by placing points - two
+ * overlapping strips from a 70° line-scanning laser, traced through the site -
+ * so it has what real captures have: scan lines, overlap, LiDAR shadows,
+ * canopy penetration with multiple returns, sparse hits on wires and fences,
+ * a gap over water, intensity and camera colour. See {@link simulateSurvey}.
  *
  * It is georeferenced (ETRS89 / UTM 30N), so coordinates, exports and the
  * terrain model come out in real map units.
@@ -42,11 +45,11 @@ export interface ProceduralCloudData {
 export class ProceduralCloudGenerator {
   public generate(options: ProceduralCloudOptions = {}): PointCloud {
     const data = this.generateData(options);
-    return new PointCloud({ ...data, name: options.name ?? "synthetic-quarry-survey", origin: sampleOrigin, spatialReference: sampleSpatialReference() });
+    return new PointCloud({ ...data, name: options.name ?? "synthetic-factory-survey", origin: sampleOrigin, spatialReference: sampleSpatialReference() });
   }
 
   public generateData(options: ProceduralCloudOptions = {}): ProceduralCloudData {
-    const pointCount = options.pointCount ?? 1_200_000;
+    const pointCount = options.pointCount ?? 1_000_000;
     if (!Number.isSafeInteger(pointCount) || pointCount < 1) throw new Error("pointCount must be a positive integer");
     const survey = simulateSurvey(pointCount, mulberry32(options.seed ?? 0x1d4a11), options.onProgress);
     return {

@@ -3,6 +3,7 @@ import {
   Cover,
   blockTop,
   buildSite,
+  flight,
   foliageClump,
   groundAt,
   halfDepth,
@@ -13,7 +14,7 @@ import {
   type Block,
   type Site,
   type Thin,
-} from "./survey-site.js";
+} from "./factory-site.js";
 
 /**
  * Flies a survey over the site and records what the laser sees, rather than
@@ -24,8 +25,8 @@ import {
  * sparse ground beneath, conductors caught as dotted lines, and almost nothing
  * back from water.
  *
- * The drone flies six east-west strips at a constant altitude with half its
- * swath overlapping the next; a mirror sweeps each pulse across the track,
+ * The drone flies the site's east-west strips at a constant altitude, their
+ * swaths overlapping; a mirror sweeps each pulse across the track,
  * ±35° from vertical, while the aircraft moves on. Every pulse is traced
  * through a surface model of the site at 0.3 m and through the tree crowns and
  * thin structures, and can come back as up to five returns.
@@ -46,9 +47,7 @@ const treeCell = 2;
 const maxReturns = 5;
 /** How far along a pulse two returns must be apart for the receiver to tell them apart. */
 const deadZone = 1.2;
-const halfFieldOfView = (35 * Math.PI) / 180;
-const stripZs = [-150, -90, -30, 30, 90, 150];
-const runIn = 32;
+const { halfFieldOfView, stripZs, runIn } = flight;
 
 // Morning sun from the south-east, 52 degrees up.
 const sunElevation = (52 * Math.PI) / 180;
@@ -84,6 +83,7 @@ class SiteModel {
   public thinItems: Int32Array = new Int32Array(0);
   public ceiling = Number.NEGATIVE_INFINITY;
   public highestGround = Number.NEGATIVE_INFINITY;
+  public meanGround = 0;
 
   public readonly shadowCols = Math.ceil(spanX / shadowCell) + 1;
   public readonly shadowRows = Math.ceil(spanZ / shadowCell) + 1;
@@ -104,6 +104,7 @@ class SiteModel {
         this.ground[index] = cell.height;
         this.cover[index] = cell.cover;
         this.highestGround = Math.max(this.highestGround, cell.height);
+        this.meanGround += cell.height / (this.groundCols * this.groundRows);
       }
     }
     for (let row = 0; row < this.fineRows; row += 1) {
@@ -555,7 +556,7 @@ class Scanner {
           const surface = surfaceAt(cover, x, z, Math.hypot(gx, gz));
           if (cover === Cover.Water) {
             // Water sends a pulse on, not back - except now and then, straight down.
-            if (random() > 0.05 * Math.max(0, -dy - 0.97) * 33) continue;
+            if (random() > 0.025 * Math.max(0, -dy - 0.97) * 33) continue;
           }
           colour = surface.colour;
           reflectance = surface.reflectance;
@@ -686,7 +687,7 @@ export function simulateSurvey(targetPoints: number, random: Random, onProgress?
   const site = buildSite(random);
   const model = new SiteModel(site);
   onProgress?.(0.15);
-  const altitude = model.highestGround + 46;
+  const altitude = model.highestGround + flight.heightAboveHighest;
 
   // A trial: random pulses across the mission, counting returns per pulse.
   const trial = new Scanner(model, random, undefined);
@@ -700,7 +701,7 @@ export function simulateSurvey(targetPoints: number, random: Random, onProgress?
   const returnsPerPulse = Math.max(0.2, trialReturns / trialPulses);
   const pulses = (targetPoints / returnsPerPulse) * 1.04;
   // Lines as far apart along the track as pulses are across it, at the typical height above ground.
-  const swathPerLine = (2 * (altitude - 40) * Math.tan(halfFieldOfView)) / 1;
+  const swathPerLine = 2 * (altitude - model.meanGround) * Math.tan(halfFieldOfView);
   const trackLength = (halfWidth + runIn) * 2 * stripZs.length;
   const pulsesPerLine = Math.max(2, Math.round(Math.sqrt((pulses * swathPerLine) / trackLength)));
   const linesPerStrip = Math.max(1, Math.round(pulses / (pulsesPerLine * stripZs.length)));
@@ -715,7 +716,7 @@ export function simulateSurvey(targetPoints: number, random: Random, onProgress?
     const x = (random() - 0.5) * 2 * (halfWidth - 1);
     const z = (random() - 0.5) * 2 * (halfDepth - 1);
     const ground = model.height(x, z);
-    const y = index < strays ? ground + 25 + random() * 40 : ground - 1 - random() * 4;
+    const y = index < strays ? ground + 15 + random() * 20 : ground - 1 - random() * 3;
     sink.push(x, y, z, { r: 90, g: 90, b: 90 }, 1, 2000 + random() * 4000, 1, 1, random);
   }
 
