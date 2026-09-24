@@ -1,11 +1,21 @@
 import { formatCount, formatRampHeight, formatShare } from "../format.js";
-import type { CountState, GroundState, NoiseState, TerrainState } from "./types.js";
+import type { CountState, GroundState, NoiseState, QualityState, TerrainState } from "./types.js";
 
 /** A short progress or timing figure for an analysis: its percentage while running, its duration once done. */
-export function progressHeadline(state: NoiseState | GroundState | TerrainState | CountState): string {
+export function progressHeadline(state: NoiseState | GroundState | TerrainState | CountState | QualityState): string {
   if (state.status === "running") return `${Math.round(state.fraction * 100)}%`;
   if (state.status === "done") return `${state.seconds.toFixed(1)} s`;
   return "";
+}
+
+export function qualitySummary(quality: QualityState, checkpointCount: number): string {
+  if (quality.status === "failed") return quality.message;
+  if (quality.status !== "done") {
+    return `Checks the survey the way it is signed off: point density against the USGS quality levels, coverage gaps, alignment between flight strips, noise${checkpointCount > 0 ? `, and vertical accuracy at ${checkpointCount} checkpoints` : ", and vertical accuracy once you add checkpoints"}.`;
+  }
+  const { report } = quality;
+  const level = report.qualityLevel === undefined ? "below QL3" : report.qualityLevel;
+  return `Meets ${level}. Built in ${quality.seconds.toFixed(1)} s; open the report for the heatmap and every figure.`;
 }
 
 export function noiseSummary(noise: NoiseState): string {

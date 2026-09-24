@@ -4,6 +4,7 @@ import { TopBar } from "./TopBar.js";
 import { Viewport } from "./Viewport.js";
 import { StatusBar } from "./StatusBar.js";
 import { Sidebar } from "./Sidebar.js";
+import { QualityReportDialog } from "./QualityReportDialog.js";
 
 /**
  * The workspace: a top bar over one side panel and the scan, and a status line.
@@ -28,6 +29,7 @@ export function Workspace({ loadSampleOnStart }: { loadSampleOnStart: boolean })
         <Viewport workspace={workspace} />
       </div>
       <StatusBar workspace={workspace} />
+      <QualityReportDialog workspace={workspace} />
     </div>
   );
 }

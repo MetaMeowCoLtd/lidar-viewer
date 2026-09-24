@@ -2,6 +2,10 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { PointCloud, definedChannels, type PointCloudColorMode, type PointCloudPointShape } from "../../core/point-cloud.js";
 import type { PointCloudLodPyramid } from "../../core/lod-pyramid.js";
 import { generateSampleCloud } from "../../core/sample-job.js";
+import { sampleCheckpoints } from "../../core/procedural-cloud-generator.js";
+import { QualityReportCancelled, startQualityReport, type QualityReportJob } from "../../core/quality-report-job.js";
+import { defaultQualityReportOptions, parseCheckpoints } from "../../core/quality-report.js";
+import { densityHeatmapUrl, qualityReportHtml } from "../../export/quality-report-html.js";
 import { ScanImportCancelled, startScanImport, type ScanImportJob } from "../../import/scan-import-job.js";
 import { LidarViewer, type LodRenderSummary } from "../../three/lidar-viewer.js";
 import { GroundDetectionCancelled, startGroundDetection, type GroundDetectionJob } from "../../core/ground-detection-job.js";
@@ -25,8 +29,10 @@ import type {
   GroundState,
   ImportProgress,
   LodMode,
+  CheckpointSet,
   NoiseState,
   Picks,
+  QualityState,
   PipelineState,
   Sampling,
   TerrainState,
@@ -69,6 +75,11 @@ export function useWorkspace(options: WorkspaceOptions) {
   const [uiHidden, setUiHidden] = useState(false);
   const [lodMode, setLodMode] = useState<LodMode>(() => (viewerConfig().distanceLod.enabledByDefault ? "distance" : "manual"));
   const [lodSummary, setLodSummary] = useState<LodRenderSummary>();
+  const [quality, setQuality] = useState<QualityState>({ status: "idle" });
+  const qualityJobRef = useRef<QualityReportJob | undefined>(undefined);
+  const [checkpoints, setCheckpoints] = useState<CheckpointSet>();
+  const checkpointsRef = useRef<CheckpointSet | undefined>(undefined);
+  const [reportOpen, setReportOpen] = useState(false);
   const [noise, setNoise] = useState<NoiseState>({ status: "idle" });
   const noiseJobRef = useRef<NoiseDetectionJob | undefined>(undefined);
   const [noiseDisplay, setNoiseDisplay] = useState<NoiseDisplay>("hidden");
@@ -111,7 +122,7 @@ export function useWorkspace(options: WorkspaceOptions) {
     heightAboveGround: source?.supportsColorMode("heightAboveGround") ?? false,
     objects: source?.supportsColorMode("objects") ?? false,
   };
-  const analysing = pipeline !== undefined || noise.status === "running" || ground.status === "running" || count.status === "running" || terrain.status === "running";
+  const analysing = pipeline !== undefined || quality.status === "running" || noise.status === "running" || ground.status === "running" || count.status === "running" || terrain.status === "running";
   const importing = importProgress !== undefined;
   const exportBlocked = source === undefined || status !== "ready" || analysing || exporting !== undefined;
   const counted = count.status === "done" && source?.objectId !== undefined;
@@ -173,10 +184,14 @@ export function useWorkspace(options: WorkspaceOptions) {
     setPipeline(undefined);
     noiseJobRef.current?.cancel();
     noiseJobRef.current = undefined;
+    qualityJobRef.current?.cancel();
+    qualityJobRef.current = undefined;
     groundJobRef.current?.cancel();
     groundJobRef.current = undefined;
     countJobRef.current?.cancel();
     countJobRef.current = undefined;
+    setQuality({ status: "idle" });
+    setReportOpen(false);
     setNoise({ status: "idle" });
     setGround({ status: "idle" });
     setCount({ status: "idle" });
@@ -193,6 +208,10 @@ export function useWorkspace(options: WorkspaceOptions) {
     };
     setSampling(undefined);
     setSourceLabel(sampleName);
+    // The sample comes with the checkpoints a ground crew would have surveyed on the site.
+    const sampleSet = { checkpoints: sampleCheckpoints(), source: "Sample survey checkpoints" };
+    checkpointsRef.current = sampleSet;
+    setCheckpoints(sampleSet);
     setStatus("processing");
     setStatusText("Simulating the survey flight");
     report("simulating", 0);
@@ -323,6 +342,8 @@ export function useWorkspace(options: WorkspaceOptions) {
         if (importRunRef.current === run) setImportProgress({ stage, fraction });
       };
       setSourceLabel(file.name);
+      checkpointsRef.current = undefined;
+      setCheckpoints(undefined);
       setStatus("processing");
       setStatusText("Reading the file");
       setSampling(undefined);
@@ -549,6 +570,59 @@ export function useWorkspace(options: WorkspaceOptions) {
     }
   }, [clearTerrain]);
 
+  const checkQuality = useCallback(async () => {
+    const cloud = sourceRef.current;
+    if (cloud === undefined) return false;
+    qualityJobRef.current?.cancel();
+    const started = performance.now();
+    setQuality({ status: "running", stage: "Starting", fraction: 0 });
+    const job = startQualityReport(cloud, checkpointsRef.current?.checkpoints, defaultQualityReportOptions, (stage, fraction) => {
+      if (qualityJobRef.current === job) setQuality({ status: "running", stage, fraction });
+    });
+    qualityJobRef.current = job;
+    try {
+      const report = await job.result;
+      if (qualityJobRef.current !== job) return false;
+      qualityJobRef.current = undefined;
+      if (sourceRef.current !== cloud) {
+        setQuality({ status: "idle" });
+        return false;
+      }
+      setQuality({ status: "done", report, seconds: (performance.now() - started) / 1000 });
+      return true;
+    } catch (error) {
+      if (error instanceof QualityReportCancelled || qualityJobRef.current !== job) return false;
+      qualityJobRef.current = undefined;
+      setQuality({ status: "failed", message: error instanceof Error ? error.message : "Building the quality report failed" });
+      return false;
+    }
+  }, []);
+
+  const loadCheckpoints = useCallback(async (file: File) => {
+    const parsed = parseCheckpoints(await file.text());
+    if (parsed.length === 0) {
+      setQuality({ status: "failed", message: `${file.name} has no rows of easting, northing and elevation.` });
+      return;
+    }
+    const set = { checkpoints: parsed, source: file.name };
+    checkpointsRef.current = set;
+    setCheckpoints(set);
+    // A report built without these checkpoints no longer says what they would.
+    setQuality((current) => (current.status === "done" ? { status: "idle" } : current));
+  }, []);
+
+  const downloadReport = useCallback(() => {
+    const cloud = sourceRef.current;
+    if (cloud === undefined || quality.status !== "done") return;
+    const epsg = cloud.spatialReference?.epsg;
+    const html = qualityReportHtml(quality.report, {
+      name: cloud.name,
+      crs: epsg === undefined ? "Local coordinates" : `EPSG:${epsg}`,
+      heatmapUrl: densityHeatmapUrl(quality.report),
+    });
+    saveFile([html], `${fileStem(cloud.name)}-quality-report.html`, "text/html");
+  }, [quality]);
+
   /**
    * Resolves once the scan on screen is no longer `previous`. An analysis that
    * relabels the points swaps in a new cloud, and React only hands it to the
@@ -595,15 +669,17 @@ export function useWorkspace(options: WorkspaceOptions) {
   const groundStep = useMemo(() => ({ label: "Finding the ground", run: detectGround, relabels: true }), [detectGround]);
   const terrainStep = useMemo(() => ({ label: "Building the terrain", run: buildTerrain, relabels: false }), [buildTerrain]);
   const countStep = useMemo(() => ({ label: "Counting buildings and trees", run: countObjects, relabels: true }), [countObjects]);
+  const qualityStep = useMemo(() => ({ label: "Checking survey quality", run: checkQuality, relabels: false }), [checkQuality]);
 
   /** Everything, in the order each step helps the next: noise out of the way, then ground, terrain and objects. */
   const analyzeScan = useCallback(
-    () => runSteps([noiseStep, groundStep, terrainStep, countStep]),
-    [runSteps, noiseStep, groundStep, terrainStep, countStep],
+    () => runSteps([noiseStep, groundStep, terrainStep, countStep, qualityStep]),
+    [runSteps, noiseStep, groundStep, terrainStep, countStep, qualityStep],
   );
   const analyzeNoise = useCallback(() => runSteps([noiseStep]), [runSteps, noiseStep]);
   const analyzeTerrain = useCallback(() => runSteps([groundStep, terrainStep]), [runSteps, groundStep, terrainStep]);
   const analyzeObjects = useCallback(() => runSteps([countStep]), [runSteps, countStep]);
+  const analyzeQuality = useCallback(() => runSteps([qualityStep]), [runSteps, qualityStep]);
 
   const exportScan = useCallback(async (kind: ExportKind) => {
     const cloud = sourceRef.current;
@@ -682,6 +758,7 @@ export function useWorkspace(options: WorkspaceOptions) {
     () => () => {
       terrainJobRef.current?.cancel();
       noiseJobRef.current?.cancel();
+      qualityJobRef.current?.cancel();
       importJobRef.current?.cancel();
       groundJobRef.current?.cancel();
       countJobRef.current?.cancel();
@@ -738,6 +815,15 @@ export function useWorkspace(options: WorkspaceOptions) {
       setPointBudget,
       budgetMaximum,
       lodSummary,
+    },
+    quality: {
+      state: quality,
+      checkpoints,
+      loadCheckpoints,
+      analyzeQuality,
+      reportOpen,
+      setReportOpen,
+      downloadReport,
     },
     analysis: {
       analysing,

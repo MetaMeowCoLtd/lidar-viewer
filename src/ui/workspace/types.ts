@@ -1,3 +1,4 @@
+import type { Checkpoint, QualityReport } from "../../core/quality-report.js";
 import type { NoiseDetectionStats } from "../../core/noise-detection.js";
 import type { GroundDetectionStats } from "../../core/ground-detection.js";
 import type { DetectedObject, ObjectDetectionStats } from "../../core/object-detection.js";
@@ -35,6 +36,18 @@ export interface PipelineState {
   readonly step: number;
   readonly total: number;
   readonly label: string;
+}
+
+export type QualityState =
+  | { readonly status: "idle" }
+  | { readonly status: "running"; readonly stage: string; readonly fraction: number }
+  | { readonly status: "done"; readonly report: QualityReport; readonly seconds: number }
+  | { readonly status: "failed"; readonly message: string };
+
+/** Surveyed checkpoints to measure the scan against, and where they came from. */
+export interface CheckpointSet {
+  readonly checkpoints: readonly Checkpoint[];
+  readonly source: string;
 }
 
 export type NoiseState =

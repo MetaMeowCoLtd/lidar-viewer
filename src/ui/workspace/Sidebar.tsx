@@ -2,9 +2,9 @@ import type { ReactNode } from "react";
 import { Icon, type IconName } from "../icons.js";
 import { Note, ProgressBar, Segmented, Toggle } from "../controls.js";
 import { formatCount, formatOrigin, formatShare, ordinalSuffix } from "../format.js";
-import { countSummary, groundSummary, noiseSummary, terrainSummary } from "./analysis-text.js";
+import { countSummary, groundSummary, noiseSummary, qualitySummary, terrainSummary } from "./analysis-text.js";
 import type { Workspace } from "./use-workspace.js";
-import type { CountState, GroundState, NoiseState, TerrainState } from "./types.js";
+import type { CountState, GroundState, NoiseState, QualityState, TerrainState } from "./types.js";
 
 /**
  * Everything about the scan in one column: what it is, one button that
@@ -49,7 +49,7 @@ function Analysis({ workspace }: { workspace: Workspace }) {
   const { analysis, view, status, source } = workspace;
   const { noise, ground, terrain, count, pipeline } = analysis;
   const busy = analysis.analysing || status !== "ready";
-  const everythingDone = noise.status === "done" && terrain.status === "done" && count.status === "done";
+  const everythingDone = noise.status === "done" && terrain.status === "done" && count.status === "done" && workspace.quality.state.status === "done";
 
   return (
     <section className="side-section">
@@ -58,7 +58,7 @@ function Analysis({ workspace }: { workspace: Workspace }) {
         {pipeline !== undefined ? `${pipeline.label}…` : everythingDone ? "Analyze again" : "Analyze scan"}
       </button>
       {pipeline === undefined ? (
-        <Note>{everythingDone ? "Every step below is done. Each can also be run again on its own." : "Cleans out noise, finds the ground and terrain, then outlines and counts every building and tree."}</Note>
+        <Note>{everythingDone ? "Every step below is done. Each can also be run again on its own." : "Cleans out noise, finds the ground and terrain, outlines and counts every building and tree, then checks the survey's quality."}</Note>
       ) : (
         <p className="side-pipeline">{`Step ${pipeline.step} of ${pipeline.total}`}</p>
       )}
@@ -146,6 +146,8 @@ function Analysis({ workspace }: { workspace: Workspace }) {
           </>
         ) : null}
       </ResultCard>
+
+      <QualityCard workspace={workspace} busy={busy} />
     </section>
   );
 }
@@ -160,7 +162,7 @@ function ColourLink({ workspace, mode, label }: { workspace: Workspace; mode: "h
   );
 }
 
-type AnyState = NoiseState | GroundState | TerrainState | CountState;
+type AnyState = NoiseState | GroundState | TerrainState | CountState | QualityState;
 
 function ResultCard({
   icon,
@@ -204,5 +206,79 @@ function ResultCard({
       )}
       {running === undefined ? children : null}
     </section>
+  );
+}
+
+/** The survey sign-off: its headline figures, checkpoints, and the full report. */
+function QualityCard({ workspace, busy }: { workspace: Workspace; busy: boolean }) {
+  const { quality } = workspace;
+  const { state, checkpoints } = quality;
+  const report = state.status === "done" ? state.report : undefined;
+  const cm = (metres: number) => `${(metres * 100).toFixed(1)} cm`;
+  return (
+    <ResultCard
+      icon="gauge"
+      title="Survey quality"
+      value={report === undefined ? undefined : (report.qualityLevel ?? "< QL3")}
+      states={[state]}
+      busy={busy}
+      onRun={() => void quality.analyzeQuality()}
+      summary={qualitySummary(state, checkpoints?.checkpoints.length ?? 0)}
+    >
+      {report === undefined ? null : (
+        <dl className="stat-list">
+          <div>
+            <dt>Density (median)</dt>
+            <dd>{`${report.density.median.toFixed(1)} /m²`}</dd>
+          </div>
+          <div>
+            <dt>No returns</dt>
+            <dd>{`${(report.coverage.gapShare * 100).toFixed(2)} %`}</dd>
+          </div>
+          {report.strips === undefined || report.strips.pairs.length === 0 ? null : (
+            <div>
+              <dt>Strip offset (RMS)</dt>
+              <dd>{cm(report.strips.rmsOffset)}</dd>
+            </div>
+          )}
+          <div>
+            <dt>Noise</dt>
+            <dd>{report.noise.labelled ? `${(report.noise.share * 100).toFixed(2)} %` : "not checked"}</dd>
+          </div>
+          {report.accuracy === undefined ? null : (
+            <div>
+              <dt>RMSEz · 95 %</dt>
+              <dd>{`${cm(report.accuracy.rmsez)} · ${cm(report.accuracy.nva95)}`}</dd>
+            </div>
+          )}
+        </dl>
+      )}
+      <p className="side-checkpoints">
+        {checkpoints === undefined ? "No checkpoints yet." : `${checkpoints.checkpoints.length} checkpoints · ${checkpoints.source}`}
+        <label className="link-btn">
+          {checkpoints === undefined ? "Add checkpoints (CSV)" : "Replace"}
+          <input
+            className="visually-hidden"
+            type="file"
+            accept=".csv,.txt"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (file !== undefined) void quality.loadCheckpoints(file);
+              event.target.value = "";
+            }}
+          />
+        </label>
+      </p>
+      {report === undefined ? null : (
+        <div className="side-actions side-actions-row">
+          <button type="button" className="btn" onClick={() => quality.setReportOpen(true)}>
+            Open report
+          </button>
+          <button type="button" className="btn" onClick={quality.downloadReport}>
+            <Icon name="download" /> Download
+          </button>
+        </div>
+      )}
+    </ResultCard>
   );
 }
