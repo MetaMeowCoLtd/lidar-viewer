@@ -24,7 +24,6 @@ export interface EyeDomeLightingConfig {
 export interface CameraConfig {
   readonly fieldOfView: number;
   readonly framingDistance: number;
-  readonly damping: number;
 }
 
 export interface DistanceLodThresholds {
@@ -55,7 +54,6 @@ export interface TilingConfig {
 }
 
 export interface ViewerConfig {
-  readonly backgroundColor: string;
   /**
    * The most points a scan loads with. Larger scans are thinned evenly to this
    * many, because every loaded point costs memory several times over - the
@@ -84,14 +82,13 @@ export interface ViewerConfig {
 }
 
 const fallback: ViewerConfig = {
-  backgroundColor: "#000000",
   maxImportPoints: 60_000_000,
   defaultPointBudget: 1_000_000,
   pointShape: "circle",
   pointSize: { default: 2.4, min: 1, max: 7 },
   lodDivisors: { fine: 900, balanced: 350, lean: 130 },
   eyeDomeLighting: { strength: 40, radius: 1.4 },
-  camera: { fieldOfView: 55, framingDistance: 1.15, damping: 0.08 },
+  camera: { fieldOfView: 55, framingDistance: 1.15 },
   distanceLod: {
     enabledByDefault: false,
     distanceMultipliers: { full: 0, fine: 0.5, balanced: 1.2, lean: 2.5 },
@@ -140,6 +137,5 @@ export async function loadViewerConfig(): Promise<ViewerConfig> {
   } catch {
     active = fallback;
   }
-  document.documentElement.style.setProperty("--viewer-background", active.backgroundColor);
   return active;
 }

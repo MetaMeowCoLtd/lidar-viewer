@@ -1,5 +1,4 @@
 {
-  "backgroundColor": "#000000",
   "maxImportPoints": 60000000,
   "defaultPointBudget": 1000000,
   "pointShape": "circle",
@@ -19,8 +18,7 @@
   },
   "camera": {
     "fieldOfView": 55,
-    "framingDistance": 1.15,
-    "damping": 0.08
+    "framingDistance": 1.15
   },
   "distanceLod": {
     "enabledByDefault": false,
