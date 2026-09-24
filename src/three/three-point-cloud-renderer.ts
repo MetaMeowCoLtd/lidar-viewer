@@ -120,6 +120,13 @@ export class ThreePointCloudRenderer {
     }
   }
 
+  /** The detail level each tile is drawing right now - what is actually on screen. */
+  public drawnClouds(): PointCloud[] {
+    const clouds: PointCloud[] = [];
+    for (const state of this.tileStates.values()) if (state.activeTier !== undefined) clouds.push(state.activeTier.cloud);
+    return clouds;
+  }
+
   /** Reports the currently rendered tiers - independent of which apply method was last called. */
   public getRenderSummary(cameraX: number, cameraY: number, cameraZ: number, tiled: TiledPointCloudLodPyramid): LodRenderSummary {
     let drawnPointCount = 0;

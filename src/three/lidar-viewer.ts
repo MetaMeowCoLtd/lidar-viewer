@@ -1,5 +1,5 @@
 import { Matrix4, PerspectiveCamera, Scene, Vector2, Vector3, WebGLRenderer } from "three";
-import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { NavigationControls } from "./navigation-controls.js";
 import type { PointCloud, PointCloudColorMode, PointCloudPointShape } from "../core/point-cloud.js";
 import { PointCloudLodPyramid, type LodTierSpec } from "../core/lod-pyramid.js";
 import { PointCloudSession } from "../core/point-cloud-session.js";
@@ -24,6 +24,8 @@ const clickSlop = 5;
 const clickDuration = 600;
 /** How far from the cursor, in CSS pixels, a click in a gap between dots still finds a point. */
 const pickTolerance = 8;
+/** The same for aiming the camera, which is happy with a point a little further off. */
+const pivotTolerance = 14;
 
 export interface LidarViewerOptions {
   readonly pointBudget?: number;
@@ -53,7 +55,7 @@ export class LidarViewer {
   public readonly session = new PointCloudSession();
 
   private readonly renderer: WebGLRenderer;
-  private readonly controls: OrbitControls;
+  private readonly controls: NavigationControls;
   private readonly pointCloudRenderer: ThreePointCloudRenderer;
   private activePyramid: PointCloudLodPyramid | undefined;
   private activeTiledPyramid: TiledPointCloudLodPyramid | undefined;
@@ -104,11 +106,7 @@ export class LidarViewer {
     });
     this.renderer.setClearColor(options.clearColor ?? 0x07111f, 0);
     this.renderer.setPixelRatio(options.pixelRatio ?? Math.min(window.devicePixelRatio, 2));
-    this.controls = new OrbitControls(this.camera, canvas);
-    this.controls.enableDamping = true;
-    this.controls.dampingFactor = viewerConfig().camera.damping;
-    this.controls.screenSpacePanning = true;
-    this.controls.zoomToCursor = true;
+    this.controls = new NavigationControls(this.camera, canvas, (clientX, clientY) => this.pivotAt(clientX, clientY));
     this.pointCloudRenderer = new ThreePointCloudRenderer(this.scene, this.renderer, this.camera);
     canvas.addEventListener("pointerdown", this.onPointerDown);
     canvas.addEventListener("pointerup", this.onPointerUp);
@@ -268,6 +266,36 @@ export class LidarViewer {
     );
   }
 
+  /**
+   * Where the scan is under a position in the page, for the camera to turn,
+   * zoom and pan around. Only the points on screen are searched - the detail
+   * each tile is drawing - which is plenty to aim the camera by and keeps a
+   * press or a wheel notch cheap however big the scan is.
+   */
+  private pivotAt(clientX: number, clientY: number): Vector3 | undefined {
+    if (this.activeTiledPyramid === undefined || !this.pointsVisible) return undefined;
+    const canvas = this.renderer.domElement;
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return undefined;
+    const size = this.renderer.getDrawingBufferSize(new Vector2());
+    const scale = size.x / rect.width;
+    this.camera.updateMatrixWorld();
+    const viewProjection = new Matrix4().multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse);
+    const hit = pickPoint(this.pointCloudRenderer.drawnClouds(), {
+      viewProjection: viewProjection.elements,
+      width: size.x,
+      height: size.y,
+      cursorX: (clientX - rect.left) * scale,
+      cursorY: (clientY - rect.top) * scale,
+      dotRadius: (depth) => this.pointCloudRenderer.dotRadius(depth),
+      maxDotRadius: maxDotSize / 2,
+      tolerance: pivotTolerance * this.renderer.getPixelRatio(),
+    });
+    if (hit === undefined) return undefined;
+    const offset = hit.index * 3;
+    return new Vector3(hit.cloud.positions[offset], hit.cloud.positions[offset + 1], hit.cloud.positions[offset + 2]);
+  }
+
   /** Notified with the picked point, or undefined for a click on empty space. Drags never notify. */
   public onPointClick(listener: (hit: PointHit | undefined) => void): () => void {
     this.clickListeners.add(listener);
@@ -315,12 +343,14 @@ export class LidarViewer {
   }
 
   /**
-   * Turns wheel and pinch zoom on or off. A viewer embedded in a scrolling
-   * page must let the wheel scroll the page instead of trapping it.
+   * Turns wheel and pinch zoom, and keyboard movement, on or off. A viewer
+   * embedded in a scrolling page must let the wheel scroll the page and the
+   * arrow keys reach it instead of trapping them.
    */
   public setZoomEnabled(enabled: boolean): void {
     this.assertNotDisposed();
     this.controls.enableZoom = enabled;
+    this.controls.enableKeys = enabled;
   }
 
   public setColorMode(mode: PointCloudColorMode): void {
@@ -342,8 +372,10 @@ export class LidarViewer {
   public start(): void {
     this.assertNotDisposed();
     if (this.frameHandle !== undefined) return;
-    const tick = () => {
-      this.controls.update();
+    let previous = performance.now();
+    const tick = (now: number) => {
+      this.controls.update((now - previous) / 1000);
+      previous = now;
       this.fitClippingPlanes();
       if (this.distanceBasedLodEnabled && this.activeTiledPyramid !== undefined) {
         this.pointCloudRenderer.applyCameraDistanceLod(this.camera.position.x, this.camera.position.y, this.camera.position.z, this.activeTiledPyramid);
@@ -446,14 +478,12 @@ export class LidarViewer {
     if (cloud === undefined) return;
     const { center, diagonal } = cloud.bounds;
     const distance = diagonal > 0 ? diagonal * (this.framingDistance ?? viewerConfig().camera.framingDistance) : 1;
-    this.controls.target.set(...center);
-    this.camera.position.set(center[0] + distance, center[1] + distance * 0.55, center[2] + distance);
+    const target = new Vector3(...center);
+    this.controls.setScene(target, diagonal / 2, cloud.bounds.min[1]);
+    this.controls.setView(new Vector3(center[0] + distance, center[1] + distance * 0.55, center[2] + distance), target);
     this.camera.near = Math.max(0.01, distance / 10_000);
     this.camera.far = Math.max(100, distance * 8);
     this.camera.updateProjectionMatrix();
-    this.controls.minDistance = Math.max(diagonal / 5_000, 0.01);
-    this.controls.maxDistance = distance * 4;
-    this.controls.update();
   }
 
   private assertNotDisposed(): void {
