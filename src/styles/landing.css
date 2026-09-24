@@ -333,3 +333,156 @@
     padding-right: 20px;
   }
 }
+
+/* WebGPU benchmark page */
+.bench {
+  min-height: 100vh;
+  background: var(--bg);
+}
+
+.bench-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 14px 24px;
+}
+
+.bench-top .logo {
+  margin-right: auto;
+}
+
+.bench-main {
+  display: grid;
+  gap: 20px;
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 24px 24px 64px;
+}
+
+.bench-eyebrow {
+  margin: 0;
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.bench-main h1 {
+  margin: 0;
+  font-size: clamp(28px, 4vw, 40px);
+  line-height: 1.1;
+}
+
+.bench-lede {
+  max-width: 72ch;
+  margin: 0;
+  color: var(--text-2);
+}
+
+.bench-panel,
+.bench-results {
+  display: grid;
+  gap: 14px;
+  padding: 18px 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+
+.bench-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 32px;
+  margin: 0;
+}
+
+.bench-facts dt {
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+.bench-facts dd {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 13px;
+}
+
+.bench-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 20px;
+}
+
+.bench-controls label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-2);
+  font-size: 13px;
+}
+
+.bench-controls select {
+  padding: 6px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+.bench-stage {
+  margin: 0;
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.bench-table-wrap {
+  overflow-x: auto;
+}
+
+.bench-table {
+  width: 100%;
+  min-width: 720px;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.bench-table th,
+.bench-table td {
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.bench-table th {
+  color: var(--text-3);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.bench-table .num {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.bench-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 12px 20px;
+}
+
+.bench-foot p {
+  flex: 1 1 320px;
+  margin: 0;
+  color: var(--text-3);
+  font-size: 12px;
+}
