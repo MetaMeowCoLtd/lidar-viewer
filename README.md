@@ -44,6 +44,14 @@ only responsible for GPU resources and draw configuration.
   outliers (ELM) labelled as ASPRS classes 7 and 18, hidden or highlighted in
   the view, and left out of a "cleaned" LAS export
 - Light and dark themes, following the system until one is chosen
+- A survey quality report: first-return density against the USGS quality
+  levels, coverage gaps, vertical offsets between overlapping flight strips
+  (from LAS point source IDs), noise share, and RMSEz / 95% vertical accuracy
+  at checkpoints loaded from CSV; viewed in the app or downloaded as HTML
+- WebGPU compute: the noise filter's neighbour search, the ground filter's
+  surface openings and voxel thinning as WGSL shaders, used by the analyses
+  when WebGPU is available (CPU fallback), and a benchmark page at
+  `#/benchmark` comparing both paths for speed and agreement
 
 Everything runs in the browser. No scan data is uploaded.
 
