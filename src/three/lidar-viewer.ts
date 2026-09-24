@@ -9,7 +9,8 @@ import { ThreePointCloudRenderer } from "./three-point-cloud-renderer.js";
 import { viewerConfig } from "../config.js";
 import type { DetectedObject } from "../core/object-detection.js";
 import { pickPoint, type PointHit } from "../core/point-picking.js";
-import { maxDotSize } from "./point-cloud-shader-material.js";
+import { maxDotSize, type NoiseDisplay } from "./point-cloud-shader-material.js";
+import { isNoiseClass } from "../core/noise-detection.js";
 import type { Annotations } from "./measurement-overlay.js";
 import type { TerrainModel } from "../core/terrain.js";
 import type { ContourSet } from "../core/contours.js";
@@ -262,6 +263,7 @@ export class LidarViewer {
         dotRadius: (depth) => this.pointCloudRenderer.dotRadius(depth),
         maxDotRadius: maxDotSize / 2,
         tolerance: pickTolerance * this.renderer.getPixelRatio(),
+        skip: this.hiddenPoint(),
       },
     );
   }
@@ -290,10 +292,26 @@ export class LidarViewer {
       dotRadius: (depth) => this.pointCloudRenderer.dotRadius(depth),
       maxDotRadius: maxDotSize / 2,
       tolerance: pivotTolerance * this.renderer.getPixelRatio(),
+      skip: this.hiddenPoint(),
     });
     if (hit === undefined) return undefined;
     const offset = hit.index * 3;
     return new Vector3(hit.cloud.positions[offset], hit.cloud.positions[offset + 1], hit.cloud.positions[offset + 2]);
+  }
+
+  /** Hidden noise is not on screen, so a click must go through it to what is. */
+  private hiddenPoint(): ((cloud: PointCloud, index: number) => boolean) | undefined {
+    if (this.pointCloudRenderer.getNoiseDisplay() !== "hidden") return undefined;
+    return (cloud, index) => {
+      const code = cloud.classification?.[index];
+      return code !== undefined && isNoiseClass(code);
+    };
+  }
+
+  /** Shows, hides or highlights the points labelled as noise. */
+  public setNoiseDisplay(display: NoiseDisplay): void {
+    this.assertNotDisposed();
+    this.pointCloudRenderer.setNoiseDisplay(display);
   }
 
   /** Notified with the picked point, or undefined for a click on empty space. Drags never notify. */

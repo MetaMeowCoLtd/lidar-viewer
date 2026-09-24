@@ -12,7 +12,7 @@ import {
 import type { PointCloud, PointCloudBounds, PointCloudColorMode, PointCloudPointShape } from "../core/point-cloud.js";
 import type { PointCloudLodTier } from "../core/lod-pyramid.js";
 import { distanceToBounds, type TiledPointCloudLodPyramid } from "../core/tiled-lod-pyramid.js";
-import { PointCloudShaderMaterial, maxDotSize } from "./point-cloud-shader-material.js";
+import { PointCloudShaderMaterial, maxDotSize, type NoiseDisplay } from "./point-cloud-shader-material.js";
 import { MeasurementOverlay, type Annotations } from "./measurement-overlay.js";
 import { TerrainLayer } from "./terrain-layer.js";
 import type { TerrainModel } from "../core/terrain.js";
@@ -70,6 +70,7 @@ export class ThreePointCloudRenderer {
   private readonly drawingSize = new Vector2();
   private readonly terrain: TerrainLayer;
   private pointsVisible = true;
+  private noiseDisplay: NoiseDisplay = "shown";
 
   public constructor(
     private readonly scene: Scene,
@@ -93,6 +94,7 @@ export class ThreePointCloudRenderer {
       ...(source.intensity === undefined ? {} : { intensityRange: intensityRange(source.intensity) }),
     });
     this.material.setHasRgb(source.supportsColorMode("rgb"));
+    this.material.setNoiseDisplay(this.noiseDisplay);
     this.hasRgb = source.supportsColorMode("rgb");
     this.hasClassification = source.supportsColorMode("classification");
     this.hasHeightAboveGround = source.supportsColorMode("heightAboveGround");
@@ -187,6 +189,15 @@ export class ThreePointCloudRenderer {
   }
 
   /** Hides the points, to look at the terrain or the outlines on their own. */
+  public setNoiseDisplay(display: NoiseDisplay): void {
+    this.noiseDisplay = display;
+    this.material?.setNoiseDisplay(display);
+  }
+
+  public getNoiseDisplay(): NoiseDisplay {
+    return this.noiseDisplay;
+  }
+
   public setPointsVisible(visible: boolean): void {
     this.pointsVisible = visible;
     for (const state of this.tileStates.values()) state.points.visible = visible;

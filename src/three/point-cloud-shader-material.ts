@@ -20,6 +20,10 @@ const colorModeToNumber: Record<PointCloudColorMode, number> = {
   intensity: 6,
 };
 const pointShapeToNumber: Record<PointCloudPointShape, number> = { circle: 0, square: 1 };
+
+/** How points labelled as noise (classes 7 and 18) are drawn. */
+export type NoiseDisplay = "shown" | "hidden" | "highlighted";
+const noiseDisplayToNumber: Record<NoiseDisplay, number> = { shown: 0, hidden: 1, highlighted: 2 };
 const sizeScaleFraction = 0.78;
 const minDepthFraction = 0.01;
 /** Bounds on a drawn dot's diameter in pixels, shared by the shader and picking. */
@@ -62,6 +66,7 @@ export class PointCloudShaderMaterial extends ShaderMaterial {
       uMaxAboveGround: { value: Math.max(options.maxAboveGround ?? 20, 1) },
       uBuildingCount: { value: 0 },
       uVoxelSize: { value: 0 },
+      uNoiseMode: { value: noiseDisplayToNumber.shown },
       uIntensityLow: { value: options.intensityRange?.[0] ?? 0 },
       uIntensityHigh: { value: options.intensityRange?.[1] ?? 1 },
       uPixelsPerUnit: { value: 0 },
@@ -76,6 +81,8 @@ export class PointCloudShaderMaterial extends ShaderMaterial {
         attribute float heightAboveGround;
         attribute float objectId;
         attribute float intensity;
+        uniform float uNoiseMode;
+        varying float vNoise;
         varying vec3 vColor;
         varying float vIntensity;
         varying float vHeight;
@@ -94,6 +101,13 @@ export class PointCloudShaderMaterial extends ShaderMaterial {
           vAboveGround = heightAboveGround;
           vObject = objectId;
           vIntensity = intensity;
+          // ASPRS 7 and 18: low and high noise. Hidden points are sent outside the clip volume.
+          vNoise = (abs(classification - 7.0) < 0.5 || abs(classification - 18.0) < 0.5) ? 1.0 : 0.0;
+          if (vNoise > 0.5 && uNoiseMode > 0.5 && uNoiseMode < 1.5) {
+            gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+            gl_PointSize = 0.0;
+            return;
+          }
           vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
           float chosenSize = clamp(uPointSize * (uSizeScale / max(uMinDepth, -mvPosition.z)), ${minDotSize.toFixed(1)}, ${maxDotSize.toFixed(1)});
           // A decimated point stands for its whole voxel. Drawn at the chosen
@@ -102,6 +116,8 @@ export class PointCloudShaderMaterial extends ShaderMaterial {
           // walls and roofs solid at every level of detail.
           float coverSize = min(uVoxelSize * uPixelsPerUnit / max(uMinDepth, -mvPosition.z) * ${voxelCoverFactor.toFixed(2)}, ${maxCoverDotSize.toFixed(1)});
           gl_PointSize = max(chosenSize, coverSize);
+          // Highlighted noise is drawn large enough to find among millions of points.
+          if (vNoise > 0.5 && uNoiseMode > 1.5) gl_PointSize = max(gl_PointSize, 8.0);
           gl_Position = projectionMatrix * mvPosition;
         }
       `,
@@ -118,6 +134,8 @@ export class PointCloudShaderMaterial extends ShaderMaterial {
         uniform float uBuildingCount;
         uniform float uIntensityLow;
         uniform float uIntensityHigh;
+        uniform float uNoiseMode;
+        varying float vNoise;
         varying vec3 vColor;
         varying float vIntensity;
         varying float vHeight;
@@ -185,6 +203,7 @@ export class PointCloudShaderMaterial extends ShaderMaterial {
           vec3 finalColor = uColorMode < 0.5
             ? heightColor
             : (uColorMode < 1.5 ? vColor : (uColorMode < 2.5 ? reliefColor : (uColorMode < 3.5 ? classColor : (uColorMode < 4.5 ? aboveGroundColor(vAboveGround) : (uColorMode < 5.5 ? objectColor(vObject, vClass) : intensityColor(vIntensity))))));
+          if (vNoise > 0.5 && uNoiseMode > 1.5) finalColor = vec3(1.0, 0.16, 0.6);
           gl_FragColor = vec4(finalColor, 1.0);
         }
       `,
@@ -206,6 +225,10 @@ export class PointCloudShaderMaterial extends ShaderMaterial {
 
   public setColorMode(mode: PointCloudColorMode): void {
     this.uniforms.uColorMode!.value = colorModeToNumber[mode];
+  }
+
+  public setNoiseDisplay(display: NoiseDisplay): void {
+    this.uniforms.uNoiseMode!.value = noiseDisplayToNumber[display];
   }
 
   /**

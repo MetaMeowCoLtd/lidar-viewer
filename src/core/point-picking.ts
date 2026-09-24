@@ -30,6 +30,8 @@ export interface PickView {
   readonly tolerance: number;
   /** The largest radius {@link dotRadius} ever returns, used to rule out whole regions. */
   readonly maxDotRadius: number;
+  /** Points that are not drawn, and so cannot be picked. */
+  readonly skip?: ((cloud: PointCloud, index: number) => boolean) | undefined;
 }
 
 export interface PointHit {
@@ -67,6 +69,7 @@ export function pickPoint(clouds: readonly PointCloud[], view: PickView): PointH
       // Outside the near and far planes, the GPU clipped it away.
       const clipZ = m[2]! * x + m[6]! * y + m[10]! * z + m[14]!;
       if (clipZ < -w || clipZ > w) continue;
+      if (view.skip !== undefined && view.skip(cloud, index)) continue;
 
       const distance = dx * dx + dy * dy;
       const radius = view.dotRadius(w);
