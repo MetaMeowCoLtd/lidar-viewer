@@ -81,6 +81,47 @@ describe("buildQualityReport", () => {
   });
 });
 
+describe("the USGS checks", () => {
+  it("counts a missing patch as a void only when it reaches (4 × spacing)²", () => {
+    // 16 per m²: spacing 0.25 m, void size 1 m². The survey's 4 × 4 m hole is one void.
+    const { coverage } = report(survey(0));
+    expect(coverage.voidThreshold).toBeCloseTo(1, 0);
+    expect(coverage.voids).toBe(1);
+    expect(coverage.scatteredCells).toBe(0);
+  });
+
+  it("rates a thinned scan for the file it came from", () => {
+    const cloud = survey(0);
+    const thinned = buildQualityReport({ positions: cloud.positions, bounds: cloud.bounds, origin: cloud.origin, thinning: { loaded: 1000, total: 2000 } });
+    expect(thinned.density.median).toBe(16);
+    expect(thinned.density.fullMedian).toBe(32);
+    expect(thinned.thinning).toEqual({ loaded: 1000, total: 2000 });
+  });
+
+  it("measures flat-surface precision as the height spread about each cell's tilt", () => {
+    // A gently tilted plane with ±2 cm of uniform noise: an RMS of about 1.2 cm.
+    const positions: number[] = [];
+    let seed = 1;
+    const random = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    for (let x = 0.1; x < 40; x += 0.2) for (let z = 0.1; z < 40; z += 0.2) positions.push(x, 5 + 0.01 * x + (random() - 0.5) * 0.04, z);
+    const cloud = new PointCloud({ positions: new Float32Array(positions) });
+    const { precision, checks } = buildQualityReport({ positions: cloud.positions, bounds: cloud.bounds, origin: cloud.origin });
+    expect(precision!.hardSurface).toBeGreaterThan(0.009);
+    expect(precision!.hardSurface).toBeLessThan(0.013);
+    expect(checks.find((check) => check.name === "Flat-surface precision")?.status).toBe("pass");
+  });
+
+  it("puts a verdict on every check, skipping what the scan cannot show", () => {
+    const { checks } = report(survey(0.12));
+    const status = Object.fromEntries(checks.map((check) => [check.name, check.status]));
+    expect(status["Point density"]).toBe("pass");
+    expect(status["Data voids"]).toBe("review");
+    expect(status["Strip alignment"]).toBe("fail");
+    expect(status["Vertical accuracy"]).toBe("skipped");
+    expect(status["Noise"]).toBe("skipped");
+  });
+});
+
 describe("parseCheckpoints", () => {
   it("reads named and unnamed rows and skips headers", () => {
     const checkpoints = parseCheckpoints("name,east,north,z\nGCP1, 451200.5, 4473600.25, 612.3\n451201;4473601;613\n\nnot,a,number,row");

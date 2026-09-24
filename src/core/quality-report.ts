@@ -18,6 +18,8 @@ export interface QualityReportInput {
   readonly numberOfReturns?: Uint8Array | undefined;
   readonly pointSourceId?: Uint16Array | undefined;
   readonly checkpoints?: readonly Checkpoint[] | undefined;
+  /** When the scan was thinned evenly on import: points loaded, and points in the file. */
+  readonly thinning?: { readonly loaded: number; readonly total: number } | undefined;
 }
 
 export interface QualityReportOptions {
@@ -33,11 +35,14 @@ export const defaultQualityReportOptions: QualityReportOptions = { cellSize: 1, 
 
 /** USGS 3DEP quality levels (Lidar Base Specification): least density and largest non-vegetated RMSEz. */
 export const qualityLevels = [
-  { name: "QL0", density: 8, rmsez: 0.05 },
-  { name: "QL1", density: 8, rmsez: 0.1 },
-  { name: "QL2", density: 2, rmsez: 0.1 },
-  { name: "QL3", density: 0.5, rmsez: 0.2 },
+  { name: "QL0", density: 8, rmsez: 0.05, precision: 0.04, overlap: 0.04 },
+  { name: "QL1", density: 8, rmsez: 0.1, precision: 0.06, overlap: 0.08 },
+  { name: "QL2", density: 2, rmsez: 0.1, precision: 0.06, overlap: 0.08 },
+  { name: "QL3", density: 0.5, rmsez: 0.2, precision: 0.12, overlap: 0.16 },
 ] as const;
+
+/** QL2 is the least the USGS accepts for 3DEP collection, so it is the bar the pass/fail checks use. */
+const acceptance = qualityLevels[2];
 
 export interface DensityResult {
   readonly cellSize: number;
@@ -54,6 +59,14 @@ export interface DensityResult {
   /** Share of the footprint below 2 and below 8 points per square metre. */
   readonly belowTwo: number;
   readonly belowEight: number;
+  /**
+   * The density the file itself has, when the scan was thinned on import:
+   * even thinning scales every cell by the same factor, so the full file's
+   * median is the loaded median times total over loaded.
+   */
+  readonly fullMedian: number;
+  /** Average nominal point spacing, 1 / √density, of the full file. */
+  readonly spacing: number;
 }
 
 export interface CoverageResult {
@@ -64,6 +77,40 @@ export interface CoverageResult {
   /** Separate patches of the footprint with no returns at all. */
   readonly gapRegions: number;
   readonly largestGapArea: number;
+  /** The USGS void size, (4 × spacing)²: an empty patch this large or larger is a void. */
+  readonly voidThreshold: number;
+  readonly voids: number;
+  readonly voidArea: number;
+  /** Empty patches smaller than a void: the scatter any finite density leaves on a grid. */
+  readonly scatteredCells: number;
+}
+
+/**
+ * How tightly one pass of the scanner measures a flat surface (USGS smooth
+ * surface repeatability, RMSDz): in cells of 2 × ceil(spacing) on level
+ * ground, the RMS spread of heights about the cell's tilt.
+ */
+export interface PrecisionResult {
+  readonly cellSize: number;
+  readonly cells: number;
+  /**
+   * The smoothest quarter of level cells: roads, car parks and flat roofs,
+   * the hard surfaces the USGS measures on. This is what is graded.
+   */
+  readonly hardSurface: number;
+  /** All level ground cells, grass and all. */
+  readonly allLevel: number;
+  /** Whether the cells were ground-classified points, or single returns standing in for them. */
+  readonly fromGround: boolean;
+}
+
+export type CheckStatus = "pass" | "fail" | "review" | "skipped";
+
+/** One line of the verdict at the top of the report. */
+export interface QualityCheck {
+  readonly name: string;
+  readonly status: CheckStatus;
+  readonly detail: string;
 }
 
 export interface StripPair {
@@ -108,6 +155,13 @@ export interface AccuracyResult {
 
 export interface QualityReport {
   readonly pointCount: number;
+  readonly thinning: { readonly loaded: number; readonly total: number } | undefined;
+  readonly precision: PrecisionResult | undefined;
+  /** Points per ASPRS class, most common first; empty when the scan has no classes. */
+  readonly classes: ReadonlyArray<{ readonly code: number; readonly count: number }>;
+  /** Share of pulses that came back once, and the most returns any pulse gave. */
+  readonly returns: { readonly single: number; readonly most: number } | undefined;
+  readonly checks: readonly QualityCheck[];
   readonly density: DensityResult;
   readonly coverage: CoverageResult;
   readonly strips: StripResult | undefined;
@@ -193,10 +247,23 @@ export function buildQualityReport(
     p5: quantile(0.05),
     belowTwo: densities.filter((value) => value < 2).length / Math.max(1, densities.length),
     belowEight: densities.filter((value) => value < 8).length / Math.max(1, densities.length),
+    fullMedian: 0,
+    spacing: 0,
   };
+  const scale = input.thinning === undefined ? 1 : input.thinning.total / Math.max(1, input.thinning.loaded);
+  const fullMean = density.mean * scale;
+  const fullDensity: DensityResult = { ...density, fullMedian: density.median * scale, spacing: 1 / Math.sqrt(Math.max(fullMean, 1e-6)) };
 
   onProgress?.("Finding coverage gaps", 0.25);
-  const coverage = gaps(any, inside, cols, rows, area);
+  // Voids are measured on first returns, as the USGS specifies, and sized against the loaded density's spacing:
+  // a thinned scan leaves more empty cells than the file it came from.
+  const firstAny = new Uint8Array(cells);
+  for (let cell = 0; cell < cells; cell += 1) firstAny[cell] = counts[cell]! > 0 ? 1 : 0;
+  const loadedSpacing = 1 / Math.sqrt(Math.max(density.mean, 1e-6));
+  const coverage = gaps(firstAny, inside, cols, rows, area, (4 * loadedSpacing) ** 2);
+
+  onProgress?.("Measuring flat-surface precision", 0.3);
+  const precision = measurePrecision(input, loadedSpacing);
 
   onProgress?.("Comparing overlapping strips", 0.4);
   const strips = input.pointSourceId === undefined ? undefined : compareStrips(input, cellOf, cells, inside, options.flatness);
@@ -206,7 +273,7 @@ export function buildQualityReport(
 
   let qualityLevel: string | undefined;
   for (const level of qualityLevels) {
-    const dense = density.median >= level.density;
+    const dense = fullDensity.fullMedian >= level.density;
     const accurate = accuracy === undefined || accuracy.measured === 0 || accuracy.rmsez <= level.rmsez;
     if (dense && accurate) {
       qualityLevel = level.name;
@@ -216,10 +283,78 @@ export function buildQualityReport(
   // Without checkpoints, QL0 and QL1 differ only in accuracy; claim no more than the density shows.
   if (accuracy === undefined && qualityLevel === "QL0") qualityLevel = "QL1";
 
+  // Classes and returns: what a delivery is expected to carry.
+  const classCounts = new Map<number, number>();
+  if (classification !== undefined) for (const code of classification) classCounts.set(code, (classCounts.get(code) ?? 0) + 1);
+  const classes = [...classCounts.entries()].map(([code, count]) => ({ code, count })).sort((a, b) => b.count - a.count);
+  let returns: { single: number; most: number } | undefined;
+  if (input.numberOfReturns !== undefined) {
+    let single = 0;
+    let most = 0;
+    for (const value of input.numberOfReturns) {
+      if (value <= 1) single += 1;
+      if (value > most) most = value;
+    }
+    returns = { single: single / pointCount, most };
+  }
+
+  const cm = (metres: number) => `${(metres * 100).toFixed(1)} cm`;
+  const checks: QualityCheck[] = [];
+  checks.push({
+    name: "Point density",
+    status: fullDensity.fullMedian >= acceptance.density ? "pass" : "fail",
+    detail: `${fullDensity.fullMedian.toFixed(1)} first returns per m² (median${scale === 1 ? "" : ", full file"}); QL2 needs 2, QL1 8.`,
+  });
+  checks.push({
+    name: "Data voids",
+    status: coverage.voids === 0 ? "pass" : "review",
+    detail:
+      coverage.voids === 0
+        ? `No empty patch reaches the void size of ${coverage.voidThreshold.toFixed(1)} m².`
+        : `${coverage.voids.toLocaleString("en-US")} empty patches of ${coverage.voidThreshold.toFixed(1)} m² or more, ${Math.round(coverage.voidArea).toLocaleString("en-US")} m² in all. Voids over water, dark roofs, fresh asphalt and in building shadows are accepted; any others need a re-flight.`,
+  });
+  checks.push(
+    precision === undefined
+      ? { name: "Flat-surface precision", status: "skipped", detail: "Not enough flat, level ground to measure." }
+      : {
+          name: "Flat-surface precision",
+          status: precision.hardSurface <= acceptance.precision ? "pass" : "fail",
+          detail: `${cm(precision.hardSurface)} RMS on hard, level surfaces (${cm(precision.allLevel)} over all level ground, grass included); QL1 and QL2 allow ${cm(acceptance.precision)}.`,
+        },
+  );
+  checks.push(
+    strips === undefined || strips.pairs.length === 0
+      ? { name: "Strip alignment", status: "skipped", detail: strips === undefined ? "The scan does not record its flight lines (point source IDs)." : "No overlapping strips on enough flat ground." }
+      : {
+          name: "Strip alignment",
+          status: strips.rmsOffset <= acceptance.overlap ? "pass" : "fail",
+          detail: `${cm(strips.rmsOffset)} RMS difference where strips overlap; QL1 and QL2 allow ${cm(acceptance.overlap)}.`,
+        },
+  );
+  checks.push(
+    accuracy === undefined || accuracy.measured === 0
+      ? { name: "Vertical accuracy", status: "skipped", detail: "No surveyed checkpoints were supplied." }
+      : {
+          name: "Vertical accuracy",
+          status: accuracy.rmsez <= acceptance.rmsez ? "pass" : "fail",
+          detail: `RMSEz ${cm(accuracy.rmsez)} at ${accuracy.measured} checkpoints; QL1 and QL2 allow ${cm(acceptance.rmsez)}.`,
+        },
+  );
+  checks.push({
+    name: "Noise",
+    status: classification === undefined ? "skipped" : noisePoints / pointCount <= 0.01 ? "pass" : "review",
+    detail: classification === undefined ? "Noise has not been identified." : `${(100 * noisePoints / pointCount).toFixed(2)} % of points labelled as noise and excluded.`,
+  });
+
   onProgress?.("Done", 1);
   return {
     pointCount,
-    density,
+    thinning: input.thinning,
+    precision,
+    classes,
+    returns,
+    checks,
+    density: fullDensity,
     coverage,
     strips,
     noise: { points: noisePoints, share: noisePoints / pointCount, labelled: classification !== undefined },
@@ -251,11 +386,13 @@ function footprint(any: Uint8Array, cols: number, rows: number): Uint8Array {
   return inside;
 }
 
-function gaps(any: Uint8Array, inside: Uint8Array, cols: number, rows: number, area: number): CoverageResult {
+function gaps(any: Uint8Array, inside: Uint8Array, cols: number, rows: number, area: number, voidThreshold: number): CoverageResult {
   let footprintCells = 0;
   let gapCells = 0;
   let regions = 0;
   let largest = 0;
+  let voids = 0;
+  let voidCells = 0;
   const seen = new Uint8Array(cols * rows);
   const stack: number[] = [];
   for (let cell = 0; cell < cols * rows; cell += 1) {
@@ -285,6 +422,10 @@ function gaps(any: Uint8Array, inside: Uint8Array, cols: number, rows: number, a
       }
     }
     largest = Math.max(largest, size);
+    if (size * area >= voidThreshold) {
+      voids += 1;
+      voidCells += size;
+    }
   }
   return {
     footprintArea: footprintCells * area,
@@ -292,6 +433,80 @@ function gaps(any: Uint8Array, inside: Uint8Array, cols: number, rows: number, a
     gapShare: gapCells / Math.max(1, footprintCells),
     gapRegions: regions,
     largestGapArea: largest * area,
+    voidThreshold,
+    voids,
+    voidArea: voidCells * area,
+    scatteredCells: gapCells - voidCells,
+  };
+}
+
+/**
+ * USGS smooth surface repeatability: cells of 2 × ceil(spacing) over flat,
+ * level ground, each scored as its range of heights less the rise its slope
+ * accounts for across the cell's diagonal. One flight line per cell, so a
+ * misaligned overlap is not counted as imprecision. Ground-classified points
+ * when there are any, otherwise single returns, which leaves canopy out.
+ */
+function measurePrecision(input: QualityReportInput, spacing: number): PrecisionResult | undefined {
+  const { positions, bounds, classification, numberOfReturns, pointSourceId } = input;
+  const pointCount = positions.length / 3;
+  let cellSize = 2 * Math.ceil(spacing);
+  while ((bounds.size[0] / cellSize + 1) * (bounds.size[2] / cellSize + 1) > 16_000_000) cellSize *= 2;
+  const cols = Math.floor(bounds.size[0] / cellSize) + 1;
+  const rows = Math.floor(bounds.size[2] / cellSize) + 1;
+  const fromGround = classification !== undefined && classification.some((code) => code === 2);
+
+  // Per cell and flight line: count, height sum and sum of squares.
+  const stats = new Map<number, [number, number, number]>();
+  for (let point = 0; point < pointCount; point += 1) {
+    const code = classification?.[point];
+    if (code !== undefined && isNoiseClass(code)) continue;
+    if (fromGround ? code !== 2 : numberOfReturns !== undefined && numberOfReturns[point]! > 1) continue;
+    const col = Math.min(cols - 1, Math.floor((positions[point * 3]! - bounds.min[0]) / cellSize));
+    const row = Math.min(rows - 1, Math.floor((positions[point * 3 + 2]! - bounds.min[2]) / cellSize));
+    const key = (row * cols + col) * 65_536 + (pointSourceId?.[point] ?? 0);
+    const y = positions[point * 3 + 1]!;
+    const entry = stats.get(key);
+    if (entry === undefined) stats.set(key, [1, y, y * y]);
+    else {
+      entry[0] += 1;
+      entry[1] += y;
+      entry[2] += y * y;
+    }
+  }
+
+  // The best-sampled flight line in each cell, and its mean height for the slope.
+  const best = new Map<number, [number, number, number]>();
+  for (const [key, [count, sum, sumSq]] of stats) {
+    if (count < 4) continue;
+    const cell = Math.floor(key / 65_536);
+    const current = best.get(cell);
+    const mean = sum / count;
+    if (current === undefined || count > current[0]) best.set(cell, [count, mean, Math.max(0, sumSq / count - mean * mean)]);
+  }
+  const scores: number[] = [];
+  for (const [cell, [, mean, variance]] of best) {
+    const col = cell % cols;
+    const row = (cell - col) / cols;
+    const east = best.get(cell + 1)?.[1];
+    const west = col > 0 ? best.get(cell - 1)?.[1] : undefined;
+    const south = best.get(cell + cols)?.[1];
+    const north = row > 0 ? best.get(cell - cols)?.[1] : undefined;
+    if (east === undefined || west === undefined || south === undefined || north === undefined) continue;
+    const slope = Math.hypot((east - west) / (2 * cellSize), (south - north) / (2 * cellSize));
+    // Level ground only: parking lots, roads, playing fields - not embankments.
+    if (slope > 0.05 || Math.abs(mean - (east + west + south + north) / 4) > 0.1) continue;
+    // A tilt of `slope` spread evenly over the cell adds slope² × size² / 12 of variance along each axis.
+    scores.push(Math.sqrt(Math.max(0, variance - (slope * cellSize) ** 2 / 6)));
+  }
+  if (scores.length < 20) return undefined;
+  scores.sort((a, b) => a - b);
+  return {
+    cellSize,
+    cells: scores.length,
+    hardSurface: scores[Math.floor(scores.length / 4)]!,
+    allLevel: scores[Math.floor(scores.length / 2)]!,
+    fromGround,
   };
 }
 
