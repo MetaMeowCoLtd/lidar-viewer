@@ -29,7 +29,7 @@ import type {
 } from "./types.js";
 
 const samplePointCount = 1_000_000;
-const sampleName = "Sample quarry survey";
+const sampleName = "Sample factory survey";
 
 export interface WorkspaceOptions {
   /** Load the procedural sample as soon as the viewer starts. */
@@ -130,6 +130,8 @@ export function useWorkspace(options: WorkspaceOptions) {
 
   useLayoutEffect(() => {
     clickToolRef.current = clickTool;
+    // Two quick clicks while measuring are two points, not a request to fly.
+    viewerRef.current?.setDoubleClickToFly(clickTool === "inspect");
   }, [clickTool]);
 
   const terrainRef = useRef(terrain);

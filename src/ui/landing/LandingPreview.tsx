@@ -31,7 +31,7 @@ export function LandingPreview() {
     observer.observe(canvas.parentElement!);
     viewer.start();
     let disposed = false;
-    void generateSampleCloud({ pointCount: 450_000, seed: 21, name: "Sample quarry survey" }).then((cloud) => {
+    void generateSampleCloud({ pointCount: 450_000, seed: 21, name: "Sample factory survey" }).then((cloud) => {
       if (!disposed) void viewer.load(cloud, createLodSpecs(cloud.bounds.diagonal));
     });
     return () => {
