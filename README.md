@@ -30,11 +30,11 @@ only responsible for GPU resources and draw configuration.
   carried from the source file into the LAS export. LAS output is uncompressed:
   the bundled laz-perf can read LAZ but not write it
 - Immutable typed-array point clouds with bounds and optional RGB/intensity data
-- A synthetic drone LiDAR survey as the sample: a quarry with stockpiles, a transmission line through forest, a farm and a road, made by simulating the flight (scan lines, strip overlap, multiple returns, intensity, georeferenced in EPSG:25830)
+- A synthetic drone LiDAR survey as the sample: a manufacturing plant and its surroundings (as-built, expansion topography, stockpiles), made by simulating a DJI L2-style flight (70° line scan, 20% side overlap, multiple returns, intensity, georeferenced in EPSG:25830)
 - Voxel-grid decimation and a precomputed LOD pyramid
 - Point-budget LOD selection and transaction-safe loading session
 - Three.js `Points` adapter using a custom shader material
-- A UI-free `LidarViewer` composition root with one render loop and 3D-app navigation: turn around the point under the cursor, right-drag to pan, zoom to the cursor, double-click to fly to a point, WASD/QE to move
+- A UI-free `LidarViewer` composition root with one render loop and 3D-app navigation: turn around the point under the cursor, right-drag to pan, zoom to the cursor, double-click to fly to a point, WASD or arrows and Q/E to move once the view has focus
 - A landing page at `#/` and a workspace at `#/app`: a tool rail with scan,
   view, analysis and settings panels, a full-window viewport with its own
   toolbar, colour menu, legend and inspector, and a status line

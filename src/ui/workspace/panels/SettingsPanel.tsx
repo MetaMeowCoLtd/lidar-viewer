@@ -70,7 +70,7 @@ export function SettingsPanel({ workspace }: { workspace: Workspace }) {
           </div>
           <div>
             <dt>Pan</dt>
-            <dd>Right-drag · Shift-drag</dd>
+            <dd>Right- or middle-drag · Shift-drag</dd>
           </div>
           <div>
             <dt>Zoom to cursor</dt>
@@ -78,16 +78,20 @@ export function SettingsPanel({ workspace }: { workspace: Workspace }) {
           </div>
           <div>
             <dt>Fly to a point</dt>
-            <dd>Double-click</dd>
+            <dd>Double-click (Inspect tool)</dd>
           </div>
           <div>
-            <dt>Move · up and down</dt>
-            <dd>W A S D · Q E</dd>
+            <dt>Move across</dt>
+            <dd>W A S D or arrows</dd>
+          </div>
+          <div>
+            <dt>Move down · up</dt>
+            <dd>Q · E, Shift for faster</dd>
           </div>
         </dl>
       </Field>
 
-      <Note>The view turns and zooms around whatever is under the cursor. Press H to hide the panels and give the whole window to the scan.</Note>
+      <Note>The view turns and zooms around whatever is under the cursor. The keys steer it once you have clicked the scan. Press H to hide the panels and give the whole window to the scan.</Note>
     </div>
   );
 }
