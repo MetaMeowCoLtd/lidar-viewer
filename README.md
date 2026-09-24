@@ -30,7 +30,7 @@ only responsible for GPU resources and draw configuration.
   carried from the source file into the LAS export. LAS output is uncompressed:
   the bundled laz-perf can read LAZ but not write it
 - Immutable typed-array point clouds with bounds and optional RGB/intensity data
-- Deterministic procedural sample: a riverside town with a bridge, forested hill, wind turbines, power line, stadium and fields
+- A synthetic drone LiDAR survey as the sample: a quarry with stockpiles, a transmission line through forest, a farm and a road, made by simulating the flight (scan lines, strip overlap, multiple returns, intensity, georeferenced in EPSG:25830)
 - Voxel-grid decimation and a precomputed LOD pyramid
 - Point-budget LOD selection and transaction-safe loading session
 - Three.js `Points` adapter using a custom shader material
