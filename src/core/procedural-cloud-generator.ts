@@ -1,61 +1,70 @@
-import { PointCloud } from "./point-cloud.js";
-import { PointWriter, mulberry32 } from "./procedural/sampling.js";
-import { buildTown } from "./procedural/town-layout.js";
+import { PointCloud, type PointCloudOrigin } from "./point-cloud.js";
+import { geoKeyDirectoryRecordId, projectionUserId, spatialReferenceFromRecords, type SpatialReference } from "./spatial-reference.js";
+import { simulateSurvey } from "./procedural/lidar-simulator.js";
+import { mulberry32 } from "./procedural/sampling.js";
 
 export interface ProceduralCloudOptions {
   readonly pointCount?: number;
   readonly seed?: number;
   readonly name?: string;
+  /** Called as the simulated flight progresses, from zero to one. */
+  readonly onProgress?: (fraction: number) => void;
+}
+
+/** The sample sits in ETRS89 / UTM zone 30N, the way a survey delivered in Spain would. */
+export const sampleEpsg = 25830;
+/** Map coordinates of the local frame's origin: easting, elevation, and northing negated (z runs south). */
+export const sampleOrigin: PointCloudOrigin = [451_200, 610, -4_473_600];
+
+/** The raw channels of a generated sample, ready to cross a worker boundary. */
+export interface ProceduralCloudData {
+  readonly positions: Float32Array;
+  readonly colors: Uint8Array;
+  readonly intensity: Float32Array;
+  readonly returnNumber: Uint8Array;
+  readonly numberOfReturns: Uint8Array;
 }
 
 /**
- * A deterministic 440 × 340 m scan to open the app with: a riverside town in
- * a valley, as a drone survey would capture it.
+ * A synthetic drone LiDAR survey to open the app with: a 460 × 360 m block
+ * over an aggregate quarry, its processing pad and stockpiles, a transmission
+ * line through a forest, a plantation, a creek, a farm and a rural road.
  *
- * A winding river, which leaves a real no-data hole because water returns
- * nothing to a laser, crossed by a steel arch bridge. A downtown with a glass
- * tower, a stepped tower and a round one, a church spire, a courtyard block,
- * a factory with its chimney, a stadium, a school with solar panels on its
- * roof, and streets of houses with pitched roofs, parked cars, buses and lamp
- * posts. East of the river, a forested hill rises 25 m to two wind turbines,
- * while a power line on lattice pylons crosses the fields, the water and a
- * corridor cleared through the trees. Colours are shaded by a low sun, so the
- * relief reads in the RGB view as well as in the height ramp.
+ * It is made by simulating the flight rather than by placing points - six
+ * overlapping strips from a scanning laser, traced through the site - so it
+ * has what real captures have: scan lines, overlap, LiDAR shadows, canopy
+ * penetration with multiple returns, sparse hits on conductors, gaps over
+ * water, intensity and camera colour. See {@link simulateSurvey}.
  *
- * It is the scene every feature is demonstrated on, so it gives each of them
- * something to find: hundreds of trees, dozens of buildings of every roof
- * shape, relief worth drawing contours on, and decoys - cars, pylons,
- * cables, turbines - that are neither building nor tree.
+ * It is georeferenced (ETRS89 / UTM 30N), so coordinates, exports and the
+ * terrain model come out in real map units.
  */
 export class ProceduralCloudGenerator {
   public generate(options: ProceduralCloudOptions = {}): PointCloud {
-    const pointCount = options.pointCount ?? 1_000_000;
-    if (!Number.isSafeInteger(pointCount) || pointCount < 1) throw new Error("pointCount must be a positive integer");
-
-    const random = mulberry32(options.seed ?? 0x1d4a11);
-    const surfaces = buildTown(random);
-
-    // Each point lands on a surface chosen in proportion to its weight.
-    const cumulative = new Float64Array(surfaces.length);
-    let total = 0;
-    surfaces.forEach((surface, index) => {
-      total += surface.weight;
-      cumulative[index] = total;
-    });
-
-    const out = new PointWriter(pointCount);
-    for (let point = 0; point < pointCount; point += 1) {
-      const target = random() * total;
-      let low = 0;
-      let high = surfaces.length - 1;
-      while (low < high) {
-        const middle = (low + high) >> 1;
-        if (cumulative[middle]! < target) low = middle + 1;
-        else high = middle;
-      }
-      surfaces[low]!.emit(random, out);
-    }
-
-    return new PointCloud({ positions: out.positions, colors: out.colors, name: options.name ?? "procedural-town" });
+    const data = this.generateData(options);
+    return new PointCloud({ ...data, name: options.name ?? "synthetic-quarry-survey", origin: sampleOrigin, spatialReference: sampleSpatialReference() });
   }
+
+  public generateData(options: ProceduralCloudOptions = {}): ProceduralCloudData {
+    const pointCount = options.pointCount ?? 1_200_000;
+    if (!Number.isSafeInteger(pointCount) || pointCount < 1) throw new Error("pointCount must be a positive integer");
+    const survey = simulateSurvey(pointCount, mulberry32(options.seed ?? 0x1d4a11), options.onProgress);
+    return {
+      positions: survey.positions,
+      colors: survey.colors,
+      intensity: survey.intensity,
+      returnNumber: survey.returnNumber,
+      numberOfReturns: survey.numberOfReturns,
+    };
+  }
+}
+
+/** A GeoTIFF key directory naming the sample's projected system, as a LAS file would carry it. */
+export function sampleSpatialReference(): SpatialReference | undefined {
+  // Version 1.1.0 with four keys: projected model, pixel-is-area, the EPSG system, metres.
+  const keys = [1, 1, 0, 4, 1024, 0, 1, 1, 1025, 0, 1, 1, 3072, 0, 1, sampleEpsg, 3076, 0, 1, 9001];
+  const data = new Uint8Array(keys.length * 2);
+  const view = new DataView(data.buffer);
+  keys.forEach((key, index) => view.setUint16(index * 2, key, true));
+  return spatialReferenceFromRecords([{ userId: projectionUserId, recordId: geoKeyDirectoryRecordId, description: "GeoKeyDirectoryTag", data }]);
 }

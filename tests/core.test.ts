@@ -121,6 +121,23 @@ describe("ProceduralCloudGenerator", () => {
     expect(first.positions).toEqual(second.positions);
     expect(first.colors).toEqual(second.colors);
   });
+
+  it("delivers a georeferenced capture with intensity and multiple returns, like a real survey", () => {
+    const cloud = new ProceduralCloudGenerator().generate({ pointCount: 20_000, seed: 9 });
+    expect(cloud.pointCount).toBe(20_000);
+    expect(cloud.spatialReference?.epsg).toBe(25830);
+    expect(cloud.supportsColorMode("intensity")).toBe(true);
+    expect(cloud.supportsColorMode("rgb")).toBe(true);
+    // Pulses through canopy come back more than once; most still return once.
+    const returns = cloud.numberOfReturns!;
+    const multiple = returns.filter((count) => count > 1).length;
+    expect(multiple).toBeGreaterThan(cloud.pointCount * 0.05);
+    expect(multiple).toBeLessThan(cloud.pointCount * 0.6);
+    for (let index = 0; index < cloud.pointCount; index += 1) {
+      expect(cloud.returnNumber![index]).toBeGreaterThanOrEqual(1);
+      expect(cloud.returnNumber![index]).toBeLessThanOrEqual(returns[index]!);
+    }
+  }, 30_000);
 });
 
 describe("PointCloudTiler", () => {

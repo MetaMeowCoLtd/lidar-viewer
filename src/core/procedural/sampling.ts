@@ -1,4 +1,4 @@
-/** The building blocks every part of the procedural scene is made from. */
+/** Small numeric helpers shared by the procedural survey: seeded randomness, noise and colour. */
 
 export type Random = () => number;
 
@@ -8,60 +8,12 @@ export interface Rgb {
   readonly b: number;
 }
 
-export type Vec3 = readonly [number, number, number];
-
 export function rgb(r: number, g: number, b: number): Rgb {
   return { r, g, b };
 }
 
-/**
- * Something the scanner sees. `weight` is its share of the points - roughly
- * its visible area, scaled by how densely a laser samples that kind of
- * surface - and `emit` places exactly one point on it.
- */
-export interface Surface {
-  readonly weight: number;
-  emit(random: Random, out: PointWriter): void;
-}
-
-export class PointWriter {
-  public readonly positions: Float32Array;
-  public readonly colors: Uint8Array;
-  private offset = 0;
-
-  public constructor(count: number) {
-    this.positions = new Float32Array(count * 3);
-    this.colors = new Uint8Array(count * 3);
-  }
-
-  /** Writes one point, its colour darkened or lit by `shade` and roughened by `spread`. */
-  public put(x: number, y: number, z: number, colour: Rgb, shade: number, random: Random, spread = 12): void {
-    const offset = this.offset;
-    this.positions[offset] = x;
-    this.positions[offset + 1] = y;
-    this.positions[offset + 2] = z;
-    this.colors[offset] = clampByte(colour.r * shade + (random() - 0.5) * spread);
-    this.colors[offset + 1] = clampByte(colour.g * shade + (random() - 0.5) * spread);
-    this.colors[offset + 2] = clampByte(colour.b * shade + (random() - 0.5) * spread);
-    this.offset = offset + 3;
-  }
-}
-
-// Afternoon sun from the north-west, high in the sky (x east, y up, z south).
-const lightLength = Math.hypot(0.5, 0.8, 0.4);
-const lightX = -0.5 / lightLength;
-const lightY = 0.8 / lightLength;
-const lightZ = -0.4 / lightLength;
-
-/**
- * How brightly the sun lights a surface facing along a normal. Baking this
- * into the colours is what makes hills, roof pitches and facades read as
- * shapes in the RGB view, the way they do in a real orthophoto-coloured scan.
- */
-export function sunShade(nx: number, ny: number, nz: number): number {
-  const length = Math.hypot(nx, ny, nz) || 1;
-  const facing = (nx * lightX + ny * lightY + nz * lightZ) / length;
-  return 0.42 + 0.68 * Math.max(0, facing);
+export function mix(a: Rgb, b: Rgb, t: number): Rgb {
+  return { r: a.r + (b.r - a.r) * t, g: a.g + (b.g - a.g) * t, b: a.b + (b.b - a.b) * t };
 }
 
 export function smoothstep(edge0: number, edge1: number, value: number): number {
@@ -69,21 +21,59 @@ export function smoothstep(edge0: number, edge1: number, value: number): number 
   return t * t * (3 - 2 * t);
 }
 
+export function clamp(value: number, low: number, high: number): number {
+  return Math.max(low, Math.min(high, value));
+}
+
 export function jitter(random: Random, spread: number): number {
   return (random() - 0.5) * spread;
+}
+
+/** A normally distributed value with mean zero, by Box-Muller. */
+export function gaussian(random: Random): number {
+  return Math.sqrt(-2 * Math.log(1 - random())) * Math.cos(2 * Math.PI * random());
 }
 
 export function pick<T>(random: Random, items: ReadonlyArray<T>): T {
   return items[Math.floor(random() * items.length)]!;
 }
 
-export function mix(a: Rgb, b: Rgb, t: number): Rgb {
-  return { r: a.r + (b.r - a.r) * t, g: a.g + (b.g - a.g) * t, b: a.b + (b.b - a.b) * t };
+/** A well-mixed hash of up to three integers, in [0, 1). */
+export function hash(a: number, b: number, c = 0): number {
+  let h = Math.imul(a | 0, 0x27d4eb2d) ^ Math.imul(b | 0, 0x165667b1) ^ Math.imul(c | 0, 0x9e3779b1);
+  h = Math.imul(h ^ (h >>> 15), 0x85ebca6b);
+  h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
+  return ((h ^ (h >>> 16)) >>> 0) / 4_294_967_296;
 }
 
-/** A cheap, smooth, deterministic field in [0, 1] for patchy grass, forest edges and the like. */
-export function patchiness(x: number, z: number): number {
-  return 0.5 + 0.25 * Math.sin(x * 0.061 + 1.7 * Math.sin(z * 0.043)) + 0.25 * Math.sin(z * 0.057 + 1.3 * Math.sin(x * 0.037));
+/** Smooth value noise in [-1, 1], varying over about one unit. */
+export function valueNoise(x: number, z: number, seed = 0): number {
+  const ix = Math.floor(x);
+  const iz = Math.floor(z);
+  const fx = x - ix;
+  const fz = z - iz;
+  const u = fx * fx * (3 - 2 * fx);
+  const v = fz * fz * (3 - 2 * fz);
+  const a = hash(ix, iz, seed);
+  const b = hash(ix + 1, iz, seed);
+  const c = hash(ix, iz + 1, seed);
+  const d = hash(ix + 1, iz + 1, seed);
+  return (a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v) * 2 - 1;
+}
+
+/** Fractal noise: octaves of value noise, each twice as fine and half as strong. Roughly [-1, 1]. */
+export function fbm(x: number, z: number, octaves: number, seed = 0): number {
+  let sum = 0;
+  let amplitude = 1;
+  let total = 0;
+  let frequency = 1;
+  for (let octave = 0; octave < octaves; octave += 1) {
+    sum += valueNoise(x * frequency, z * frequency, seed + octave * 131) * amplitude;
+    total += amplitude;
+    amplitude *= 0.5;
+    frequency *= 2.03;
+  }
+  return sum / total;
 }
 
 export function clampByte(value: number): number {
