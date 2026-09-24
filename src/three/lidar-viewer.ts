@@ -335,6 +335,12 @@ export class LidarViewer {
     this.frameActiveCloud();
   }
 
+  /** Whether double-clicking flies the camera to the point clicked; off while clicks place measurement points. */
+  public setDoubleClickToFly(enabled: boolean): void {
+    this.assertNotDisposed();
+    this.controls.enableDoubleClick = enabled;
+  }
+
   /** Slowly circles the scan, for a showcase view no one is steering. */
   public setAutoRotate(enabled: boolean, speed = 0.6): void {
     this.assertNotDisposed();

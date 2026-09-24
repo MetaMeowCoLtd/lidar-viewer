@@ -40,8 +40,10 @@ interface Flight {
  *   to the distance to it, so it slows down near a surface instead of near an
  *   arbitrary target, and never gets stuck.
  * - Double-click flies to the point clicked.
- * - W A S D or the arrow keys move across the scene, Q and E move down and
- *   up, and Shift moves faster.
+ * - W A S D or the arrow keys move across the ground - forward, left, back,
+ *   right as the view faces - Q and E move down and up, and Shift moves
+ *   three times faster. Keys only steer the view while it has focus, so the
+ *   arrows still work in the panels; clicking the scan gives it focus.
  * - One finger turns and two fingers pinch and pan on a touch screen.
  *
  * Dragging follows the pointer exactly, with no lag; a flick carries on and
@@ -52,6 +54,8 @@ export class NavigationControls {
   public readonly target = new Vector3();
   public enableZoom = true;
   public enableKeys = true;
+  /** Off while clicks mean something else in quick succession, such as placing measurement points. */
+  public enableDoubleClick = true;
   public autoRotate = false;
   /** Auto-rotation speed, in turns per minute. */
   public autoRotateSpeed = 0.5;
@@ -71,6 +75,8 @@ export class NavigationControls {
   private flight: Flight | undefined;
   private readonly keys = new Set<string>();
   private readonly keyVelocity = new Vector3();
+  /** How far away the scene was when the keys went down, which sets how fast they move. */
+  private keyRange = 10;
   private readonly sceneCenter = new Vector3();
   private sceneRadius = 100;
   private groundY = 0;
@@ -81,6 +87,10 @@ export class NavigationControls {
     private readonly element: HTMLCanvasElement,
     private readonly pickPivot: PivotPicker,
   ) {
+    // Focusable, so keyboard movement can belong to the view rather than the whole page.
+    if (element.tabIndex < 0) element.tabIndex = 0;
+    element.style.outline = "none";
+    element.addEventListener("mousedown", this.onMouseDown);
     element.addEventListener("pointerdown", this.onPointerDown);
     element.addEventListener("pointermove", this.onPointerMove);
     element.addEventListener("pointerup", this.onPointerUp);
@@ -160,6 +170,7 @@ export class NavigationControls {
 
   public dispose(): void {
     const element = this.element;
+    element.removeEventListener("mousedown", this.onMouseDown);
     element.removeEventListener("pointerdown", this.onPointerDown);
     element.removeEventListener("pointermove", this.onPointerMove);
     element.removeEventListener("pointerup", this.onPointerUp);
@@ -175,8 +186,14 @@ export class NavigationControls {
 
   // ------------------------------------------------------------- pointer
 
+  /** A middle press would otherwise start the browser's autoscroll instead of a pan. */
+  private readonly onMouseDown = (event: MouseEvent) => {
+    if (event.button === 1) event.preventDefault();
+  };
+
   private readonly onPointerDown = (event: PointerEvent) => {
     if (event.pointerType === "mouse" && event.button > 2) return;
+    this.element.focus({ preventScroll: true });
     this.flight = undefined;
     this.stopMotion();
     // Capture keeps a drag going when the pointer leaves the canvas; a pointer the browser no longer tracks cannot be captured.
@@ -263,6 +280,7 @@ export class NavigationControls {
   };
 
   private readonly onDoubleClick = (event: MouseEvent) => {
+    if (!this.enableDoubleClick) return;
     const point = this.pickPivot(event.clientX, event.clientY);
     if (point === undefined) return;
     this.flyTo(point);
@@ -291,9 +309,17 @@ export class NavigationControls {
   // ------------------------------------------------------------ keyboard
 
   private readonly onKeyDown = (event: KeyboardEvent) => {
-    if (!this.enableKeys || event.ctrlKey || event.metaKey || event.altKey || isTyping(event.target)) return;
+    if (!this.enableKeys || event.ctrlKey || event.metaKey || event.altKey) return;
+    // Only when nothing else has focus: arrow keys in a panel belong to the panel.
+    if (event.target !== this.element && event.target !== document.body) return;
     const key = movementKey(event.code);
     if (key === undefined) return;
+    if (!["forward", "back", "left", "right", "up", "down"].some((held) => this.keys.has(held))) {
+      // Speed is set by how far away the scene in the middle of the view is, measured as movement starts.
+      const rect = this.element.getBoundingClientRect();
+      this.keyRange = this.camera.position.distanceTo(this.pointUnder(rect.left + rect.width / 2, rect.top + rect.height / 2));
+    }
+    this.flight = undefined;
     this.keys.add(key);
     if (event.shiftKey) this.keys.add("fast");
     event.preventDefault();
@@ -323,8 +349,7 @@ export class NavigationControls {
       if (this.keys.has("up")) wanted.add(up);
       if (this.keys.has("down")) wanted.sub(up);
       // Speed follows how far away the scene is, so the same key covers a street up close and a valley from above.
-      const range = Math.max(2, this.camera.position.distanceTo(this.target));
-      const speed = Math.min(range, this.sceneRadius * 2) * 0.8 * (this.keys.has("fast") ? 3 : 1);
+      const speed = clamp(this.keyRange, 2, this.sceneRadius * 2) * 0.6 * (this.keys.has("fast") ? 3 : 1);
       if (wanted.lengthSq() > 0) wanted.normalize().multiplyScalar(speed);
     }
     this.keyVelocity.lerp(wanted, 1 - Math.exp(-10 * dt));
@@ -469,17 +494,14 @@ function movementKey(code: string): string | undefined {
     case "ArrowRight":
       return "right";
     case "KeyE":
-    case "PageUp":
       return "up";
     case "KeyQ":
-    case "PageDown":
       return "down";
     default:
       return undefined;
   }
 }
 
-function isTyping(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false;
-  return target.isContentEditable || target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement;
+function clamp(value: number, low: number, high: number): number {
+  return Math.max(low, Math.min(high, value));
 }
