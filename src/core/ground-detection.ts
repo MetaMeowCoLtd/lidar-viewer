@@ -116,6 +116,25 @@ export function detectGround(
   options: GroundDetectionOptions = defaultGroundDetectionOptions,
   onProgress?: GroundDetectionProgress,
 ): GroundDetectionResult {
+  const prepared = prepareGround(input, options, onProgress);
+  return classifyGround(input, options, prepared, markObjects(prepared, options, onProgress), onProgress);
+}
+
+/** The lowest surface ground detection filters, gaps filled and pits raised, and the grid it lies on. */
+export interface GroundPreparation {
+  readonly grid: GridGeometry;
+  readonly lowest: Float32Array;
+  readonly pitsRaised: number;
+  /** The largest opening radius, in cells. */
+  readonly maxRadius: number;
+}
+
+/** First stage of {@link detectGround}: the lowest point per cell, with noise left out and gaps filled. */
+export function prepareGround(
+  input: GroundDetectionInput,
+  options: GroundDetectionOptions = defaultGroundDetectionOptions,
+  onProgress?: GroundDetectionProgress,
+): GroundPreparation {
   validateOptions(options);
   const { positions, bounds, classification: existing } = input;
   const pointCount = positions.length / 3;
@@ -140,8 +159,19 @@ export function detectGround(
   const lowest = minimumSurface(positions, grid, skip);
   if (!fillEmptyCells(lowest, cols, rows)) throw new Error("Every point in the scan is already marked as noise");
   const pitsRaised = raiseIsolatedPits(lowest, cols, rows, Math.max(2 * options.elevationThreshold, 2 * options.slope * cellSize));
+  return { grid, lowest, pitsRaised, maxRadius: Math.max(1, Math.ceil(options.maxWindow / cellSize)) };
+}
 
-  const maxRadius = Math.max(1, Math.ceil(options.maxWindow / cellSize));
+/**
+ * Second stage, the costly one: opens the surface at every radius up to the
+ * largest window and marks a cell as an object wherever an opening lowers it
+ * by more than the slope allows at that radius. {@link gpuMarkObjects} does the
+ * same on the GPU.
+ */
+export function markObjects(prepared: GroundPreparation, options: GroundDetectionOptions, onProgress?: GroundDetectionProgress): Uint8Array {
+  const { grid, lowest, maxRadius } = prepared;
+  const { cols, rows, cellSize } = grid;
+  const cells = cols * rows;
   const isObject = new Uint8Array(cells);
   let previous = Float32Array.from(lowest);
   let opened = new Float32Array(cells);
@@ -156,8 +186,22 @@ export function detectGround(
     previous = opened;
     opened = retired;
   }
-  opened = new Float32Array(0);
-  previous = new Float32Array(0);
+  return isObject;
+}
+
+/** Last stage: rebuilds the ground under the objects and classifies every point against it. */
+export function classifyGround(
+  input: GroundDetectionInput,
+  options: GroundDetectionOptions,
+  prepared: GroundPreparation,
+  isObject: Uint8Array,
+  onProgress?: GroundDetectionProgress,
+): GroundDetectionResult {
+  const { positions, classification: existing } = input;
+  const pointCount = positions.length / 3;
+  const { grid, lowest, pitsRaised } = prepared;
+  const { cols, rows, cellSize } = grid;
+  const cells = cols * rows;
 
   onProgress?.("Rebuilding the ground surface", 0.7);
   const surface = new Float32Array(cells);

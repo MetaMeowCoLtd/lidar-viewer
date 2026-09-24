@@ -46,6 +46,20 @@ export interface NoiseDetectionInput {
   readonly positions: Float32Array;
   readonly bounds: PointCloudBounds;
   readonly classification?: Uint8Array | undefined;
+  /**
+   * The isolated-point test, already run elsewhere - on the GPU - with
+   * {@link noiseSearchRadius} and {@link columnIndex}: 1 for isolated points.
+   * When given, the CPU search is skipped.
+   */
+  readonly isolated?: Uint8Array | undefined;
+}
+
+/** The neighbour search radius for a scan: about six times its point spacing, between 0.75 and 5 m. */
+export function noiseSearchRadius(bounds: PointCloudBounds, pointCount: number, options: NoiseDetectionOptions): number {
+  if (options.radius !== "auto") return options.radius;
+  const area = Math.max(bounds.size[0] * bounds.size[2], 1e-6);
+  const spacing = Math.sqrt(area / pointCount);
+  return Math.min(5, Math.max(0.75, spacing * 6));
 }
 
 export interface NoiseDetectionResult {
@@ -104,45 +118,12 @@ export function detectNoise(
 
   // The radius grows with the spacing between points, so the same test fits a
   // sparse survey and a dense close-range scan.
-  const area = Math.max(bounds.size[0] * bounds.size[2], 1e-6);
-  const spacing = Math.sqrt(area / pointCount);
-  const radius = options.radius === "auto" ? Math.min(5, Math.max(0.75, spacing * 6)) : options.radius;
+  const radius = noiseSearchRadius(bounds, pointCount, options);
   if (!(radius > 0)) throw new Error("radius must be positive");
 
-  onProgress?.("Indexing points", 0);
-  const grid = columnIndex(positions, bounds, radius);
+  const isolated = input.isolated ?? findIsolated(positions, bounds, radius, options.minNeighbours, onProgress);
+  if (isolated.length !== pointCount) throw new Error("isolated must contain one value per point");
 
-  // --- isolated points
-  onProgress?.("Finding isolated points", 0.1);
-  const isolated = new Uint8Array(pointCount);
-  const radiusSq = radius * radius;
-  const reportEvery = Math.max(1, Math.floor(pointCount / 20));
-  for (let point = 0; point < pointCount; point += 1) {
-    if (point % reportEvery === 0) onProgress?.("Finding isolated points", 0.1 + 0.6 * (point / pointCount));
-    const x = positions[point * 3]!;
-    const y = positions[point * 3 + 1]!;
-    const z = positions[point * 3 + 2]!;
-    const col = grid.column(x);
-    const row = grid.row(z);
-    let neighbours = 0;
-    search: for (let r = Math.max(0, row - 1); r <= Math.min(grid.rows - 1, row + 1); r += 1) {
-      for (let c = Math.max(0, col - 1); c <= Math.min(grid.cols - 1, col + 1); c += 1) {
-        const cell = r * grid.cols + c;
-        for (let slot = grid.start[cell]!; slot < grid.start[cell + 1]!; slot += 1) {
-          const other = grid.order[slot]!;
-          if (other === point) continue;
-          const dx = positions[other * 3]! - x;
-          const dy = positions[other * 3 + 1]! - y;
-          const dz = positions[other * 3 + 2]! - z;
-          if (dx * dx + dy * dy + dz * dz < radiusSq) {
-            neighbours += 1;
-            if (neighbours >= options.minNeighbours) break search;
-          }
-        }
-      }
-    }
-    if (neighbours < options.minNeighbours) isolated[point] = 1;
-  }
 
   // --- low outliers, cell by cell from the bottom up
   onProgress?.("Finding low outliers", 0.75);
@@ -203,9 +184,56 @@ export function detectNoise(
   };
 }
 
-interface ColumnIndex {
+/** The radius outlier test on the CPU: 1 for every point with fewer than `minNeighbours` others within `radius`. */
+export function findIsolated(
+  positions: Float32Array,
+  bounds: PointCloudBounds,
+  radius: number,
+  minNeighbours: number,
+  onProgress?: NoiseDetectionProgress,
+): Uint8Array {
+  const pointCount = positions.length / 3;
+  onProgress?.("Indexing points", 0);
+  const grid = columnIndex(positions, bounds, radius);
+  onProgress?.("Finding isolated points", 0.1);
+  const isolated = new Uint8Array(pointCount);
+  const radiusSq = radius * radius;
+  const reportEvery = Math.max(1, Math.floor(pointCount / 20));
+  for (let point = 0; point < pointCount; point += 1) {
+    if (point % reportEvery === 0) onProgress?.("Finding isolated points", 0.1 + 0.6 * (point / pointCount));
+    const x = positions[point * 3]!;
+    const y = positions[point * 3 + 1]!;
+    const z = positions[point * 3 + 2]!;
+    const col = grid.column(x);
+    const row = grid.row(z);
+    let neighbours = 0;
+    search: for (let r = Math.max(0, row - 1); r <= Math.min(grid.rows - 1, row + 1); r += 1) {
+      for (let c = Math.max(0, col - 1); c <= Math.min(grid.cols - 1, col + 1); c += 1) {
+        const cell = r * grid.cols + c;
+        for (let slot = grid.start[cell]!; slot < grid.start[cell + 1]!; slot += 1) {
+          const other = grid.order[slot]!;
+          if (other === point) continue;
+          const dx = positions[other * 3]! - x;
+          const dy = positions[other * 3 + 1]! - y;
+          const dz = positions[other * 3 + 2]! - z;
+          if (dx * dx + dy * dy + dz * dz < radiusSq) {
+            neighbours += 1;
+            if (neighbours >= minNeighbours) break search;
+          }
+        }
+      }
+    }
+    if (neighbours < minNeighbours) isolated[point] = 1;
+  }
+
+  return isolated;
+}
+
+export interface ColumnIndex {
   readonly cols: number;
   readonly rows: number;
+  /** The cell edge actually used: at least the requested size, larger when the grid had to be coarsened. */
+  readonly size: number;
   /** Where each cell's points begin in `order`; one entry longer than the cell count. */
   readonly start: Int32Array;
   readonly order: Int32Array;
@@ -214,7 +242,7 @@ interface ColumnIndex {
 }
 
 /** Points bucketed into vertical columns on a square grid over the ground plane, by counting sort. */
-function columnIndex(positions: Float32Array, bounds: PointCloudBounds, cellSize: number): ColumnIndex {
+export function columnIndex(positions: Float32Array, bounds: PointCloudBounds, cellSize: number): ColumnIndex {
   const pointCount = positions.length / 3;
   // Very fine grids over large scans would cost more memory than the points; coarsen if so.
   let size = cellSize;
@@ -238,5 +266,5 @@ function columnIndex(positions: Float32Array, bounds: PointCloudBounds, cellSize
     order[fill[cell]!] = point;
     fill[cell] = fill[cell]! + 1;
   }
-  return { cols, rows, start, order, column, row };
+  return { cols, rows, size, start, order, column, row };
 }
