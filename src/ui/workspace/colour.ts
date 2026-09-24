@@ -10,6 +10,7 @@ export interface ColourChoice {
 const labels: Record<PointCloudColorMode, string> = {
   height: "Height",
   rgb: "RGB",
+  intensity: "Intensity",
   relief: "Relief",
   classification: "Classes",
   heightAboveGround: "Above ground",
@@ -23,12 +24,19 @@ export function colorModeLabel(mode: PointCloudColorMode): string {
 /** What each colour mode shows, and what a scan must carry before it can. */
 export function colorModeChoices(supports: {
   rgb: boolean;
+  intensity: boolean;
   classification: boolean;
   heightAboveGround: boolean;
   objects: boolean;
 }): readonly ColourChoice[] {
   return [
     { value: "rgb", label: labels.rgb, hint: supports.rgb ? "The scan's own colour" : "This scan has no colour", disabled: !supports.rgb },
+    {
+      value: "intensity",
+      label: labels.intensity,
+      hint: supports.intensity ? "How strongly each surface returned the laser" : "This scan has no intensity",
+      disabled: !supports.intensity,
+    },
     { value: "height", label: labels.height, hint: "Elevation, low to high", disabled: false },
     { value: "relief", label: labels.relief, hint: "Shaded to bring out shape", disabled: false },
     {

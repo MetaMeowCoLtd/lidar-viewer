@@ -17,6 +17,7 @@ const colorModeToNumber: Record<PointCloudColorMode, number> = {
   classification: 3,
   heightAboveGround: 4,
   objects: 5,
+  intensity: 6,
 };
 const pointShapeToNumber: Record<PointCloudPointShape, number> = { circle: 0, square: 1 };
 const sizeScaleFraction = 0.78;
@@ -39,6 +40,8 @@ export interface PointCloudShaderOptions {
   readonly maxHeight: number;
   /** Height above ground at which the colour ramp tops out. */
   readonly maxAboveGround?: number;
+  /** The intensity values the grey ramp runs between. */
+  readonly intensityRange?: readonly [number, number];
 }
 
 /** Shader material that keeps point sizing and color selection on the GPU. */
@@ -59,6 +62,8 @@ export class PointCloudShaderMaterial extends ShaderMaterial {
       uMaxAboveGround: { value: Math.max(options.maxAboveGround ?? 20, 1) },
       uBuildingCount: { value: 0 },
       uVoxelSize: { value: 0 },
+      uIntensityLow: { value: options.intensityRange?.[0] ?? 0 },
+      uIntensityHigh: { value: options.intensityRange?.[1] ?? 1 },
       uPixelsPerUnit: { value: 0 },
     };
     super({
@@ -70,7 +75,9 @@ export class PointCloudShaderMaterial extends ShaderMaterial {
         attribute float classification;
         attribute float heightAboveGround;
         attribute float objectId;
+        attribute float intensity;
         varying vec3 vColor;
+        varying float vIntensity;
         varying float vHeight;
         varying float vClass;
         varying float vAboveGround;
@@ -86,6 +93,7 @@ export class PointCloudShaderMaterial extends ShaderMaterial {
           vClass = classification;
           vAboveGround = heightAboveGround;
           vObject = objectId;
+          vIntensity = intensity;
           vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
           float chosenSize = clamp(uPointSize * (uSizeScale / max(uMinDepth, -mvPosition.z)), ${minDotSize.toFixed(1)}, ${maxDotSize.toFixed(1)});
           // A decimated point stands for its whole voxel. Drawn at the chosen
@@ -108,7 +116,10 @@ export class PointCloudShaderMaterial extends ShaderMaterial {
         uniform sampler2D uClassPalette;
         uniform float uMaxAboveGround;
         uniform float uBuildingCount;
+        uniform float uIntensityLow;
+        uniform float uIntensityHigh;
         varying vec3 vColor;
+        varying float vIntensity;
         varying float vHeight;
         varying float vClass;
         varying float vAboveGround;
@@ -157,6 +168,13 @@ export class PointCloudShaderMaterial extends ShaderMaterial {
           return mix(yellow, orange, (t - 0.66) / 0.34);
         }
 
+        // Intensity as a grey ramp, slightly lifted in the darks where asphalt,
+        // water edges and roofing sit, the way survey software shows it.
+        vec3 intensityColor(float value) {
+          float t = clamp((value - uIntensityLow) / max(uIntensityHigh - uIntensityLow, 0.0001), 0.0, 1.0);
+          return vec3(pow(t, 0.8) * 0.92 + 0.04);
+        }
+
         void main() {
           if (uPointShape < 0.5 && length(gl_PointCoord - vec2(0.5)) > 0.5) discard;
           vec3 heightColor = mix(uLowHeightColor, uHighHeightColor, clamp((vHeight - uMinHeight) / (uMaxHeight - uMinHeight), 0.0, 1.0));
@@ -166,7 +184,7 @@ export class PointCloudShaderMaterial extends ShaderMaterial {
           vec3 classColor = texture2D(uClassPalette, vec2((vClass + 0.5) / 256.0, 0.5)).rgb;
           vec3 finalColor = uColorMode < 0.5
             ? heightColor
-            : (uColorMode < 1.5 ? vColor : (uColorMode < 2.5 ? reliefColor : (uColorMode < 3.5 ? classColor : (uColorMode < 4.5 ? aboveGroundColor(vAboveGround) : objectColor(vObject, vClass)))));
+            : (uColorMode < 1.5 ? vColor : (uColorMode < 2.5 ? reliefColor : (uColorMode < 3.5 ? classColor : (uColorMode < 4.5 ? aboveGroundColor(vAboveGround) : (uColorMode < 5.5 ? objectColor(vObject, vClass) : intensityColor(vIntensity))))));
           gl_FragColor = vec4(finalColor, 1.0);
         }
       `,

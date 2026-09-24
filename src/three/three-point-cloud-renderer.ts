@@ -19,7 +19,7 @@ import type { TerrainModel } from "../core/terrain.js";
 import type { ContourSet } from "../core/contours.js";
 import { EyeDomeLighting } from "./eye-dome-lighting.js";
 import { viewerConfig } from "../config.js";
-import { heightAboveGroundRampTop } from "../core/statistics.js";
+import { heightAboveGroundRampTop, intensityRange } from "../core/statistics.js";
 import type { DetectedObject } from "../core/object-detection.js";
 import { ObjectOutlines } from "./object-outlines.js";
 
@@ -63,6 +63,7 @@ export class ThreePointCloudRenderer {
   private hasRgb = false;
   private hasClassification = false;
   private hasHeightAboveGround = false;
+  private hasIntensity = false;
   private hasObjects = false;
   private readonly outlines = new ObjectOutlines();
   private readonly annotations = new MeasurementOverlay();
@@ -89,11 +90,13 @@ export class ThreePointCloudRenderer {
       minHeight: source.bounds.min[1],
       maxHeight: source.bounds.max[1],
       ...(source.heightAboveGround === undefined ? {} : { maxAboveGround: heightAboveGroundRampTop(source.heightAboveGround) }),
+      ...(source.intensity === undefined ? {} : { intensityRange: intensityRange(source.intensity) }),
     });
     this.material.setHasRgb(source.supportsColorMode("rgb"));
     this.hasRgb = source.supportsColorMode("rgb");
     this.hasClassification = source.supportsColorMode("classification");
     this.hasHeightAboveGround = source.supportsColorMode("heightAboveGround");
+    this.hasIntensity = source.supportsColorMode("intensity");
     this.hasObjects = source.supportsColorMode("objects");
 
     const material = this.material;
@@ -154,6 +157,7 @@ export class ThreePointCloudRenderer {
   public setColorMode(mode: PointCloudColorMode): void {
     const unsupported =
       (mode === "rgb" && !this.hasRgb) ||
+      (mode === "intensity" && !this.hasIntensity) ||
       (mode === "classification" && !this.hasClassification) ||
       (mode === "heightAboveGround" && !this.hasHeightAboveGround) ||
       (mode === "objects" && !this.hasObjects);
@@ -320,6 +324,9 @@ function createGeometry(cloud: PointCloud): BufferGeometry {
     // Not normalized: the shader wants the class code itself, 0 to 255, not a
     // fraction of the byte range.
     geometry.setAttribute("classification", new BufferAttribute(cloud.classification, 1, false));
+  }
+  if (cloud.intensity !== undefined) {
+    geometry.setAttribute("intensity", new BufferAttribute(cloud.intensity, 1));
   }
   if (cloud.heightAboveGround !== undefined) {
     geometry.setAttribute("heightAboveGround", new BufferAttribute(cloud.heightAboveGround, 1));

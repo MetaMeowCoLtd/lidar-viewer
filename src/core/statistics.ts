@@ -18,6 +18,18 @@ export function upperPercentile(values: ArrayLike<number>, fraction: number, sam
 }
 
 /**
+ * The span the intensity ramp stretches over: the 2nd to the 98th percentile.
+ * Sensors report intensity on scales from 0-255 to 0-65535 and a few specular
+ * glints sit far above the rest, so a fixed range or the true extremes would
+ * leave most of a scan a flat grey.
+ */
+export function intensityRange(values: ArrayLike<number>): readonly [number, number] {
+  const low = upperPercentile(values, 0.02);
+  const high = upperPercentile(values, 0.98);
+  return [low, Math.max(high, low + 1)];
+}
+
+/**
  * Where the height-above-ground colour ramp tops out, in whole metres. The
  * renderer and the legend both read it from here, so the numbers printed
  * under the key are the ones the shader actually used.

@@ -94,6 +94,7 @@ export function useWorkspace(options: WorkspaceOptions) {
   const effectivePointBudget = Math.min(pointBudget, source?.pointCount ?? pointBudget);
   const supports = {
     rgb: source?.supportsColorMode("rgb") ?? false,
+    intensity: source?.supportsColorMode("intensity") ?? false,
     classification: source?.supportsColorMode("classification") ?? false,
     heightAboveGround: source?.supportsColorMode("heightAboveGround") ?? false,
     objects: source?.supportsColorMode("objects") ?? false,

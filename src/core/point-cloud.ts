@@ -1,6 +1,6 @@
 import type { SpatialReference } from "./spatial-reference.js";
 
-export type PointCloudColorMode = "height" | "rgb" | "relief" | "classification" | "heightAboveGround" | "objects";
+export type PointCloudColorMode = "height" | "rgb" | "intensity" | "relief" | "classification" | "heightAboveGround" | "objects";
 export type PointCloudPointShape = "circle" | "square";
 
 export interface PointCloudBounds {
@@ -173,6 +173,7 @@ export class PointCloud {
 
   public supportsColorMode(mode: PointCloudColorMode): boolean {
     if (mode === "rgb") return this.colors !== undefined;
+    if (mode === "intensity") return this.intensity !== undefined;
     if (mode === "classification") return this.classification !== undefined;
     if (mode === "heightAboveGround") return this.heightAboveGround !== undefined;
     if (mode === "objects") return this.objectId !== undefined;
