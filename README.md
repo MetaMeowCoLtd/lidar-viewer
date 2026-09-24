@@ -35,9 +35,15 @@ only responsible for GPU resources and draw configuration.
 - Point-budget LOD selection and transaction-safe loading session
 - Three.js `Points` adapter using a custom shader material
 - A UI-free `LidarViewer` composition root with one render loop and 3D-app navigation: turn around the point under the cursor, right-drag to pan, zoom to the cursor, double-click to fly to a point, WASD or arrows and Q/E to move once the view has focus
-- A landing page at `#/` and a workspace at `#/app`: a tool rail with scan,
-  view, analysis and settings panels, a full-window viewport with its own
-  toolbar, colour menu, legend and inspector, and a status line
+- A landing page at `#/` and a workspace at `#/app`: one side panel with the
+  scan, an "Analyze scan" button that runs noise, ground, terrain and object
+  detection in order, and a card per result carrying its own layer controls; a
+  Display menu for point size, shape and detail; a full-window viewport with
+  its own toolbar, colour menu, legend and inspector; and a status line
+- Noise clean-up the way PDAL does it: isolated points (radius filter) and low
+  outliers (ELM) labelled as ASPRS classes 7 and 18, hidden or highlighted in
+  the view, and left out of a "cleaned" LAS export
+- Light and dark themes, following the system until one is chosen
 
 Everything runs in the browser. No scan data is uploaded.
 
