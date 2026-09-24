@@ -2,7 +2,7 @@ import { readPly } from "./ply-file-importer.js";
 import { readLasHeader, minimumLasHeaderSize } from "./las-header.js";
 import { readLasPoints } from "./las-reader.js";
 import { readLazPoints } from "./laz-reader.js";
-import { blobSource, type ByteSource } from "./byte-source.js";
+import type { ByteSource } from "./byte-source.js";
 import { plyVertexCount } from "./binary-ply-reader.js";
 import { keepEveryFor, type ImportedScan, type ReadProgress } from "./read-options.js";
 
@@ -18,20 +18,6 @@ export interface ScanImportOptions {
 /** Extensions offered in the file picker, in the order a user is likely to meet them. */
 export const supportedScanExtensions = [".las", ".laz", ".ply"] as const;
 
-/**
- * Reads a local scan into the core's point-cloud contract.
- *
- * Format is decided by the file's own leading bytes rather than its
- * extension, because `.laz` and `.las` are routinely used interchangeably by
- * the tools that write them, and a compressed file carries the same header as
- * an uncompressed one. The extension is only used to reject files the reader
- * has no chance with before spending time on them.
- */
-export async function importScanFile(file: File, options: ScanImportOptions = {}): Promise<ImportedScan> {
-  validateScanFile(file);
-  return importScan(blobSource(file), scanName(file), options);
-}
-
 /** Rejects a file no reader could take, before any work is spent on it. */
 export function validateScanFile(file: File): void {
   const lowerName = file.name.toLowerCase();
@@ -39,7 +25,6 @@ export function validateScanFile(file: File): void {
     throw new Error(`Select a ${supportedScanExtensions.join(", ")} point-cloud file`);
   }
   if (file.size === 0) throw new Error("The selected file is empty");
-
 }
 
 /** The name a scan is shown and exported under: its file name without the extension. */
@@ -50,7 +35,11 @@ export function scanName(file: File): string {
 /** Bytes read up front: enough for any LAS header and a PLY header. */
 const leadingBytes = 64 * 1024;
 
-/** Format dispatch, separated from the File plumbing so it can be exercised directly. */
+/**
+ * Reads a scan into the core's point-cloud contract. Format is decided by the
+ * file's own leading bytes rather than its extension, because `.laz` and
+ * `.las` are routinely used interchangeably by the tools that write them.
+ */
 export async function importScan(source: ByteSource, name: string, options: ScanImportOptions = {}): Promise<ImportedScan> {
   const { onProgress, maxPoints } = options;
   const leading = (await source.read(0, leadingBytes)).slice();

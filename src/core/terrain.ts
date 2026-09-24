@@ -117,9 +117,3 @@ function footprint(positions: Float32Array, grid: GridGeometry): Uint8Array {
   return covered;
 }
 
-/** Local ground height at a cell centre, or NaN outside the grid or the scan. */
-export function terrainHeightAt(model: TerrainModel, column: number, row: number): number {
-  const { cols, rows } = model.grid;
-  if (column < 0 || row < 0 || column >= cols || row >= rows) return Number.NaN;
-  return model.elevations[row * cols + column]!;
-}

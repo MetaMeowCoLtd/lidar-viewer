@@ -134,7 +134,6 @@ export function useWorkspace(options: WorkspaceOptions) {
     objects: source?.supportsColorMode("objects") ?? false,
   };
   const analysing = pipeline !== undefined || quality.status === "running" || noise.status === "running" || ground.status === "running" || count.status === "running" || terrain.status === "running";
-  const importing = importProgress !== undefined;
   const exportBlocked = source === undefined || status !== "ready" || analysing || exporting !== undefined;
   const counted = count.status === "done" && source?.objectId !== undefined;
   const budgetMaximum = source?.pointCount ?? viewerConfig().defaultPointBudget;
@@ -818,7 +817,6 @@ export function useWorkspace(options: WorkspaceOptions) {
     sourceLabel,
     sampling,
     importProgress,
-    importing,
     uiHidden,
     view: {
       colorMode,
@@ -874,14 +872,10 @@ export function useWorkspace(options: WorkspaceOptions) {
       analyzeTerrain,
       analyzeObjects,
       noise,
-      findNoise,
       hasGround,
       ground,
-      detectGround,
       terrain,
-      buildTerrain,
       count,
-      countObjects,
     },
     picking: {
       clickTool,

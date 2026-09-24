@@ -1,13 +1,6 @@
 import { formatCount, formatRampHeight, formatShare } from "../format.js";
 import type { CountState, GroundState, NoiseState, QualityState, TerrainState } from "./types.js";
 
-/** A short progress or timing figure for an analysis: its percentage while running, its duration once done. */
-export function progressHeadline(state: NoiseState | GroundState | TerrainState | CountState | QualityState): string {
-  if (state.status === "running") return `${Math.round(state.fraction * 100)}%`;
-  if (state.status === "done") return `${state.seconds.toFixed(1)} s`;
-  return "";
-}
-
 export function qualitySummary(quality: QualityState, checkpointCount: number): string {
   if (quality.status === "failed") return quality.message;
   if (quality.status !== "done") {

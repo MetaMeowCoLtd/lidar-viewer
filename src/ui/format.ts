@@ -34,15 +34,6 @@ export function formatCount(value: number): string {
   return String(value);
 }
 
-/**
- * Positions are held relative to the cloud's origin so a projected coordinate
- * never has to survive a narrowing to Float32. Showing that offset is how a
- * user confirms a scan was recognised as georeferenced rather than local.
- */
-export function formatOrigin(cloud: { origin: readonly [number, number, number]; isGeoreferenced: boolean }): string {
-  if (!cloud.isGeoreferenced) return "Local";
-  return cloud.origin.map((value) => value.toLocaleString("en-US", { maximumFractionDigits: 0 })).join(" / ");
-}
 
 export function ordinalSuffix(value: number): string {
   const lastTwo = value % 100;
