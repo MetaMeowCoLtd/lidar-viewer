@@ -7,15 +7,18 @@ reconciliation and keeps the data pipeline worker-ready.
 
 ```
 PointCloud (typed arrays, metadata, bounds)
-  ├─ ProceduralCloudGenerator  → development/test source
-  ├─ LAS / LAZ / PLY readers   → local scan sources
-  ├─ detectGround (worker)     → ground class + height above ground
-  ├─ detectObjects (worker)    → buildings, trees, object ids and outlines
+  ├─ ProceduralCloudGenerator   → simulated drone survey (sample and tests)
+  ├─ LAS / LAZ / PLY readers    → local scan sources
+  ├─ detectNoise (worker)       → noise classes 7 and 18
+  ├─ detectGround (worker)      → ground class + height above ground
+  ├─ detectObjects (worker)     → buildings, trees, object ids and outlines
   ├─ buildTerrainModel (worker) → terrain grid and contour lines
-  ├─ writeLas / inventory      → LAS 1.4, CSV and GeoJSON exports
+  ├─ buildQualityReport (worker) → USGS density, voids, precision, strips, accuracy
+  ├─ gpu/ (WebGPU, optional)    → noise search and ground openings as compute shaders
+  ├─ writeLas / inventory       → LAS 1.4, CSV, GeoJSON, GeoTIFF and HTML report
   └─ PointCloudLodPyramid
        └─ VoxelGridDownsampler → precomputed tiers
-            └─ LidarViewer → one RAF loop, camera and OrbitControls
+            └─ LidarViewer → one RAF loop, camera and NavigationControls
                  └─ ThreePointCloudRenderer → GPU geometries + shader
 ```
 
@@ -248,7 +251,8 @@ themselves.
   the cloud, its tiles and their detail levels. Scans with more than
   `maxImportPoints` points keep every n-th point, which spreads the kept points
   across the whole scan because writers store points in acquisition or spatial
-  order. The panel says when this happened and by how much. The default of 60
+  order. The side panel says when this happened and by how much, and the
+  quality report rates the file it came from. The default of 60
   million loads the 900 MB, 60-million-point Shinjuku sample in about 20
   seconds.
 - **Tiling in slices.** Partitioning tens of millions of points into tiles takes
@@ -266,15 +270,19 @@ landing page, and the workspace at `#/app`.
 `useWorkspace` holds the whole working state - the scan, the analyses, what was
 clicked, how it is drawn - and is the only place that talks to the imperative
 viewer. Components below it are presentational, which is what keeps the layout
-free to change: the panels, the viewport overlays and the status line all read
-the same hook.
+free to change: the side panel, the viewport overlays and the status line all
+read the same hook.
 
-The workspace is a tool rail with one panel open at a time rather than a single
-scrolling column of every control, so the scan keeps the window and the
-analyses read as three numbered steps with their dependencies visible. Things
-that belong to the scan sit over it - the click tools, the colour menu with its
-legend, and an inspector for whatever was last clicked - while the exports live
-in one menu in the top bar, each item saying why it is unavailable when it is.
+The workspace has no tabs. One side panel holds the workflow: an "Analyze scan"
+button that runs noise, ground, terrain, objects and the quality report in
+order, and a card per result carrying its own controls - noise visibility
+beside the noise, terrain layers beside the terrain, outlines beside the count.
+Each fact is shown once: what the scan is sits in the top bar, what was found
+on the cards, and the status line only says what is happening now. Things that
+belong to the scan sit over it - the click tools, the colour menu with its
+legend, and an inspector for whatever was last clicked. Exports live in one
+menu in the top bar, each item saying why it is unavailable when it is; how the
+scan is drawn lives in the Display menu.
 
 ## Rendering approach
 
@@ -291,7 +299,7 @@ the shader layout stays stable across all clouds.
    already stay off the page's thread or yield to it.
 2. Add retained performance telemetry (FPS, frame time, GPU capability) to the
    React overlay without coupling it to Three.js scene state.
-3. Add accessibility and keyboard navigation refinements to the control panel.
+3. Add accessibility refinements to the side panel and the report dialog.
 
 True octree streaming remains a separate data-source strategy; none of these
 classes claim to support unbounded multi-scan datasets in memory.
