@@ -1,70 +1,33 @@
 import { useState } from "react";
-import { Icon, type IconName } from "../icons.js";
-import { useWorkspace, type Workspace as WorkspaceState } from "./use-workspace.js";
+import { useWorkspace } from "./use-workspace.js";
 import { TopBar } from "./TopBar.js";
 import { Viewport } from "./Viewport.js";
 import { StatusBar } from "./StatusBar.js";
-import { ScanPanel } from "./panels/ScanPanel.js";
-import { ViewPanel } from "./panels/ViewPanel.js";
-import { AnalyzePanel } from "./panels/AnalyzePanel.js";
-import { SettingsPanel } from "./panels/SettingsPanel.js";
-
-type PanelId = "scan" | "view" | "analyze" | "settings";
-
-const tabs: readonly { id: PanelId; icon: IconName; label: string }[] = [
-  { id: "scan", icon: "file", label: "Scan" },
-  { id: "view", icon: "eye", label: "View" },
-  { id: "analyze", icon: "sparkles", label: "Analyze" },
-  { id: "settings", icon: "sliders", label: "Settings" },
-];
+import { Sidebar } from "./Sidebar.js";
 
 /**
- * The workspace: a top bar over a tool rail, one open panel, the scan itself,
- * and a status line.
+ * The workspace: a top bar over one side panel and the scan, and a status line.
  *
- * Only one panel is open at a time, which is what keeps the controls from
- * becoming the single long scroll they were before; the rail says what else is
- * there. Clicking the open tab closes it and gives the whole window to the
- * scan, as does pressing H.
+ * The side panel is the whole workflow - the scan, one button to analyse it,
+ * and each result with its own controls - so there are no tabs to learn. How
+ * the scan is drawn lives in the Display menu, what it is coloured by over the
+ * scan itself. The panel can be tucked away with the button in the corner, and
+ * H hides everything but the scan.
  */
 export function Workspace({ loadSampleOnStart }: { loadSampleOnStart: boolean }) {
   const workspace = useWorkspace({ loadSampleOnStart });
-  const [panel, setPanel] = useState<PanelId | undefined>("scan");
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  // Before a scan is open the viewport's own welcome says everything; a panel beside it would repeat it.
+  const showSidebar = sidebarOpen && workspace.source !== undefined;
 
   return (
     <div className={workspace.uiHidden ? "ws is-bare" : "ws"}>
-      <TopBar workspace={workspace} />
-      <div className="ws-body">
-        <nav className="ws-rail" aria-label="Panels">
-          {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              className={panel === tab.id ? "ws-rail-tab is-active" : "ws-rail-tab"}
-              aria-pressed={panel === tab.id}
-              title={tab.label}
-              onClick={() => setPanel((open) => (open === tab.id ? undefined : tab.id))}
-            >
-              <Icon name={tab.icon} />
-              <span>{tab.label}</span>
-            </button>
-          ))}
-        </nav>
-        {panel === undefined ? null : (
-          <aside className="ws-panel" aria-label={`${tabs.find((tab) => tab.id === panel)?.label} panel`}>
-            <Panel id={panel} workspace={workspace} />
-          </aside>
-        )}
+      <TopBar workspace={workspace} sidebarOpen={sidebarOpen} onToggleSidebar={() => setSidebarOpen((open) => !open)} />
+      <div className={showSidebar ? "ws-body" : "ws-body is-collapsed"}>
+        {showSidebar ? <Sidebar workspace={workspace} /> : null}
         <Viewport workspace={workspace} />
       </div>
       <StatusBar workspace={workspace} />
     </div>
   );
-}
-
-function Panel({ id, workspace }: { id: PanelId; workspace: WorkspaceState }) {
-  if (id === "scan") return <ScanPanel workspace={workspace} />;
-  if (id === "view") return <ViewPanel workspace={workspace} />;
-  if (id === "analyze") return <AnalyzePanel workspace={workspace} />;
-  return <SettingsPanel workspace={workspace} />;
 }

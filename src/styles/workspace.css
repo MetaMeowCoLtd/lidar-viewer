@@ -58,52 +58,16 @@
 
 .ws-body {
   display: grid;
-  grid-template-columns: auto auto minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr);
   min-height: 0;
 }
 
-.ws-rail {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  width: 64px;
-  padding: 8px 6px;
-  border-right: 1px solid var(--border);
-  background: var(--surface);
-}
-
-.ws-rail-tab {
-  display: grid;
-  justify-items: center;
-  gap: 4px;
-  padding: 8px 2px;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--text-3);
-  font-size: 10px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.15s var(--ease), color 0.15s var(--ease);
-}
-
-.ws-rail-tab:hover {
-  background: var(--surface-hover);
-  color: var(--text);
-}
-
-.ws-rail-tab.is-active {
-  background: var(--accent-soft);
-  color: var(--accent);
-}
-
-.ws-rail-tab .icon {
-  width: 19px;
-  height: 19px;
+.ws-body.is-collapsed {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .ws-panel {
-  width: 304px;
+  width: 320px;
   overflow-y: auto;
   overscroll-behavior: contain;
   border-right: 1px solid var(--border);
@@ -112,24 +76,83 @@
   scrollbar-color: var(--border-strong) transparent;
 }
 
-.panel {
-  padding: 14px 16px 24px;
+/* The side panel: the scan, then the analysis */
+.side-section {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
 }
 
-.panel-title {
-  margin: 0 0 14px;
+.side-section + .side-section {
+  padding-top: 4px;
+}
+
+.side-title {
+  margin: 0;
   font-size: 15px;
   font-weight: 700;
 }
 
-.panel-actions {
+.side-actions {
   display: grid;
   gap: 8px;
-  margin: 14px 0;
 }
 
-.panel-progress {
-  margin: 10px 0;
+.side-scan {
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.side-scan-name {
+  overflow: hidden;
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.side-scan-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin: 0;
+  color: var(--text-3);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.side-pipeline {
+  margin: 0;
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.display-menu {
+  display: grid;
+  gap: 4px;
+  padding: 4px 6px;
+}
+
+.menu-popover:has(> .display-menu) {
+  width: 300px;
+  max-height: min(80vh, 560px);
+  overflow-x: hidden;
+}
+
+.link-btn {
+  justify-self: start;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.link-btn:hover {
+  color: var(--accent-hover);
+  text-decoration: underline;
 }
 
 /* Panel controls */
@@ -293,7 +316,6 @@
 }
 
 .stat-list,
-.scan-card dl,
 .ws-inspector dl {
   display: grid;
   gap: 2px;
@@ -301,7 +323,6 @@
 }
 
 .stat-list div,
-.scan-card dl div,
 .ws-inspector dl div {
   display: flex;
   justify-content: space-between;
@@ -311,13 +332,11 @@
 }
 
 .stat-list dt,
-.scan-card dt,
 .ws-inspector dt {
   color: var(--text-3);
 }
 
 .stat-list dd,
-.scan-card dd,
 .ws-inspector dd {
   margin: 0;
   overflow: hidden;
@@ -327,81 +346,84 @@
   white-space: nowrap;
 }
 
-.scan-card {
+/* Analysis results: one card per result, its controls inside it */
+.result {
+  display: grid;
+  gap: 8px;
   padding: 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--surface-2);
 }
 
-.scan-card strong {
-  display: block;
-  overflow: hidden;
-  margin-bottom: 8px;
-  font-size: 13px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.result.is-running {
+  border-color: var(--accent);
 }
 
-/* Analysis steps */
-.step {
-  padding: 14px 0;
-  border-top: 1px solid var(--border);
-}
-
-.step header {
+.result header {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 10px;
 }
 
-.step h3 {
+.result h3 {
   margin: 0;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 700;
 }
 
-.step-number {
+.result-icon {
   display: grid;
   place-items: center;
-  width: 20px;
-  height: 20px;
-  border: 1px solid var(--border-strong);
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
+  background: var(--surface-3);
   color: var(--text-2);
-  font-family: var(--mono);
-  font-size: 11px;
 }
 
-.step.is-done .step-number {
-  border-color: transparent;
-  background: var(--success);
-  color: #04120c;
-}
-
-.step.is-done .step-number .icon {
+.result-icon .icon {
   width: 13px;
   height: 13px;
 }
 
-.step-blocked {
-  padding: 2px 7px;
-  border-radius: 999px;
-  background: var(--surface-2);
-  color: var(--text-3);
-  font-size: 11px;
+.result.is-done .result-icon {
+  background: var(--success);
+  color: var(--on-success);
 }
 
-.step-failed {
-  color: var(--danger);
-}
-
-.step-time {
+.result-value {
   margin-left: auto;
-  color: var(--text-3);
+  color: var(--text);
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: 12px;
+}
+
+.result-run {
+  width: 26px;
+  height: 26px;
+}
+
+.result-value + .result-run {
+  margin-left: 0;
+}
+
+.result h3 + .result-run {
+  margin-left: auto;
+}
+
+.result-stage {
+  margin: 0;
+  color: var(--text-2);
+  font-size: 12px;
+}
+
+.result .note {
+  margin: 0;
+}
+
+.result .tally {
+  margin-top: 0;
 }
 
 .tally {
@@ -444,7 +466,7 @@
 .ws-view {
   position: relative;
   min-width: 0;
-  background: #05070a;
+  background: var(--viewer-bg);
 }
 
 .ws-canvas {
@@ -462,7 +484,7 @@
   inset: 10px;
   border: 2px dashed var(--accent);
   border-radius: var(--radius-lg);
-  background: rgba(82, 199, 255, 0.06);
+  background: var(--accent-soft);
   pointer-events: none;
 }
 
@@ -487,7 +509,7 @@
   transform: translateX(-50%);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  background: rgba(14, 18, 24, 0.86);
+  background: var(--glass);
   backdrop-filter: blur(12px);
 }
 
@@ -504,7 +526,7 @@
 }
 
 .ws-colour .btn {
-  background: rgba(14, 18, 24, 0.86);
+  background: var(--glass);
   backdrop-filter: blur(12px);
 }
 
@@ -518,7 +540,7 @@
   padding: 8px 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  background: rgba(14, 18, 24, 0.86);
+  background: var(--glass);
   backdrop-filter: blur(12px);
   font-size: 12px;
 }
@@ -566,7 +588,7 @@
   padding: 12px 14px 14px;
   border: 1px solid var(--border-strong);
   border-radius: var(--radius);
-  background: rgba(14, 18, 24, 0.92);
+  background: var(--glass-strong);
   backdrop-filter: blur(14px);
   box-shadow: var(--shadow-popover);
 }
@@ -647,7 +669,7 @@
   left: 0;
   padding: 3px 7px;
   border-radius: var(--radius-sm);
-  background: rgba(5, 7, 10, 0.85);
+  background: var(--scrim);
   font-family: var(--mono);
   font-size: 11px;
   pointer-events: none;
@@ -667,7 +689,7 @@
   padding: 16px 18px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  background: rgba(14, 18, 24, 0.92);
+  background: var(--glass-strong);
 }
 
 .ws-loading p {
@@ -690,7 +712,7 @@
   padding: 28px;
   border: 1px dashed var(--border-strong);
   border-radius: var(--radius-lg);
-  background: rgba(14, 18, 24, 0.7);
+  background: var(--glass-soft);
 }
 
 .ws-empty-icon {
@@ -874,7 +896,6 @@
 
 /* H hides the frame and leaves the scan. */
 .ws.is-bare .ws-top,
-.ws.is-bare .ws-rail,
 .ws.is-bare .ws-panel,
 .ws.is-bare .ws-status {
   display: none;
@@ -884,18 +905,18 @@
   grid-template-rows: minmax(0, 1fr);
 }
 
-/* With the rail and panel gone the viewport is the only child, and would
-   otherwise fall into the first, content-sized column. */
+/* With the panel gone the viewport is the only child, and would otherwise
+   fall into the first, content-sized column. */
 .ws.is-bare .ws-body {
   grid-template-columns: minmax(0, 1fr);
 }
 
 @media (max-width: 860px) {
-  /* Stacked: the scan on top, the open panel as a sheet under it, the rail at
-     the bottom where a thumb reaches. */
-  .ws-body {
+  /* Stacked: the scan on top, the side panel as a sheet under it. */
+  .ws-body,
+  .ws-body.is-collapsed {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(0, 1fr) auto auto;
+    grid-template-rows: minmax(0, 1fr) auto;
   }
 
   .ws-view {
@@ -908,21 +929,6 @@
     max-height: 46vh;
     border-right: 0;
     border-top: 1px solid var(--border-strong);
-  }
-
-  .ws-rail {
-    grid-row: 3;
-    flex-direction: row;
-    justify-content: space-around;
-    width: auto;
-    padding: 4px;
-    border-right: 0;
-    border-top: 1px solid var(--border);
-  }
-
-  .ws-rail-tab {
-    flex: 1;
-    padding: 6px 2px;
   }
 
   .ws-inspector {

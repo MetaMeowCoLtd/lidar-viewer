@@ -10,6 +10,17 @@ export function Legend({ workspace }: { workspace: Workspace }) {
   const { view, source, analysis } = workspace;
   if (source === undefined) return null;
 
+  if (view.noiseDisplay === "highlighted" && view.noisePoints > 0) {
+    return (
+      <div className="ws-legend" aria-label="Noise highlighted">
+        <span>
+          <i style={{ background: "#ff2999" }} />
+          {`Noise · ${view.noisePoints.toLocaleString("en-US")} points`}
+        </span>
+      </div>
+    );
+  }
+
   if (view.colorMode === "classification" && view.classHistogram.length > 0) {
     return (
       <div className="ws-legend" aria-label="Classes in this scan">

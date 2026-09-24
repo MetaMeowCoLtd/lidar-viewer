@@ -20,7 +20,7 @@ export function noiseSummary(noise: NoiseState): string {
   if (stats.isolatedLow > 0) parts.push(`${formatCount(stats.isolatedLow)} stray at or below it`);
   if (stats.lowOutliers > 0) parts.push(`${formatCount(stats.lowOutliers)} far below the ground`);
   if (stats.alreadyLabelled > 0) parts.push(`${formatCount(stats.alreadyLabelled)} already labelled in the file`);
-  return `${formatCount(stats.total)} points are noise (${formatShare(stats.total, stats.pointCount)}): ${parts.join(", ")}. They are hidden; highlight them in View to check. Found in ${seconds.toFixed(1)} s.`;
+  return `${formatCount(stats.total)} points are noise (${formatShare(stats.total, stats.pointCount)}): ${parts.join(", ")}. They are hidden; highlight them below to check. Found in ${seconds.toFixed(1)} s.`;
 }
 
 export function groundSummary(ground: GroundState): string {

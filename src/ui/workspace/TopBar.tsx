@@ -3,14 +3,19 @@ import { Menu, MenuItem } from "../controls.js";
 import { formatCount } from "../format.js";
 import { landingHref } from "../router.js";
 import type { Workspace } from "./use-workspace.js";
+import { DisplayMenu } from "./DisplayMenu.js";
+import { ThemeToggle } from "../ThemeToggle.js";
 
-/** The scan on screen, and the two things done to a whole scan: opening one and exporting it. */
-export function TopBar({ workspace }: { workspace: Workspace }) {
+/** The scan on screen, the things done to a whole scan - opening and exporting it - and how it is drawn. */
+export function TopBar({ workspace, sidebarOpen, onToggleSidebar }: { workspace: Workspace; sidebarOpen: boolean; onToggleSidebar: () => void }) {
   const { source, sourceLabel, exports, analysis, view } = workspace;
   const crs = source?.spatialReference?.epsg;
 
   return (
     <header className="ws-top">
+      <button type="button" className="icon-btn" aria-pressed={sidebarOpen} title={sidebarOpen ? "Hide the side panel" : "Show the side panel"} onClick={onToggleSidebar}>
+        <Icon name="sidebar" />
+      </button>
       <a className="logo" href={landingHref} title="Back to the home page">
         <Icon name="logo" className="logo-mark" />
         <span className="ws-top-name">Vertex LiDAR</span>
@@ -99,6 +104,8 @@ export function TopBar({ workspace }: { workspace: Workspace }) {
             );
           }}
         </Menu>
+        <DisplayMenu workspace={workspace} />
+        <ThemeToggle />
       </div>
     </header>
   );
