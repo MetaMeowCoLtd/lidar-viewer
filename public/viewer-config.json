@@ -67,5 +67,11 @@
   "terrain": {
     "cellSize": 1,
     "maxGridCells": 4000000
+  },
+  "noiseDetection": {
+    "radius": "auto",
+    "minNeighbours": 2,
+    "lowCellSize": 10,
+    "lowThreshold": 1
   }
 }

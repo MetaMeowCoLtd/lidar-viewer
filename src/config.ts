@@ -1,3 +1,4 @@
+import { defaultNoiseDetectionOptions, type NoiseDetectionOptions } from "./core/noise-detection.js";
 import type { PointCloudPointShape } from "./core/point-cloud.js";
 import { defaultGroundDetectionOptions, type GroundDetectionOptions } from "./core/ground-detection.js";
 import { defaultObjectDetectionOptions, type ObjectDetectionOptions } from "./core/object-detection.js";
@@ -78,6 +79,8 @@ export interface ViewerConfig {
   readonly objectDetection: ObjectDetectionOptions;
   /** Terrain model grid, in the scan's units; see {@link TerrainOptions}. */
   readonly terrain: TerrainOptions;
+  /** Noise tests, in the scan's units; see {@link NoiseDetectionOptions}. */
+  readonly noiseDetection: NoiseDetectionOptions;
 }
 
 const fallback: ViewerConfig = {
@@ -98,6 +101,7 @@ const fallback: ViewerConfig = {
   groundDetection: defaultGroundDetectionOptions,
   objectDetection: defaultObjectDetectionOptions,
   terrain: defaultTerrainOptions,
+  noiseDetection: defaultNoiseDetectionOptions,
 };
 
 let active: ViewerConfig = fallback;
@@ -130,6 +134,7 @@ export async function loadViewerConfig(): Promise<ViewerConfig> {
         groundDetection: { ...fallback.groundDetection, ...parsed.groundDetection },
         objectDetection: { ...fallback.objectDetection, ...parsed.objectDetection },
         terrain: { ...fallback.terrain, ...parsed.terrain },
+        noiseDetection: { ...fallback.noiseDetection, ...parsed.noiseDetection },
       };
     }
   } catch {
