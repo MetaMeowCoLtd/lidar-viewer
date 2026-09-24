@@ -34,7 +34,7 @@ only responsible for GPU resources and draw configuration.
 - Voxel-grid decimation and a precomputed LOD pyramid
 - Point-budget LOD selection and transaction-safe loading session
 - Three.js `Points` adapter using a custom shader material
-- A UI-free `LidarViewer` composition root with one render loop and 3D-app navigation: turn around the point under the cursor, right-drag to pan, zoom to the cursor, double-click to fly to a point, WASD or arrows and Q/E to move once the view has focus
+- A UI-free `LidarViewer` composition root with one render loop and Unreal Engine-style navigation: left-drag walks, right-drag looks (with WASD/QE to fly and the wheel for speed), middle-drag pans, Alt + left orbits the point under the cursor, the wheel zooms to the cursor and double-click flies to a point
 - A landing page at `#/` and a workspace at `#/app`: one side panel with the
   scan, an "Analyze scan" button that runs noise, ground, terrain and object
   detection in order, and a card per result carrying its own layer controls; a

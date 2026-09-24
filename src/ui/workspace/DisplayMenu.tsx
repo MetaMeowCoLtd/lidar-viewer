@@ -69,31 +69,43 @@ export function DisplayMenu({ workspace }: { workspace: Workspace }) {
             <Note>Detail follows the camera: full resolution up close, lighter far away.</Note>
           )}
 
-          <Field label="Moving around">
+          <Field label="Moving around · Unreal Engine style">
             <dl className="stat-list">
               <div>
-                <dt>Turn</dt>
-                <dd>Drag</dd>
+                <dt>Walk and turn</dt>
+                <dd>Left-drag</dd>
+              </div>
+              <div>
+                <dt>Look around</dt>
+                <dd>Right-drag</dd>
+              </div>
+              <div>
+                <dt>Fly while looking</dt>
+                <dd>Right-drag + W A S D, Q E</dd>
+              </div>
+              <div>
+                <dt>Fly speed</dt>
+                <dd>Right-drag + scroll</dd>
               </div>
               <div>
                 <dt>Pan</dt>
-                <dd>Right- or middle-drag, Shift-drag</dd>
+                <dd>Middle-drag, or left + right</dd>
+              </div>
+              <div>
+                <dt>Orbit a point</dt>
+                <dd>Alt + left-drag</dd>
+              </div>
+              <div>
+                <dt>Dolly</dt>
+                <dd>Alt + right-drag</dd>
               </div>
               <div>
                 <dt>Zoom to cursor</dt>
-                <dd>Scroll, pinch</dd>
+                <dd>Scroll</dd>
               </div>
               <div>
                 <dt>Fly to a point</dt>
                 <dd>Double-click</dd>
-              </div>
-              <div>
-                <dt>Move</dt>
-                <dd>W A S D or arrows</dd>
-              </div>
-              <div>
-                <dt>Down · up</dt>
-                <dd>Q · E, Shift for faster</dd>
               </div>
               <div>
                 <dt>Hide the panels</dt>
@@ -101,7 +113,7 @@ export function DisplayMenu({ workspace }: { workspace: Workspace }) {
               </div>
             </dl>
           </Field>
-          <Note>The view turns and zooms around whatever is under the cursor; keys steer it once you have clicked the scan.</Note>
+          <Note>The same mouse layout as the Unreal Engine viewport. W A S D, the arrows, Q and E also work without a button held once you have clicked the scan; Shift is faster.</Note>
         </div>
       )}
     </Menu>
