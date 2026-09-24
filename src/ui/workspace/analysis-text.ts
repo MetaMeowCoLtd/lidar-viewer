@@ -1,11 +1,26 @@
 import { formatCount, formatRampHeight, formatShare } from "../format.js";
-import type { CountState, GroundState, TerrainState } from "./types.js";
+import type { CountState, GroundState, NoiseState, TerrainState } from "./types.js";
 
 /** A short progress or timing figure for an analysis: its percentage while running, its duration once done. */
-export function progressHeadline(state: GroundState | TerrainState | CountState): string {
+export function progressHeadline(state: NoiseState | GroundState | TerrainState | CountState): string {
   if (state.status === "running") return `${Math.round(state.fraction * 100)}%`;
   if (state.status === "done") return `${state.seconds.toFixed(1)} s`;
   return "";
+}
+
+export function noiseSummary(noise: NoiseState): string {
+  if (noise.status === "failed") return noise.message;
+  if (noise.status !== "done") {
+    return "Finds stray returns - birds and dust above the scan, multipath below it - and labels them as noise so the other steps and your exports leave them out.";
+  }
+  const { stats, seconds } = noise;
+  if (stats.total === 0) return `No noise found: every point has neighbours within ${stats.radius.toFixed(1)} m and none sits far below its surroundings.`;
+  const parts: string[] = [];
+  if (stats.isolatedHigh > 0) parts.push(`${formatCount(stats.isolatedHigh)} stray above the surface`);
+  if (stats.isolatedLow > 0) parts.push(`${formatCount(stats.isolatedLow)} stray at or below it`);
+  if (stats.lowOutliers > 0) parts.push(`${formatCount(stats.lowOutliers)} far below the ground`);
+  if (stats.alreadyLabelled > 0) parts.push(`${formatCount(stats.alreadyLabelled)} already labelled in the file`);
+  return `${formatCount(stats.total)} points are noise (${formatShare(stats.total, stats.pointCount)}): ${parts.join(", ")}. They are hidden; highlight them in View to check. Found in ${seconds.toFixed(1)} s.`;
 }
 
 export function groundSummary(ground: GroundState): string {

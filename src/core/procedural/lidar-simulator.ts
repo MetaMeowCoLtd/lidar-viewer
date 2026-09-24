@@ -711,7 +711,7 @@ export function simulateSurvey(targetPoints: number, random: Random, onProgress?
   fly({ altitude, linesPerStrip, pulsesPerLine }, random, scanner, (strip) => onProgress?.(0.15 + (0.8 * strip) / stripZs.length));
 
   // A real capture also holds a few strays: birds above the site and multipath below the ground.
-  const strays = Math.round(targetPoints * 0.00004);
+  const strays = Math.round(targetPoints * 0.0003);
   for (let index = 0; index < strays * 2; index += 1) {
     const x = (random() - 0.5) * 2 * (halfWidth - 1);
     const z = (random() - 0.5) * 2 * (halfDepth - 1);

@@ -14,6 +14,9 @@ import { classSummaryCsv, objectInventoryCsv, objectsGeoJson } from "../../expor
 import { fileStem, saveFile } from "../../export/save-file.js";
 import { describePoint } from "../../core/point-inspection.js";
 import { TerrainCancelled, startTerrainBuild, type TerrainJob } from "../../core/terrain-job.js";
+import { NoiseDetectionCancelled, startNoiseDetection, type NoiseDetectionJob } from "../../core/noise-detection-job.js";
+import { withoutNoise } from "../../export/clean.js";
+import type { NoiseDisplay } from "../../three/point-cloud-shader-material.js";
 import { contoursGeoJson, terrainGeoTiff } from "../../export/terrain-export.js";
 import type {
   ClickTool,
@@ -22,6 +25,7 @@ import type {
   GroundState,
   ImportProgress,
   LodMode,
+  NoiseState,
   Picks,
   Sampling,
   TerrainState,
@@ -64,6 +68,9 @@ export function useWorkspace(options: WorkspaceOptions) {
   const [uiHidden, setUiHidden] = useState(false);
   const [lodMode, setLodMode] = useState<LodMode>(() => (viewerConfig().distanceLod.enabledByDefault ? "distance" : "manual"));
   const [lodSummary, setLodSummary] = useState<LodRenderSummary>();
+  const [noise, setNoise] = useState<NoiseState>({ status: "idle" });
+  const noiseJobRef = useRef<NoiseDetectionJob | undefined>(undefined);
+  const [noiseDisplay, setNoiseDisplay] = useState<NoiseDisplay>("hidden");
   const [ground, setGround] = useState<GroundState>({ status: "idle" });
   const groundJobRef = useRef<GroundDetectionJob | undefined>(undefined);
   const [count, setCount] = useState<CountState>({ status: "idle" });
@@ -99,7 +106,7 @@ export function useWorkspace(options: WorkspaceOptions) {
     heightAboveGround: source?.supportsColorMode("heightAboveGround") ?? false,
     objects: source?.supportsColorMode("objects") ?? false,
   };
-  const analysing = ground.status === "running" || count.status === "running" || terrain.status === "running";
+  const analysing = noise.status === "running" || ground.status === "running" || count.status === "running" || terrain.status === "running";
   const importing = importProgress !== undefined;
   const exportBlocked = source === undefined || status !== "ready" || analysing || exporting !== undefined;
   const counted = count.status === "done" && source?.objectId !== undefined;
@@ -109,6 +116,7 @@ export function useWorkspace(options: WorkspaceOptions) {
   // scan rather than on every render.
   const classHistogram = useMemo(() => source?.classificationHistogram() ?? [], [source]);
   const hasGround = classHistogram.some(({ code, count: points }) => code === 2 && points >= 100);
+  const noisePoints = classHistogram.reduce((sum, { code, count: points }) => (code === 7 || code === 18 ? sum + points : sum), 0);
   const aboveGroundTop = useMemo(
     () => (source?.heightAboveGround === undefined ? 0 : heightAboveGroundRampTop(source.heightAboveGround)),
     [source],
@@ -155,10 +163,13 @@ export function useWorkspace(options: WorkspaceOptions) {
     importJobRef.current = undefined;
     importRunRef.current += 1;
     setImportProgress(undefined);
+    noiseJobRef.current?.cancel();
+    noiseJobRef.current = undefined;
     groundJobRef.current?.cancel();
     groundJobRef.current = undefined;
     countJobRef.current?.cancel();
     countJobRef.current = undefined;
+    setNoise({ status: "idle" });
     setGround({ status: "idle" });
     setCount({ status: "idle" });
     clearTerrain();
@@ -333,6 +344,49 @@ export function useWorkspace(options: WorkspaceOptions) {
 
   const resetView = useCallback(() => viewerRef.current?.resetView(), []);
 
+  const findNoise = useCallback(async () => {
+    const viewer = viewerRef.current;
+    const cloud = sourceRef.current;
+    if (viewer === undefined || cloud === undefined) return;
+    noiseJobRef.current?.cancel();
+    const started = performance.now();
+    setNoise({ status: "running", stage: "Starting", fraction: 0 });
+    const job = startNoiseDetection(cloud, viewerConfig().noiseDetection, (stage, fraction) => {
+      if (noiseJobRef.current === job) setNoise({ status: "running", stage, fraction });
+    });
+    noiseJobRef.current = job;
+    try {
+      const result = await job.result;
+      if (noiseJobRef.current !== job) return;
+      if (sourceRef.current !== cloud) {
+        noiseJobRef.current = undefined;
+        setNoise({ status: "idle" });
+        return;
+      }
+      setNoise({ status: "running", stage: "Updating the view", fraction: 1 });
+      // Noise only relabels points, so ground, heights and objects found so far stay valid.
+      await viewer.replaceCloud(
+        new PointCloud({
+          positions: cloud.positions,
+          ...definedChannels(cloud),
+          classification: result.classification,
+          bounds: cloud.bounds,
+          origin: cloud.origin,
+          spatialReference: cloud.spatialReference,
+          name: cloud.name,
+        }),
+      );
+      if (noiseJobRef.current !== job) return;
+      noiseJobRef.current = undefined;
+      setNoiseDisplay("hidden");
+      setNoise({ status: "done", stats: result.stats, seconds: (performance.now() - started) / 1000 });
+    } catch (error) {
+      if (error instanceof NoiseDetectionCancelled || noiseJobRef.current !== job) return;
+      noiseJobRef.current = undefined;
+      setNoise({ status: "failed", message: error instanceof Error ? error.message : "Finding noise failed" });
+    }
+  }, []);
+
   const detectGround = useCallback(async () => {
     const viewer = viewerRef.current;
     const cloud = sourceRef.current;
@@ -492,6 +546,8 @@ export function useWorkspace(options: WorkspaceOptions) {
       const stem = fileStem(cloud.name);
       if (kind === "las") {
         saveFile(writeLas(cloud) as BlobPart[], `${stem}-classified.las`, "application/vnd.las");
+      } else if (kind === "cleaned") {
+        saveFile(writeLas(withoutNoise(cloud)) as BlobPart[], `${stem}-cleaned.las`, "application/vnd.las");
       } else if (kind === "classes") {
         saveFile([classSummaryCsv(cloud)], `${stem}-classes.csv`, "text/csv");
       } else if (kind === "elevation" || kind === "contours") {
@@ -546,9 +602,14 @@ export function useWorkspace(options: WorkspaceOptions) {
     viewerRef.current?.setPointsVisible(showPoints);
   }, [showPoints]);
 
+  useEffect(() => {
+    viewerRef.current?.setNoiseDisplay(noiseDisplay);
+  }, [noiseDisplay]);
+
   useEffect(
     () => () => {
       terrainJobRef.current?.cancel();
+      noiseJobRef.current?.cancel();
       importJobRef.current?.cancel();
       groundJobRef.current?.cancel();
       countJobRef.current?.cancel();
@@ -594,6 +655,9 @@ export function useWorkspace(options: WorkspaceOptions) {
       setShowContours,
       showPoints,
       setShowPoints,
+      noiseDisplay,
+      setNoiseDisplay,
+      noisePoints,
     },
     detail: {
       lodMode,
@@ -605,6 +669,8 @@ export function useWorkspace(options: WorkspaceOptions) {
     },
     analysis: {
       analysing,
+      noise,
+      findNoise,
       hasGround,
       ground,
       detectGround,

@@ -39,7 +39,7 @@ export function Segmented<T extends string>({
       className="segmented"
       role="group"
       aria-label={label}
-      style={columns === undefined ? undefined : { gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
+      style={columns === undefined ? undefined : { gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`, gridAutoFlow: "row" }}
     >
       {choices.map((choice) => (
         <button

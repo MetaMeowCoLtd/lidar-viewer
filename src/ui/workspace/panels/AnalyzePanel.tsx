@@ -1,9 +1,9 @@
 import type { ReactNode } from "react";
 import { Icon } from "../../icons.js";
 import { Note, ProgressBar } from "../../controls.js";
-import { countSummary, groundSummary, progressHeadline, terrainSummary } from "../analysis-text.js";
+import { countSummary, groundSummary, noiseSummary, progressHeadline, terrainSummary } from "../analysis-text.js";
 import type { Workspace } from "../use-workspace.js";
-import type { CountState, GroundState, TerrainState } from "../types.js";
+import type { CountState, GroundState, NoiseState, TerrainState } from "../types.js";
 
 /**
  * The three analyses as numbered steps. A step says what it will do, what it
@@ -20,6 +20,16 @@ export function AnalyzePanel({ workspace }: { workspace: Workspace }) {
 
       <Step
         number={1}
+        title="Noise"
+        state={analysis.noise}
+        action={analysis.noise.status === "done" ? "Find again" : "Find noise"}
+        ready={ready}
+        onRun={() => void analysis.findNoise()}
+        summary={noiseSummary(analysis.noise)}
+      />
+
+      <Step
+        number={2}
         title="Ground"
         state={analysis.ground}
         action={analysis.ground.status === "done" ? "Detect again" : "Detect ground"}
@@ -29,7 +39,7 @@ export function AnalyzePanel({ workspace }: { workspace: Workspace }) {
       />
 
       <Step
-        number={2}
+        number={3}
         title="Terrain"
         state={analysis.terrain}
         action={analysis.terrain.status === "done" ? "Build again" : "Build terrain"}
@@ -40,7 +50,7 @@ export function AnalyzePanel({ workspace }: { workspace: Workspace }) {
       />
 
       <Step
-        number={3}
+        number={4}
         title="Buildings and trees"
         state={analysis.count}
         action={analysis.count.status === "done" ? "Count again" : "Count objects"}
@@ -84,7 +94,7 @@ function Step({
 }: {
   number: number;
   title: string;
-  state: GroundState | TerrainState | CountState;
+  state: NoiseState | GroundState | TerrainState | CountState;
   action: string;
   ready: boolean;
   blocked?: string | undefined;

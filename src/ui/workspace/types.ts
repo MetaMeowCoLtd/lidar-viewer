@@ -1,3 +1,4 @@
+import type { NoiseDetectionStats } from "../../core/noise-detection.js";
 import type { GroundDetectionStats } from "../../core/ground-detection.js";
 import type { DetectedObject, ObjectDetectionStats } from "../../core/object-detection.js";
 import type { PointDetails } from "../../core/point-inspection.js";
@@ -5,7 +6,7 @@ import type { TerrainResult } from "../../core/terrain-job.js";
 
 export type ViewerStatus = "initializing" | "processing" | "ready" | "error";
 
-export type ExportKind = "inventory" | "geojson" | "las" | "classes" | "elevation" | "contours";
+export type ExportKind = "inventory" | "geojson" | "las" | "cleaned" | "classes" | "elevation" | "contours";
 
 export type ClickTool = "inspect" | "measure";
 
@@ -28,6 +29,12 @@ export interface Picks {
   readonly from?: PointDetails | undefined;
   readonly to?: PointDetails | undefined;
 }
+
+export type NoiseState =
+  | { readonly status: "idle" }
+  | { readonly status: "running"; readonly stage: string; readonly fraction: number }
+  | { readonly status: "done"; readonly stats: NoiseDetectionStats; readonly seconds: number }
+  | { readonly status: "failed"; readonly message: string };
 
 export type GroundState =
   | { readonly status: "idle" }

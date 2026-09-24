@@ -39,6 +39,19 @@ export function ViewPanel({ workspace }: { workspace: Workspace }) {
         </div>
       </Field>
 
+      <Field label="Noise" value={view.noisePoints > 0 ? `${view.noisePoints.toLocaleString("en-US")} points` : undefined}>
+        <Segmented
+          label="Noise"
+          value={view.noiseDisplay}
+          choices={[
+            { value: "hidden", label: "Hide", disabled: view.noisePoints === 0 },
+            { value: "highlighted", label: "Highlight", disabled: view.noisePoints === 0 },
+            { value: "shown", label: "Show", disabled: view.noisePoints === 0 },
+          ]}
+          onChange={view.setNoiseDisplay}
+        />
+      </Field>
+
       <Field label="Point size" value={`${view.pointSize.toFixed(1)} px`}>
         <input
           aria-label="Point size"

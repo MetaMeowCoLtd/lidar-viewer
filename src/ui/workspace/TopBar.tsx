@@ -49,6 +49,13 @@ export function TopBar({ workspace }: { workspace: Workspace }) {
                   onClick={run("las")}
                 />
                 <MenuItem
+                  label="Cleaned points"
+                  hint={view.noisePoints > 0 ? "LAS with the noise left out" : "Find noise first"}
+                  disabled={exports.exportBlocked || view.noisePoints === 0}
+                  busy={exports.exporting === "cleaned"}
+                  onClick={run("cleaned")}
+                />
+                <MenuItem
                   label="Class summary"
                   hint={classified ? "CSV of points per class" : "Detect ground or count first"}
                   disabled={exports.exportBlocked || !classified}
