@@ -27,6 +27,7 @@ import type {
   LodMode,
   NoiseState,
   Picks,
+  PipelineState,
   Sampling,
   TerrainState,
   ViewerStatus,
@@ -93,6 +94,10 @@ export function useWorkspace(options: WorkspaceOptions) {
   const [clickTool, setClickTool] = useState<ClickTool>("inspect");
   const clickToolRef = useRef(clickTool);
   const [picks, setPicks] = useState<Picks>({});
+  const [pipeline, setPipeline] = useState<PipelineState>();
+  // Counts pipeline runs, so one that was superseded stops at its next step.
+  const pipelineRunRef = useRef(0);
+  const sourceWaitersRef = useRef<Array<() => void>>([]);
 
   const source = pyramid?.tiers[0]?.cloud;
   // The budget the user chose is kept as chosen and only capped here, per scan.
@@ -106,7 +111,7 @@ export function useWorkspace(options: WorkspaceOptions) {
     heightAboveGround: source?.supportsColorMode("heightAboveGround") ?? false,
     objects: source?.supportsColorMode("objects") ?? false,
   };
-  const analysing = noise.status === "running" || ground.status === "running" || count.status === "running" || terrain.status === "running";
+  const analysing = pipeline !== undefined || noise.status === "running" || ground.status === "running" || count.status === "running" || terrain.status === "running";
   const importing = importProgress !== undefined;
   const exportBlocked = source === undefined || status !== "ready" || analysing || exporting !== undefined;
   const counted = count.status === "done" && source?.objectId !== undefined;
@@ -128,6 +133,7 @@ export function useWorkspace(options: WorkspaceOptions) {
   // on the scan that was just replaced.
   useLayoutEffect(() => {
     sourceRef.current = source;
+    for (const resolve of sourceWaitersRef.current.splice(0)) resolve();
   }, [source]);
 
   // Exports read the objects of the count now on screen, not of the render that created the handler.
@@ -163,6 +169,8 @@ export function useWorkspace(options: WorkspaceOptions) {
     importJobRef.current = undefined;
     importRunRef.current += 1;
     setImportProgress(undefined);
+    pipelineRunRef.current += 1;
+    setPipeline(undefined);
     noiseJobRef.current?.cancel();
     noiseJobRef.current = undefined;
     groundJobRef.current?.cancel();
@@ -347,7 +355,7 @@ export function useWorkspace(options: WorkspaceOptions) {
   const findNoise = useCallback(async () => {
     const viewer = viewerRef.current;
     const cloud = sourceRef.current;
-    if (viewer === undefined || cloud === undefined) return;
+    if (viewer === undefined || cloud === undefined) return false;
     noiseJobRef.current?.cancel();
     const started = performance.now();
     setNoise({ status: "running", stage: "Starting", fraction: 0 });
@@ -357,11 +365,11 @@ export function useWorkspace(options: WorkspaceOptions) {
     noiseJobRef.current = job;
     try {
       const result = await job.result;
-      if (noiseJobRef.current !== job) return;
+      if (noiseJobRef.current !== job) return false;
       if (sourceRef.current !== cloud) {
         noiseJobRef.current = undefined;
         setNoise({ status: "idle" });
-        return;
+        return false;
       }
       setNoise({ status: "running", stage: "Updating the view", fraction: 1 });
       // Noise only relabels points, so ground, heights and objects found so far stay valid.
@@ -376,21 +384,23 @@ export function useWorkspace(options: WorkspaceOptions) {
           name: cloud.name,
         }),
       );
-      if (noiseJobRef.current !== job) return;
+      if (noiseJobRef.current !== job) return false;
       noiseJobRef.current = undefined;
       setNoiseDisplay("hidden");
       setNoise({ status: "done", stats: result.stats, seconds: (performance.now() - started) / 1000 });
+      return true;
     } catch (error) {
-      if (error instanceof NoiseDetectionCancelled || noiseJobRef.current !== job) return;
+      if (error instanceof NoiseDetectionCancelled || noiseJobRef.current !== job) return false;
       noiseJobRef.current = undefined;
       setNoise({ status: "failed", message: error instanceof Error ? error.message : "Finding noise failed" });
+      return false;
     }
   }, []);
 
   const detectGround = useCallback(async () => {
     const viewer = viewerRef.current;
     const cloud = sourceRef.current;
-    if (viewer === undefined || cloud === undefined) return;
+    if (viewer === undefined || cloud === undefined) return false;
     groundJobRef.current?.cancel();
     const started = performance.now();
     setGround({ status: "running", stage: "Starting", fraction: 0 });
@@ -400,13 +410,13 @@ export function useWorkspace(options: WorkspaceOptions) {
     groundJobRef.current = job;
     try {
       const result = await job.result;
-      if (groundJobRef.current !== job) return;
+      if (groundJobRef.current !== job) return false;
       // The user may have opened another scan while this one was analysed;
       // the result is for a scan no longer on screen, so it is dropped.
       if (sourceRef.current !== cloud) {
         groundJobRef.current = undefined;
         setGround({ status: "idle" });
-        return;
+        return false;
       }
       // Rebuilding every detail level with the new labels takes seconds on a
       // large scan, and saying so beats a progress bar stuck at its end.
@@ -423,24 +433,26 @@ export function useWorkspace(options: WorkspaceOptions) {
           name: cloud.name,
         }),
       );
-      if (groundJobRef.current !== job) return;
+      if (groundJobRef.current !== job) return false;
       groundJobRef.current = undefined;
       setCount({ status: "idle" });
       // New ground means a new terrain; the old one describes ground that is gone.
       clearTerrain();
       setColorMode("heightAboveGround");
       setGround({ status: "done", stats: result.stats, seconds: (performance.now() - started) / 1000 });
+      return true;
     } catch (error) {
-      if (error instanceof GroundDetectionCancelled || groundJobRef.current !== job) return;
+      if (error instanceof GroundDetectionCancelled || groundJobRef.current !== job) return false;
       groundJobRef.current = undefined;
       setGround({ status: "failed", message: error instanceof Error ? error.message : "Ground detection failed" });
+      return false;
     }
   }, [clearTerrain]);
 
   const buildTerrain = useCallback(async () => {
     const viewer = viewerRef.current;
     const cloud = sourceRef.current;
-    if (viewer === undefined || cloud === undefined) return;
+    if (viewer === undefined || cloud === undefined) return false;
     terrainJobRef.current?.cancel();
     const started = performance.now();
     setTerrain({ status: "running", stage: "Starting", fraction: 0 });
@@ -450,21 +462,23 @@ export function useWorkspace(options: WorkspaceOptions) {
     terrainJobRef.current = job;
     try {
       const result = await job.result;
-      if (terrainJobRef.current !== job) return;
+      if (terrainJobRef.current !== job) return false;
       terrainJobRef.current = undefined;
       viewer.setTerrain(result.model, result.contours);
       setTerrain({ status: "done", result, seconds: (performance.now() - started) / 1000 });
+      return true;
     } catch (error) {
-      if (error instanceof TerrainCancelled || terrainJobRef.current !== job) return;
+      if (error instanceof TerrainCancelled || terrainJobRef.current !== job) return false;
       terrainJobRef.current = undefined;
       setTerrain({ status: "failed", message: error instanceof Error ? error.message : "Building the terrain failed" });
+      return false;
     }
   }, []);
 
   const countObjects = useCallback(async () => {
     const viewer = viewerRef.current;
     const cloud = sourceRef.current;
-    if (viewer === undefined || cloud === undefined) return;
+    if (viewer === undefined || cloud === undefined) return false;
     countJobRef.current?.cancel();
     const started = performance.now();
     // The worker spends the first 45% of its progress on ground detection when
@@ -478,11 +492,11 @@ export function useWorkspace(options: WorkspaceOptions) {
     countJobRef.current = job;
     try {
       const result = await job.result;
-      if (countJobRef.current !== job) return;
+      if (countJobRef.current !== job) return false;
       if (sourceRef.current !== cloud) {
         countJobRef.current = undefined;
         setCount({ status: "idle" });
-        return;
+        return false;
       }
       setCount({ status: "running", stage: "Updating the view", fraction: 1 });
       await viewer.replaceCloud(
@@ -498,7 +512,7 @@ export function useWorkspace(options: WorkspaceOptions) {
           name: cloud.name,
         }),
       );
-      if (countJobRef.current !== job) return;
+      if (countJobRef.current !== job) return false;
       countJobRef.current = undefined;
       // Outlines belong to the cloud now on screen, so they go in after it.
       viewer.setObjects(result.objects);
@@ -526,12 +540,70 @@ export function useWorkspace(options: WorkspaceOptions) {
         treeHeights: [Number.isFinite(shortestTree) ? shortestTree : 0, tallestTree],
         seconds,
       });
+      return true;
     } catch (error) {
-      if (error instanceof ObjectDetectionCancelled || countJobRef.current !== job) return;
+      if (error instanceof ObjectDetectionCancelled || countJobRef.current !== job) return false;
       countJobRef.current = undefined;
       setCount({ status: "failed", message: error instanceof Error ? error.message : "Counting buildings and trees failed" });
+      return false;
     }
   }, [clearTerrain]);
+
+  /**
+   * Resolves once the scan on screen is no longer `previous`. An analysis that
+   * relabels the points swaps in a new cloud, and React only hands it to the
+   * next step after its next render; starting the step sooner would run it on
+   * the old cloud and throw its result away.
+   */
+  const afterSourceChanges = useCallback(
+    (previous: PointCloud | undefined) =>
+      new Promise<void>((resolve) => {
+        if (sourceRef.current !== previous) {
+          resolve();
+          return;
+        }
+        const timer = setTimeout(resolve, 15_000);
+        sourceWaitersRef.current.push(() => {
+          clearTimeout(timer);
+          resolve();
+        });
+      }),
+    [],
+  );
+
+  /** Runs analyses one after another, stopping at the first that does not finish. */
+  const runSteps = useCallback(
+    async (steps: ReadonlyArray<{ label: string; run: () => Promise<boolean>; relabels: boolean }>) => {
+      const run = ++pipelineRunRef.current;
+      try {
+        for (let index = 0; index < steps.length; index += 1) {
+          const step = steps[index]!;
+          if (pipelineRunRef.current !== run) return;
+          setPipeline({ step: index + 1, total: steps.length, label: step.label });
+          const before = sourceRef.current;
+          if (!(await step.run()) || pipelineRunRef.current !== run) return;
+          if (step.relabels) await afterSourceChanges(before);
+        }
+      } finally {
+        if (pipelineRunRef.current === run) setPipeline(undefined);
+      }
+    },
+    [afterSourceChanges],
+  );
+
+  const noiseStep = useMemo(() => ({ label: "Finding noise", run: findNoise, relabels: true }), [findNoise]);
+  const groundStep = useMemo(() => ({ label: "Finding the ground", run: detectGround, relabels: true }), [detectGround]);
+  const terrainStep = useMemo(() => ({ label: "Building the terrain", run: buildTerrain, relabels: false }), [buildTerrain]);
+  const countStep = useMemo(() => ({ label: "Counting buildings and trees", run: countObjects, relabels: true }), [countObjects]);
+
+  /** Everything, in the order each step helps the next: noise out of the way, then ground, terrain and objects. */
+  const analyzeScan = useCallback(
+    () => runSteps([noiseStep, groundStep, terrainStep, countStep]),
+    [runSteps, noiseStep, groundStep, terrainStep, countStep],
+  );
+  const analyzeNoise = useCallback(() => runSteps([noiseStep]), [runSteps, noiseStep]);
+  const analyzeTerrain = useCallback(() => runSteps([groundStep, terrainStep]), [runSteps, groundStep, terrainStep]);
+  const analyzeObjects = useCallback(() => runSteps([countStep]), [runSteps, countStep]);
 
   const exportScan = useCallback(async (kind: ExportKind) => {
     const cloud = sourceRef.current;
@@ -669,6 +741,11 @@ export function useWorkspace(options: WorkspaceOptions) {
     },
     analysis: {
       analysing,
+      pipeline,
+      analyzeScan,
+      analyzeNoise,
+      analyzeTerrain,
+      analyzeObjects,
       noise,
       findNoise,
       hasGround,

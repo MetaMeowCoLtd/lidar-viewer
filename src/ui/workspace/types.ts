@@ -30,6 +30,13 @@ export interface Picks {
   readonly to?: PointDetails | undefined;
 }
 
+/** Where a run of several analyses has got: which step of how many, and what it is doing. */
+export interface PipelineState {
+  readonly step: number;
+  readonly total: number;
+  readonly label: string;
+}
+
 export type NoiseState =
   | { readonly status: "idle" }
   | { readonly status: "running"; readonly stage: string; readonly fraction: number }
