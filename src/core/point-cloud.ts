@@ -26,6 +26,8 @@ export interface PointCloudAttributes {
   readonly heightAboveGround?: Float32Array;
   /** The building or tree each point belongs to, numbered from one; zero for none. */
   readonly objectId?: Uint32Array;
+  /** LAS point source ID: which flight line (strip) a point was captured on. */
+  readonly pointSourceId?: Uint16Array;
 }
 
 /**
@@ -42,6 +44,7 @@ export const pointCloudChannelNames = [
   "numberOfReturns",
   "heightAboveGround",
   "objectId",
+  "pointSourceId",
 ] as const;
 
 export type PointCloudChannelName = (typeof pointCloudChannelNames)[number];
@@ -110,6 +113,7 @@ export class PointCloud {
   public readonly numberOfReturns: Uint8Array | undefined;
   public readonly heightAboveGround: Float32Array | undefined;
   public readonly objectId: Uint32Array | undefined;
+  public readonly pointSourceId: Uint16Array | undefined;
   public readonly name: string;
   public readonly pointCount: number;
   public readonly bounds: PointCloudBounds;
@@ -125,6 +129,7 @@ export class PointCloud {
     numberOfReturns,
     heightAboveGround,
     objectId,
+    pointSourceId,
     bounds,
     origin = zeroOrigin,
     spatialReference,
@@ -147,6 +152,7 @@ export class PointCloud {
       ["numberOfReturns", numberOfReturns],
       ["heightAboveGround", heightAboveGround],
       ["objectId", objectId],
+      ["pointSourceId", pointSourceId],
     ] as const) {
       if (channel !== undefined && channel.length !== pointCount) {
         throw new Error(`${label} must contain one value per point`);
@@ -164,6 +170,7 @@ export class PointCloud {
     this.numberOfReturns = numberOfReturns;
     this.heightAboveGround = heightAboveGround;
     this.objectId = objectId;
+    this.pointSourceId = pointSourceId;
     this.name = name;
     this.pointCount = pointCount;
     this.bounds = bounds ?? calculateBounds(positions);

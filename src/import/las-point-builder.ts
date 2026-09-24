@@ -45,6 +45,8 @@ export class LasPointBuilder {
   private readonly classification: Uint8Array;
   private readonly returnNumber: Uint8Array;
   private readonly numberOfReturns: Uint8Array;
+  private readonly pointSourceId: Uint16Array;
+  private readonly pointSourceOffset: number;
   private readonly rgbOffset: number | undefined;
   private readonly classificationOffset: number;
   private readonly classificationMask: number;
@@ -74,6 +76,7 @@ export class LasPointBuilder {
 
     this.origin = chooseLocalFrame(header);
     this.rgbOffset = layout.rgbOffset;
+    this.pointSourceOffset = layout.pointSourceOffset;
     this.classificationOffset = layout.classificationOffset;
     this.classificationMask = layout.classificationMask;
     this.returnBits = layout.returnBits;
@@ -95,6 +98,7 @@ export class LasPointBuilder {
     this.classification = new Uint8Array(capacity);
     this.returnNumber = new Uint8Array(capacity);
     this.numberOfReturns = new Uint8Array(capacity);
+    this.pointSourceId = new Uint16Array(capacity);
   }
 
   /** Reads one record starting at `base` within `view`. */
@@ -125,6 +129,7 @@ export class LasPointBuilder {
     const returns = view.getUint8(base + returnByteOffset);
     this.returnNumber[this.written] = returns & this.returnMask;
     this.numberOfReturns[this.written] = (returns >> this.returnBits) & this.returnMask;
+    this.pointSourceId[this.written] = view.getUint16(base + this.pointSourceOffset, true);
 
     if (this.colors !== undefined && this.rgbOffset !== undefined) {
       const rgb = base + this.rgbOffset;
@@ -150,6 +155,7 @@ export class LasPointBuilder {
         : { colors: truncate ? this.colors.subarray(0, this.written * 3) : this.colors }),
       intensity: truncate ? this.intensity.subarray(0, this.written) : this.intensity,
       classification: truncate ? this.classification.subarray(0, this.written) : this.classification,
+      pointSourceId: truncate ? this.pointSourceId.subarray(0, this.written) : this.pointSourceId,
       returnNumber: truncate ? this.returnNumber.subarray(0, this.written) : this.returnNumber,
       numberOfReturns: truncate ? this.numberOfReturns.subarray(0, this.written) : this.numberOfReturns,
       bounds: boundsFromExtent(this.min, this.max),

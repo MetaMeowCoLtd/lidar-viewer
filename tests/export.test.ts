@@ -53,6 +53,7 @@ function georeferencedCloud(overrides: Partial<ConstructorParameters<typeof Poin
     numberOfReturns: new Uint8Array([1, 3, 15]),
     heightAboveGround: new Float32Array([18.25, 0, 3.5]),
     objectId: new Uint32Array([1, 0, 70_000]),
+    pointSourceId: new Uint16Array([1, 2, 65_535]),
     origin: [543_000, 0, -4_179_000],
     spatialReference: wktReference(utm54Wkt),
     name: "tile",
@@ -104,6 +105,7 @@ describe("LAS export", () => {
     expect([...back.classification!]).toEqual([6, 2, 64]);
     expect([...back.returnNumber!]).toEqual([1, 2, 12]);
     expect([...back.numberOfReturns!]).toEqual([1, 3, 15]);
+    expect([...back.pointSourceId!]).toEqual([1, 2, 65_535]);
     expect([...back.intensity!]).toEqual([1234, 65535, 0]);
     expect([...back.colors!]).toEqual([...cloud.colors!]);
     expect(back.spatialReference?.epsg).toBe(32654);

@@ -13,6 +13,7 @@ export interface LodBuildRequest {
   readonly numberOfReturns?: Uint8Array;
   readonly heightAboveGround?: Float32Array;
   readonly objectId?: Uint32Array;
+  readonly pointSourceId?: Uint16Array;
   /** The tile's local frame, carried across so decimated tiers stay aligned with it. */
   readonly origin: PointCloudOrigin;
   readonly specs: readonly LodTierSpec[];
@@ -30,6 +31,7 @@ export interface SerializedTier {
   readonly numberOfReturns?: Uint8Array;
   readonly heightAboveGround?: Float32Array;
   readonly objectId?: Uint32Array;
+  readonly pointSourceId?: Uint16Array;
   readonly bounds: PointCloudBounds;
   readonly origin: PointCloudOrigin;
   readonly minCameraDistance?: number;

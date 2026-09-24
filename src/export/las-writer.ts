@@ -115,6 +115,7 @@ export function writeLas(cloud: PointCloud, options: LasExportOptions = {}): Uin
       view.setUint8(base + 14, returnNumber | (numberOfReturns << 4));
       if (returnNumber >= 1) pointsByReturn[returnNumber - 1] = pointsByReturn[returnNumber - 1]! + 1;
       view.setUint8(base + 16, cloud.classification?.[point] ?? 0);
+      if (cloud.pointSourceId !== undefined) view.setUint16(base + 20, cloud.pointSourceId[point]!, true);
 
       if (cloud.colors !== undefined) {
         // Colour was narrowed to 8 bits on import; LAS stores 16, and 257 maps 255 to 65535 exactly.

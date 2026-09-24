@@ -69,7 +69,7 @@ export class PointCloudTiler {
       throw new Error("tileSize must be a finite number greater than zero");
     }
 
-    const { positions, colors, intensity, classification, returnNumber, numberOfReturns, heightAboveGround, objectId, pointCount } = source;
+    const { positions, colors, intensity, classification, returnNumber, numberOfReturns, heightAboveGround, objectId, pointSourceId, pointCount } = source;
     const originX = source.bounds.min[0];
     const originZ = source.bounds.min[2];
     const columns = Math.max(1, Math.ceil(source.bounds.size[0] / tileSize));
@@ -117,6 +117,7 @@ export class PointCloudTiler {
       ["numberOfReturns", numberOfReturns],
       ["heightAboveGround", heightAboveGround],
       ["objectId", objectId],
+      ["pointSourceId", pointSourceId],
     ] as const).flatMap(([key, channel]) =>
       channel === undefined
         ? []
@@ -178,6 +179,6 @@ const countShare = 0.3;
 const stepPoints = 1 << 16;
 
 /** A new, empty typed array of the same kind as `source`. */
-function allocateLike<T extends Uint8Array | Uint32Array | Float32Array>(source: T, length: number): T {
+function allocateLike<T extends Uint8Array | Uint16Array | Uint32Array | Float32Array>(source: T, length: number): T {
   return new (source.constructor as new (length: number) => T)(length);
 }
