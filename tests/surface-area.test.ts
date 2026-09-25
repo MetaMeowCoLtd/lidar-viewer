@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { PointCloud } from "../src/core/point-cloud.js";
-import { buildSurfaceGrid, selectSurface } from "../src/core/surface-area.js";
+import { buildSurfaceGrid, combinedPlanArea, describeSurface, mergeSurfaces, selectSurface, surfacesTouch } from "../src/core/surface-area.js";
 
 /**
  * A block of ground 60 by 60 m at height 0 with two buildings on it: a flat
@@ -67,5 +67,25 @@ describe("surface area", () => {
     }
     expect(length).toBeGreaterThan(55);
     expect(length).toBeLessThan(70);
+  });
+
+  it("merges two overlapping parts of a surface into the whole, counting the overlap once", () => {
+    const roof = selectSurface(grid, 20, 15)!;
+    // Two parts as partial clicks would give them: the west two thirds and the east two thirds.
+    const x = (cell: number) => grid.originX + ((cell % grid.cols) + 0.5) * grid.cellSize;
+    const west = describeSurface(grid, roof.cells.filter((cell) => x(cell) < 24));
+    const east = describeSurface(grid, roof.cells.filter((cell) => x(cell) > 16));
+    expect(surfacesTouch(grid, west.cells, east.cells)).toBe(true);
+    expect(west.planArea + east.planArea).toBeGreaterThan(roof.planArea * 1.2);
+    expect(combinedPlanArea(grid, [west, east])).toBeCloseTo(roof.planArea, 5);
+    const merged = mergeSurfaces(grid, [west, east]);
+    expect(merged.planArea).toBeCloseTo(roof.planArea, 5);
+    expect(merged.slopeDegrees).toBeLessThan(1);
+  });
+
+  it("tells surfaces that touch from surfaces apart", () => {
+    const flat = selectSurface(grid, 20, 15)!;
+    const pitched = selectSurface(grid, 45, 35)!;
+    expect(surfacesTouch(grid, flat.cells, pitched.cells)).toBe(false);
   });
 });

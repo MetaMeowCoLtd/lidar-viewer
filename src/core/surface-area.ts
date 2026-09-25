@@ -30,6 +30,8 @@ export interface SurfaceSelection {
   /** Its boundary, as line segments laid on the surface: x, y, z of each end. */
   readonly outline: Float32Array;
   readonly cellCount: number;
+  /** The grid cells it covers, in ascending order, so surfaces can be compared and merged. */
+  readonly cells: Int32Array;
 }
 
 export interface SurfaceOptions {
@@ -227,33 +229,135 @@ export function selectSurface(grid: SurfaceGrid, x: number, z: number, options: 
   }
   fit();
 
-  const filled = fillHoles(grid, inRegion);
-  const cellCount = tail + filled;
-  const planArea = cellCount * cellSize * cellSize;
-  const slopeCos = 1 / Math.sqrt(1 + plane.a * plane.a + plane.b * plane.b);
-  const surfaceY = (px: number, pz: number) => plane.a * (px - x0) + plane.b * (pz - z0) + plane.c;
-  const meanX = x0 + sums.x / sums.n;
-  const meanZ = z0 + sums.z / sums.n;
+  fillHoles(grid, inRegion);
+  const cells: number[] = [];
+  for (let cell = 0; cell < inRegion.length; cell += 1) if (inRegion[cell] !== 0) cells.push(cell);
+  return describeSurface(grid, Int32Array.from(cells));
+}
+
+/**
+ * Everything the tool reports about a set of cells: its plan area, its area
+ * along the surface, its tilt, where its label goes and its outline. The
+ * sloped area is summed cell by cell from the surface's own local slope, so
+ * it stays right for a surface merged from parts that tilt differently.
+ */
+export function describeSurface(grid: SurfaceGrid, cells: Int32Array): SurfaceSelection {
+  const { cellSize, cols, originX, originZ, top } = grid;
+  const cx = (cell: number) => originX + ((cell % cols) + 0.5) * cellSize;
+  const cz = (cell: number) => originZ + (Math.floor(cell / cols) + 0.5) * cellSize;
+  const inRegion = new Uint8Array(top.length);
+  for (const cell of cells) inRegion[cell] = 1;
+
+  // A plane through the surface, fitted twice so a chimney or a filled gap standing off it does not tilt it.
+  const x0 = cx(cells[0]!);
+  const z0 = cz(cells[0]!);
+  const sums = { n: 0, x: 0, z: 0, y: 0, xx: 0, xz: 0, zz: 0, xy: 0, zy: 0 };
+  let plane: { a: number; b: number; c: number } | undefined;
+  for (let round = 0; round < 2; round += 1) {
+    sums.n = 0;
+    sums.x = sums.z = sums.y = sums.xx = sums.xz = sums.zz = sums.xy = sums.zy = 0;
+    for (const cell of cells) {
+      const y = top[cell]!;
+      if (!Number.isFinite(y)) continue;
+      const dx = cx(cell) - x0;
+      const dz = cz(cell) - z0;
+      if (plane !== undefined && Math.abs(y - (plane.a * dx + plane.b * dz + plane.c)) > 0.3) continue;
+      sums.n += 1;
+      sums.x += dx;
+      sums.z += dz;
+      sums.y += y;
+      sums.xx += dx * dx;
+      sums.xz += dx * dz;
+      sums.zz += dz * dz;
+      sums.xy += dx * y;
+      sums.zy += dz * y;
+    }
+    plane = solvePlane(sums) ?? plane ?? { a: 0, b: 0, c: sums.n > 0 ? sums.y / sums.n : 0 };
+  }
+  const fitted = plane!;
+  const surfaceY = (px: number, pz: number) => fitted.a * (px - x0) + fitted.b * (pz - z0) + fitted.c;
+
+  // Each cell's own slope, from its neighbours within the surface; a cell
+  // whose neighbours step away (a filled chimney, an edge) takes the plane's.
+  const cellArea = cellSize * cellSize;
+  const planeFactor = Math.sqrt(1 + fitted.a * fitted.a + fitted.b * fitted.b);
+  // A neighbour belongs when its height differs from this cell's by about what the slope predicts.
+  const along = (cell: number, step: number): number | undefined => {
+    const here = top[cell]!;
+    const ahead = top[cell + step];
+    const behind = top[cell - step];
+    const rise = (step === 1 ? fitted.a : fitted.b) * cellSize;
+    const inAhead = inRegion[cell + step] === 1 && ahead !== undefined && Number.isFinite(ahead) && Math.abs(ahead - here - rise) < 0.3;
+    const inBehind = inRegion[cell - step] === 1 && behind !== undefined && Number.isFinite(behind) && Math.abs(here - behind - rise) < 0.3;
+    if (inAhead && inBehind) return (ahead! - behind!) / (2 * cellSize);
+    if (inAhead) return (ahead! - here) / cellSize;
+    if (inBehind) return (here - behind!) / cellSize;
+    return undefined;
+  };
+  let surfaceArea = 0;
+  for (const cell of cells) {
+    const col = cell % cols;
+    const gx = Number.isFinite(top[cell]!) && col > 0 && col < cols - 1 ? along(cell, 1) : undefined;
+    const gz = Number.isFinite(top[cell]!) ? along(cell, cols) : undefined;
+    surfaceArea += gx === undefined || gz === undefined ? cellArea * planeFactor : cellArea * Math.sqrt(1 + gx * gx + gz * gz);
+  }
+
   // The label goes on a cell of the surface nearest its middle, as an L-shaped roof's middle may lie off it.
-  let centreCell = seed;
+  let meanX = 0;
+  let meanZ = 0;
+  for (const cell of cells) {
+    meanX += cx(cell);
+    meanZ += cz(cell);
+  }
+  meanX /= cells.length;
+  meanZ /= cells.length;
+  let centreCell = cells[0]!;
   let best = Number.POSITIVE_INFINITY;
-  for (let index = 0; index < tail; index += 1) {
-    const cell = queue[index]!;
+  for (const cell of cells) {
     const distance = (cx(cell) - meanX) ** 2 + (cz(cell) - meanZ) ** 2;
     if (distance < best) {
       best = distance;
       centreCell = cell;
     }
   }
+  const planArea = cells.length * cellArea;
   return {
     planArea,
-    surfaceArea: planArea / slopeCos,
-    slopeDegrees: (Math.acos(slopeCos) * 180) / Math.PI,
-    meanHeight: sums.y / sums.n,
+    // Never below the plan area: rounding in a flat surface's slopes must not shrink it.
+    surfaceArea: Math.max(planArea, surfaceArea),
+    slopeDegrees: (Math.acos(1 / planeFactor) * 180) / Math.PI,
+    meanHeight: sums.n > 0 ? sums.y / sums.n : top[centreCell]!,
     centre: [cx(centreCell), surfaceY(cx(centreCell), cz(centreCell)), cz(centreCell)],
     outline: outlineOf(grid, inRegion, surfaceY),
-    cellCount,
+    cellCount: cells.length,
+    cells,
   };
+}
+
+/** Whether two surfaces share a cell or lie side by side, so that together they make one surface. */
+export function surfacesTouch(grid: SurfaceGrid, a: Int32Array, b: Int32Array): boolean {
+  const { cols } = grid;
+  const inA = new Set<number>(a);
+  for (const cell of b) {
+    if (inA.has(cell)) return true;
+    const col = cell % cols;
+    if (inA.has(cell + cols) || inA.has(cell - cols) || (col > 0 && inA.has(cell - 1)) || (col < cols - 1 && inA.has(cell + 1))) return true;
+  }
+  return false;
+}
+
+/** One surface made of several: the cells of all of them, counted once. */
+export function mergeSurfaces(grid: SurfaceGrid, parts: readonly SurfaceSelection[]): SurfaceSelection {
+  const union = new Set<number>();
+  for (const part of parts) for (const cell of part.cells) union.add(cell);
+  return describeSurface(grid, Int32Array.from([...union].sort((x, y) => x - y)));
+}
+
+/** The area the surfaces cover together on a plan, where they overlap counted once. */
+export function combinedPlanArea(grid: SurfaceGrid, parts: readonly SurfaceSelection[]): number {
+  const union = new Set<number>();
+  for (const part of parts) for (const cell of part.cells) union.add(cell);
+  return union.size * grid.cellSize * grid.cellSize;
 }
 
 const neighbours = [
