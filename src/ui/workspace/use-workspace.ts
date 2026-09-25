@@ -16,7 +16,7 @@ import { writeLas } from "../../export/las-writer.js";
 import { classSummaryCsv, objectInventoryCsv, objectsGeoJson } from "../../export/object-inventory.js";
 import { fileStem, saveFile } from "../../export/save-file.js";
 import { describePoint } from "../../core/point-inspection.js";
-import { buildSurfaceGrid, selectSurface, type SurfaceGrid } from "../../core/surface-area.js";
+import { buildSurfaceGrid, combinedPlanArea, mergeSurfaces, selectSurface, surfacesTouch, type SurfaceGrid } from "../../core/surface-area.js";
 import { TerrainCancelled, startTerrainBuild, type TerrainJob } from "../../core/terrain-job.js";
 import { NoiseDetectionCancelled, startNoiseDetection, type NoiseDetectionJob } from "../../core/noise-detection-job.js";
 import { withoutNoise } from "../../export/clean.js";
@@ -901,6 +901,43 @@ export function useWorkspace(options: WorkspaceOptions) {
     [],
   );
 
+  // Surfaces that overlap or touch, grouped: each group can be merged into one surface.
+  const surfaceGroups = useMemo(() => {
+    const grid = surfaceGridRef.current?.grid;
+    const surfaces = picks.surfaces;
+    const parent = surfaces.map((_, index) => index);
+    const root = (index: number): number => (parent[index] === index ? index : (parent[index] = root(parent[index]!)));
+    if (grid !== undefined) {
+      for (let a = 0; a < surfaces.length; a += 1) {
+        for (let b = a + 1; b < surfaces.length; b += 1) {
+          if (root(a) !== root(b) && surfacesTouch(grid, surfaces[a]!.surface.cells, surfaces[b]!.surface.cells)) parent[root(b)] = root(a);
+        }
+      }
+    }
+    const groups = new Map<number, number[]>();
+    surfaces.forEach((_, index) => groups.set(root(index), [...(groups.get(root(index)) ?? []), index]));
+    return [...groups.values()];
+  }, [picks.surfaces]);
+  const mergeableSurfaces = surfaceGroups.filter((group) => group.length > 1).reduce((sum, group) => sum + group.length, 0);
+  const totalSurfaceArea = useMemo(() => {
+    const grid = surfaceGridRef.current?.grid;
+    const parts = picks.surfaces.map((each) => each.surface);
+    return grid === undefined ? parts.reduce((sum, part) => sum + part.planArea, 0) : combinedPlanArea(grid, parts);
+  }, [picks.surfaces]);
+  const mergeTouchingSurfaces = useCallback(() => {
+    const grid = surfaceGridRef.current?.grid;
+    if (grid === undefined) return;
+    setPicks((current) => {
+      const merged = surfaceGroups.map((group) => {
+        const members = group.map((index) => current.surfaces[index]).filter((each) => each !== undefined);
+        if (members.length === 1) return members[0]!;
+        // A merged surface keeps the lowest of its parts' numbers.
+        return { id: Math.min(...members.map((each) => each.id)), surface: mergeSurfaces(grid, members.map((each) => each.surface)) };
+      });
+      return { ...current, surfaces: merged.sort((a, b) => a.id - b.id) };
+    });
+  }, [surfaceGroups]);
+
   const inspectedObject =
     count.status === "done" && picks.inspected?.objectId !== undefined
       ? count.objects.find((object) => object.id === picks.inspected?.objectId)
@@ -993,6 +1030,9 @@ export function useWorkspace(options: WorkspaceOptions) {
       clearRulers: () => setPicks((current) => ({ ...current, rulers: [] })),
       removeSurface: (id: number) => setPicks((current) => ({ ...current, surfaces: current.surfaces.filter((each) => each.id !== id) })),
       clearSurfaces: () => setPicks((current) => ({ ...current, surfaces: [] })),
+      mergeableSurfaces,
+      mergeTouchingSurfaces,
+      totalSurfaceArea,
     },
     exports: {
       exporting,

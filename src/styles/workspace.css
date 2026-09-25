@@ -1315,3 +1315,8 @@
   margin-top: 6px;
   font-size: 16px;
 }
+
+.ws-merge {
+  justify-self: start;
+  margin-top: 8px;
+}

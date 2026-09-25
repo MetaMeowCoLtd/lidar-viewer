@@ -41,7 +41,6 @@ export function Inspector({ workspace }: { workspace: Workspace }) {
         </Card>
       );
     }
-    const total = picks.surfaces.reduce((sum, each) => sum + each.surface.planArea, 0);
     return (
       <Card title={picks.surfaces.length === 1 ? "Surface area" : `${picks.surfaces.length} surfaces`} onClose={picking.clearSurfaces} closeLabel="Remove every surface">
         <ol className="ws-rulers">
@@ -61,8 +60,15 @@ export function Inspector({ workspace }: { workspace: Workspace }) {
             );
           })}
         </ol>
-        {picks.surfaces.length > 1 ? <p className="ws-inspector-headline ws-area-total">{`${formatArea(total)} in all`}</p> : null}
-        <p className="ws-inspector-hint">Areas are as a plan measures them; a sloped surface's own area is given beside it. Click another surface to add it.</p>
+        {picks.surfaces.length > 1 ? <p className="ws-inspector-headline ws-area-total">{`${formatArea(picking.totalSurfaceArea)} in all`}</p> : null}
+        {picking.mergeableSurfaces > 1 ? (
+          <button type="button" className="btn ws-merge" onClick={picking.mergeTouchingSurfaces} title="Surfaces that overlap or touch become one, their shared cells counted once">
+            {`Merge touching surfaces (${picking.mergeableSurfaces})`}
+          </button>
+        ) : null}
+        <p className="ws-inspector-hint">
+          Areas are as a plan measures them; a sloped surface's own area is given beside it. Click another surface to add it; if a click covered only part of one, click the rest and merge them.
+        </p>
       </Card>
     );
   }
