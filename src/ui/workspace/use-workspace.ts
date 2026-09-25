@@ -115,6 +115,15 @@ export function useWorkspace(options: WorkspaceOptions) {
   const clickToolRef = useRef(clickTool);
   const [picks, setPicks] = useState<Picks>({});
   const [pipeline, setPipeline] = useState<PipelineState>();
+  /**
+   * Set while "Analyze scan" runs every step. Run one at a time, a step shows
+   * its result - ground switches to height above ground, counting to objects,
+   * the terrain appears over the scan - which is the feedback asked for. Run
+   * all together, those switches follow one another and leave the view
+   * somewhere the user did not choose, so the view is left as it was and each
+   * card offers its own view instead.
+   */
+  const keepViewRef = useRef(false);
   // Counts pipeline runs, so one that was superseded stops at its next step.
   const pipelineRunRef = useRef(0);
   const sourceWaitersRef = useRef<Array<() => void>>([]);
@@ -474,7 +483,7 @@ export function useWorkspace(options: WorkspaceOptions) {
       setCount({ status: "idle" });
       // New ground means a new terrain; the old one describes ground that is gone.
       clearTerrain();
-      setColorMode("heightAboveGround");
+      if (!keepViewRef.current) setColorMode("heightAboveGround");
       setGround({ status: "done", stats: result.stats, seconds: (performance.now() - started) / 1000, onGpu: result.usedGpu });
       return true;
     } catch (error) {
@@ -500,6 +509,12 @@ export function useWorkspace(options: WorkspaceOptions) {
       const result = await job.result;
       if (terrainJobRef.current !== job) return false;
       terrainJobRef.current = undefined;
+      if (keepViewRef.current) {
+        // Built but not drawn over the scan; the card's switches show it.
+        setShowSurface(false);
+        setShowContours(false);
+        viewer.setTerrainVisibility(false, false);
+      }
       viewer.setTerrain(result.model, result.contours);
       setTerrain({ status: "done", result, seconds: (performance.now() - started) / 1000 });
       return true;
@@ -567,7 +582,7 @@ export function useWorkspace(options: WorkspaceOptions) {
           tallestTree = Math.max(tallestTree, object.height);
         }
       }
-      setColorMode("objects");
+      if (!keepViewRef.current) setColorMode("objects");
       setCount({
         status: "done",
         stats: result.stats,
@@ -675,8 +690,9 @@ export function useWorkspace(options: WorkspaceOptions) {
    * stops the sequence.
    */
   const runSteps = useCallback(
-    async (steps: ReadonlyArray<{ label: string; run: () => Promise<boolean>; relabels: boolean }>) => {
+    async (steps: ReadonlyArray<{ label: string; run: () => Promise<boolean>; relabels: boolean }>, keepView = false) => {
       const run = ++pipelineRunRef.current;
+      keepViewRef.current = keepView;
       try {
         for (let index = 0; index < steps.length; index += 1) {
           const step = steps[index]!;
@@ -689,7 +705,10 @@ export function useWorkspace(options: WorkspaceOptions) {
           if (finished && step.relabels) await afterSourceChanges(before);
         }
       } finally {
-        if (pipelineRunRef.current === run) setPipeline(undefined);
+        if (pipelineRunRef.current === run) {
+          setPipeline(undefined);
+          keepViewRef.current = false;
+        }
       }
     },
     [afterSourceChanges],
@@ -703,7 +722,7 @@ export function useWorkspace(options: WorkspaceOptions) {
 
   /** Everything, in the order each step helps the next: noise out of the way, then ground, terrain and objects. */
   const analyzeScan = useCallback(
-    () => runSteps([noiseStep, groundStep, terrainStep, countStep, qualityStep]),
+    () => runSteps([noiseStep, groundStep, terrainStep, countStep, qualityStep], true),
     [runSteps, noiseStep, groundStep, terrainStep, countStep, qualityStep],
   );
   const analyzeNoise = useCallback(() => runSteps([noiseStep]), [runSteps, noiseStep]);
