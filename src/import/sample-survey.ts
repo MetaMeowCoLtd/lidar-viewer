@@ -1,7 +1,8 @@
 /**
- * The sample surveys: real drone scans, each chosen for a kind of job a drone
+ * The sample surveys: real LiDAR scans, each chosen for a kind of job a
  * survey company is hired for, so a visitor can try the app on something like
- * their own work. Each is a patch of a published survey, cropped and thinned
+ * their own work. Tokyo Tower comes first, from a city-wide aircraft survey;
+ * the rest were flown by drone. Each is a patch of a published survey, cropped and thinned
  * evenly so it downloads in seconds; every point kept is as the scanner
  * recorded it.
  */
@@ -35,6 +36,32 @@ export interface SampleSurvey {
 const ccBy = { licence: "CC BY 4.0", licenceUrl: "https://creativecommons.org/licenses/by/4.0/" } as const;
 
 export const sampleSurveys: readonly SampleSurvey[] = [
+  {
+    id: "tokyo-tower",
+    name: "Tokyo Tower, Tokyo",
+    summary: "A 333 m tower, a temple and a park, scanned from an aircraft",
+    place: "Shiba Park, Minato, Tokyo, Japan",
+    captured: "Published 2024, Tokyo's city-wide survey",
+    platform: "Aircraft laser scanner, 16 or more points per m² across the 23 wards",
+    area: "420 × 260 m, 4.1 million points",
+    about:
+      "Tokyo Tower and its surroundings: the 333 m lattice tower, the main hall of Zōjō-ji temple, the trees of Shiba Park and an elevated expressway, from the Tokyo Metropolitan Government's LiDAR survey of the whole city. It was flown from an aircraft, not a drone, in five straight passes (flight lines).",
+    why:
+      "City-scale work: a government scanning a whole city for its digital twin, the kind of base data a drone survey is often asked to extend or update in detail. Next to the drone samples it shows the difference: coverage of an entire city at lower density, with roofs and treetops well seen but building walls thin.",
+    tryThis: [
+      "Measure the tower's height from its base to its tip with the ruler",
+      "Analyze the scan: the tower, the temple and the park's trees are told apart by shape",
+      "Compare its point density in the quality report with the drone samples",
+    ],
+    prepared:
+      "Two of the survey's 400 × 300 m sheets joined and cropped around the tower, then thinned evenly to about two points in three. The survey's own flight lines are kept, numbered 1 to 5 in flight order; its class for rejected ground points is folded into unclassified.",
+    credit: "Tokyo Metropolitan Government (2024). 東京都デジタルツイン実現プロジェクト 区部点群データ (Tokyo Digital Twin Project, 23-ward point cloud), sheets 09LD2769 and 09LD2860. G空間情報センター.",
+    creditShort: "Tokyo Metropolitan Government, Digital Twin Project",
+    ...ccBy,
+    sourceUrl: "https://www.geospatial.jp/ckan/dataset/tokyopc-23ku-2024",
+    url: "samples/tokyo-tower-2024.laz",
+    previewUrl: "samples/tokyo-tower-2024-preview.laz",
+  },
   {
     id: "streamlab",
     name: "Stream corridor, Virginia",
@@ -112,7 +139,7 @@ export const sampleSurveys: readonly SampleSurvey[] = [
   },
 ];
 
-/** The sample opened by default, and by the landing page's button. */
+/** The sample opened by default, shown on the landing page and opened by its button. */
 export const defaultSample = sampleSurveys[0]!;
 
 export function findSample(id: string | undefined): SampleSurvey | undefined {
