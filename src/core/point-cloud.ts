@@ -176,6 +176,14 @@ export class PointCloud {
     this.bounds = bounds ?? calculateBounds(positions);
     this.origin = origin;
     this.spatialReference = spatialReference;
+    // The per-point arrays stay ordinary fields but are left out of key
+    // enumeration. Anything that walks an object's keys would otherwise visit
+    // every entry of a scan's millions: React's development build does exactly
+    // that when it diffs changed props for the browser's performance panel, and
+    // a four-million-point scan froze the page in the commit that showed it.
+    for (const name of ["positions", ...pointCloudChannelNames] as const) {
+      Object.defineProperty(this, name, { enumerable: false });
+    }
   }
 
   public supportsColorMode(mode: PointCloudColorMode): boolean {
