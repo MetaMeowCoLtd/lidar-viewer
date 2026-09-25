@@ -1,12 +1,11 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { PointCloud, definedChannels, type PointCloudColorMode, type PointCloudPointShape } from "../../core/point-cloud.js";
 import type { PointCloudLodPyramid } from "../../core/lod-pyramid.js";
-import { generateSampleCloud } from "../../core/sample-job.js";
-import { sampleCheckpoints } from "../../core/procedural-cloud-generator.js";
 import { QualityReportCancelled, startQualityReport, type QualityReportJob } from "../../core/quality-report-job.js";
 import { defaultQualityReportOptions, parseCheckpoints } from "../../core/quality-report.js";
 import { densityHeatmapUrl, qualityReportHtml } from "../../export/quality-report-html.js";
 import { ScanImportCancelled, startScanImport, type ScanImportJob } from "../../import/scan-import-job.js";
+import { fetchSampleFile, sampleSurvey } from "../../import/sample-survey.js";
 import { LidarViewer, type LodRenderSummary } from "../../three/lidar-viewer.js";
 import { GroundDetectionCancelled, startGroundDetection, type GroundDetectionJob } from "../../core/ground-detection-job.js";
 import { ObjectDetectionCancelled, startObjectDetection, type ObjectDetectionJob } from "../../core/object-detection-job.js";
@@ -40,11 +39,8 @@ import type {
   ViewerStatus,
 } from "./types.js";
 
-const samplePointCount = 1_000_000;
-const sampleName = "Sample factory survey";
-
 export interface WorkspaceOptions {
-  /** Load the procedural sample as soon as the viewer starts. */
+  /** Load the sample survey as soon as the viewer starts. */
   readonly loadSampleOnStart: boolean;
 }
 
@@ -73,6 +69,8 @@ export function useWorkspace(options: WorkspaceOptions) {
   const [colorMode, setColorMode] = useState<PointCloudColorMode>("rgb");
   const [pointShape, setPointShape] = useState<PointCloudPointShape>(() => viewerConfig().pointShape);
   const [sourceLabel, setSourceLabel] = useState("");
+  /** Set while the sample is on screen: whose survey it is, as its licence asks. */
+  const [sampleShown, setSampleShown] = useState(false);
   const [uiHidden, setUiHidden] = useState(false);
   const [lodMode, setLodMode] = useState<LodMode>(() => (viewerConfig().distanceLod.enabledByDefault ? "distance" : "manual"));
   const [lodSummary, setLodSummary] = useState<LodRenderSummary>();
@@ -208,37 +206,64 @@ export function useWorkspace(options: WorkspaceOptions) {
     clearTerrain();
   }, [clearTerrain]);
 
-  const loadSample = useCallback(async (seed = Math.floor(Math.random() * 1_000_000)) => {
-    const viewer = viewerRef.current;
-    if (viewer === undefined) return;
-    resetAnalysis();
-    const run = importRunRef.current;
-    const report = (stage: ImportProgress["stage"], fraction: number) => {
-      if (importRunRef.current === run) setImportProgress({ stage, fraction });
-    };
-    setSampling(undefined);
-    setSourceLabel(sampleName);
-    // The sample comes with the checkpoints a ground crew would have surveyed on the site.
-    const sampleSet = { checkpoints: sampleCheckpoints(), source: "Sample survey checkpoints" };
-    checkpointsRef.current = sampleSet;
-    setCheckpoints(sampleSet);
-    setStatus("processing");
-    setStatusText("Simulating the survey flight");
-    report("simulating", 0);
-    try {
-      const cloud = await generateSampleCloud({ pointCount: samplePointCount, seed, name: sampleName }, (fraction) => report("simulating", fraction));
-      // Another scan was chosen while this one was being flown.
-      if (importRunRef.current !== run) return;
-      report("building", 0);
-      await viewer.load(cloud, createLodSpecs(cloud.bounds.diagonal), (fraction) => report("building", fraction));
-      if (importRunRef.current === run) setImportProgress(undefined);
-    } catch (error) {
-      if (importRunRef.current !== run) return;
-      setImportProgress(undefined);
-      setStatus("error");
-      setStatusText(error instanceof Error ? error.message : "The sample survey couldn't be made");
-    }
-  }, [resetAnalysis]);
+  /**
+   * Puts a scan on screen: gets its file (at once for a file the user chose,
+   * after a download for the sample), reads it on a worker and builds its
+   * detail levels.
+   */
+  const importScan = useCallback(
+    async (label: string, isSample: boolean, getFile: (report: (stage: ImportProgress["stage"], fraction: number) => void) => Promise<File>) => {
+      resetAnalysis();
+      const run = importRunRef.current;
+      try {
+        const report = (stage: ImportProgress["stage"], fraction: number) => {
+          if (importRunRef.current === run) setImportProgress({ stage, fraction });
+        };
+        setSourceLabel(label);
+        setSampleShown(isSample);
+        checkpointsRef.current = undefined;
+        setCheckpoints(undefined);
+        setStatus("processing");
+        setSampling(undefined);
+        const file = await getFile(report);
+        // Another scan was chosen while this one was downloading.
+        if (importRunRef.current !== run) return;
+        setStatusText("Reading the file");
+        report("reading", 0);
+        const job = startScanImport(file, viewerConfig().maxImportPoints, (fraction) => {
+          if (importJobRef.current !== job) return;
+          report("reading", fraction);
+        });
+        importJobRef.current = job;
+        const { cloud, sourcePointCount } = await job.result;
+        // Another scan was chosen while this one was being read.
+        if (importJobRef.current !== job) return;
+        importJobRef.current = undefined;
+        if (sourcePointCount > cloud.pointCount) setSampling({ loaded: cloud.pointCount, total: sourcePointCount });
+        report("building", 0);
+        await viewerRef.current?.load(cloud, createLodSpecs(cloud.bounds.diagonal), (fraction) => report("building", fraction));
+        if (importRunRef.current === run) setImportProgress(undefined);
+      } catch (error) {
+        if (error instanceof ScanImportCancelled || importRunRef.current !== run) return;
+        setImportProgress(undefined);
+        setStatus("error");
+        setStatusText(error instanceof Error ? error.message : "That scan couldn't be loaded");
+      }
+    },
+    [resetAnalysis],
+  );
+
+  const loadFile = useCallback((file: File) => importScan(file.name, false, async () => file), [importScan]);
+
+  const loadSample = useCallback(
+    () =>
+      importScan(sampleSurvey.name, true, (report) => {
+        setStatusText("Downloading the sample survey");
+        report("downloading", 0);
+        return fetchSampleFile(sampleSurvey.url, (fraction) => report("downloading", fraction));
+      }),
+    [importScan],
+  );
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -296,7 +321,7 @@ export function useWorkspace(options: WorkspaceOptions) {
     });
     resizeObserver.observe(canvas.parentElement!);
     viewer.start();
-    if (loadSampleOnStart) void loadSample(21);
+    if (loadSampleOnStart) void loadSample();
 
     return () => {
       unsubscribe();
@@ -343,41 +368,6 @@ export function useWorkspace(options: WorkspaceOptions) {
     }
     viewerRef.current?.setColorMode(colorMode);
   }, [colorMode, source]);
-
-  const loadFile = useCallback(async (file: File) => {
-    resetAnalysis();
-    const run = importRunRef.current;
-    try {
-      const report = (stage: ImportProgress["stage"], fraction: number) => {
-        if (importRunRef.current === run) setImportProgress({ stage, fraction });
-      };
-      setSourceLabel(file.name);
-      checkpointsRef.current = undefined;
-      setCheckpoints(undefined);
-      setStatus("processing");
-      setStatusText("Reading the file");
-      setSampling(undefined);
-      report("reading", 0);
-      const job = startScanImport(file, viewerConfig().maxImportPoints, (fraction) => {
-        if (importJobRef.current !== job) return;
-        report("reading", fraction);
-      });
-      importJobRef.current = job;
-      const { cloud, sourcePointCount } = await job.result;
-      // Another scan was chosen while this one was being read.
-      if (importJobRef.current !== job) return;
-      importJobRef.current = undefined;
-      if (sourcePointCount > cloud.pointCount) setSampling({ loaded: cloud.pointCount, total: sourcePointCount });
-      report("building", 0);
-      await viewerRef.current?.load(cloud, createLodSpecs(cloud.bounds.diagonal), (fraction) => report("building", fraction));
-      if (importRunRef.current === run) setImportProgress(undefined);
-    } catch (error) {
-      if (error instanceof ScanImportCancelled || importRunRef.current !== run) return;
-      setImportProgress(undefined);
-      setStatus("error");
-      setStatusText(error instanceof Error ? error.message : "That scan couldn't be loaded");
-    }
-  }, [resetAnalysis]);
 
   const openFilePicker = useCallback(() => fileInputRef.current?.click(), []);
 
@@ -815,6 +805,7 @@ export function useWorkspace(options: WorkspaceOptions) {
     statusText,
     source,
     sourceLabel,
+    sampleShown,
     sampling,
     importProgress,
     uiHidden,

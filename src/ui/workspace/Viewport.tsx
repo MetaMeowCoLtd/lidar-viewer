@@ -111,7 +111,7 @@ export function Viewport({ workspace }: { workspace: Workspace }) {
       {importProgress === undefined ? null : (
         <div className="ws-loading" aria-live="polite">
           <p>
-            {importProgress.stage === "reading" ? "Reading the file" : importProgress.stage === "simulating" ? "Simulating the survey flight" : "Building detail levels"}
+            {importProgress.stage === "reading" ? "Reading the file" : importProgress.stage === "downloading" ? "Downloading the sample survey" : "Building detail levels"}
             <span>{`step ${importProgress.stage === "building" ? 2 : 1} of 2 · ${Math.round(importProgress.fraction * 100)}%`}</span>
           </p>
           <ProgressBar label="Opening the scan" fraction={importProgress.fraction} />

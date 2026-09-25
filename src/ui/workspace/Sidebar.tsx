@@ -3,6 +3,7 @@ import { Icon, type IconName } from "../icons.js";
 import { Note, ProgressBar, Segmented, Toggle } from "../controls.js";
 import { formatCount, formatShare, ordinalSuffix } from "../format.js";
 import { countSummary, groundSummary, noiseSummary, qualitySummary, terrainSummary } from "./analysis-text.js";
+import { sampleSurvey } from "../../import/sample-survey.js";
 import type { Workspace } from "./use-workspace.js";
 import type { CountState, GroundState, NoiseState, QualityState, TerrainState } from "./types.js";
 
@@ -18,6 +19,7 @@ export function Sidebar({ workspace }: { workspace: Workspace }) {
   return (
     <aside className="ws-panel ws-sidebar" aria-label="Scan and analysis">
       <ThinningNote workspace={workspace} />
+      {workspace.sampleShown ? <SampleCredit /> : null}
       {source === undefined ? null : <Analysis workspace={workspace} />}
     </aside>
   );
@@ -31,6 +33,25 @@ function ThinningNote({ workspace }: { workspace: Workspace }) {
   return (
     <section className="side-section">
       <Note tone="warning">{`Every ${every}${ordinalSuffix(every)} of ${formatCount(sampling.total)} points is loaded, spread evenly.`}</Note>
+    </section>
+  );
+}
+
+/** Whose survey the sample is, as its licence asks. */
+function SampleCredit() {
+  return (
+    <section className="side-section">
+      <p className="note">
+        {"A real drone survey: DJI Zenmuse L1, August 2024. "}
+        <a href={sampleSurvey.sourceUrl} target="_blank" rel="noreferrer">
+          Virginia Tech StREAM Lab
+        </a>
+        {", via OpenTopography, "}
+        <a href={sampleSurvey.licenceUrl} target="_blank" rel="noreferrer">
+          {sampleSurvey.licence}
+        </a>
+        {". Cropped and thinned for the web."}
+      </p>
     </section>
   );
 }

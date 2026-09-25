@@ -11,7 +11,7 @@ export function StatusBar({ workspace }: { workspace: Workspace }) {
 
   let message = statusText;
   if (importProgress !== undefined) {
-    const label = importProgress.stage === "reading" ? "Reading the file" : importProgress.stage === "simulating" ? "Simulating the survey flight" : "Building detail levels";
+    const label = importProgress.stage === "reading" ? "Reading the file" : importProgress.stage === "downloading" ? "Downloading the sample survey" : "Building detail levels";
     message = `${label} · ${Math.round(importProgress.fraction * 100)}%`;
   } else if (analysis.pipeline !== undefined) {
     message = `${analysis.pipeline.label} · step ${analysis.pipeline.step} of ${analysis.pipeline.total}`;

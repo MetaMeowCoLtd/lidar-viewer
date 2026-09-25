@@ -302,6 +302,11 @@
   line-height: 1.5;
 }
 
+.note a {
+  color: inherit;
+  text-decoration: underline;
+}
+
 .note-error {
   color: var(--danger);
 }
