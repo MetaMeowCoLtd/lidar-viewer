@@ -135,6 +135,8 @@
 }
 
 .link-btn {
+  /* Holds a visually hidden file input in place, inside whatever panel scrolls it. */
+  position: relative;
   justify-self: start;
   padding: 0;
   border: 0;
