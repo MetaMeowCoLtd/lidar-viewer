@@ -39,23 +39,23 @@ export const sampleSurveys: readonly SampleSurvey[] = [
   {
     id: "tokyo-tower",
     name: "Tokyo Tower, Tokyo",
-    summary: "A 333 m tower, a temple and a park, scanned from an aircraft",
+    summary: "Tokyo Tower, Japan's tallest building and the city around them, from an aircraft",
     place: "Shiba Park, Minato, Tokyo, Japan",
     captured: "Published 2024, Tokyo's city-wide survey",
     platform: "Aircraft laser scanner, 16 or more points per m² across the 23 wards",
-    area: "420 × 260 m, 4.1 million points",
+    area: "750 × 550 m, 5.1 million points",
     about:
-      "Tokyo Tower and its surroundings: the 333 m lattice tower, the main hall of Zōjō-ji temple, the trees of Shiba Park and an elevated expressway, from the Tokyo Metropolitan Government's LiDAR survey of the whole city. It was flown from an aircraft, not a drone, in five straight passes (flight lines).",
+      "Tokyo Tower and the city around it: the 333 m lattice tower, the 330 m Azabudai Hills Mori JP Tower behind it (Japan's tallest building), Zōjō-ji temple, the trees of Shiba Park, an elevated expressway and the blocks of Shiba and Azabudai, from the Tokyo Metropolitan Government's LiDAR survey of the whole city. It was flown from an aircraft, not a drone, in seven straight passes (flight lines).",
     why:
       "City-scale work: a government scanning a whole city for its digital twin, the kind of base data a drone survey is often asked to extend or update in detail. Next to the drone samples it shows the difference: coverage of an entire city at lower density, with roofs and treetops well seen but building walls thin.",
     tryThis: [
-      "Measure the tower's height from its base to its tip with the ruler",
+      "Measure Tokyo Tower and the Mori JP Tower behind it with the ruler: which is taller?",
       "Analyze the scan: the tower, the temple and the park's trees are told apart by shape",
       "Compare its point density in the quality report with the drone samples",
     ],
     prepared:
-      "Two of the survey's 400 × 300 m sheets joined and cropped around the tower, then thinned evenly to about two points in three. The survey's own flight lines are kept, numbered 1 to 5 in flight order; its class for rejected ground points is folded into unclassified.",
-    credit: "Tokyo Metropolitan Government (2024). 東京都デジタルツイン実現プロジェクト 区部点群データ (Tokyo Digital Twin Project, 23-ward point cloud), sheets 09LD2769 and 09LD2860. G空間情報センター.",
+      "Six of the survey's 400 × 300 m sheets joined and cropped around the tower, then thinned evenly to one point in five, except the tower itself, which keeps every point. The survey's own flight lines are kept, numbered 1 to 7 in flight order; its class for rejected ground points is folded into unclassified.",
+    credit: "Tokyo Metropolitan Government (2024). 東京都デジタルツイン実現プロジェクト 区部点群データ (Tokyo Digital Twin Project, 23-ward point cloud), sheets 09LD2759, 09LD2769, 09LD2779, 09LD2850, 09LD2860 and 09LD2870. G空間情報センター.",
     creditShort: "Tokyo Metropolitan Government, Digital Twin Project",
     ...ccBy,
     sourceUrl: "https://www.geospatial.jp/ckan/dataset/tokyopc-23ku-2024",
