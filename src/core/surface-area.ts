@@ -33,13 +33,23 @@ export interface SurfaceSelection {
 }
 
 export interface SurfaceOptions {
-  /** How far, in metres, a cell may sit off the surface's plane and still belong to it. */
+  /**
+   * How far, in metres, a cell may step off the surface from the cell next to
+   * it, once the surface's own slope is allowed for. A continuous surface
+   * moves on smoothly; a wall, a parapet, a kerb or a ridge is a step.
+   */
   readonly tolerance: number;
+  /**
+   * How far a cell may drift from the plane that best fits the whole surface.
+   * Loose, so a surface that sags, drains or curves gently - a big flat roof,
+   * a vaulted hall - is still one surface.
+   */
+  readonly drift: number;
   /** A ceiling on the cells one surface may take, so a click on open ground cannot run away. */
   readonly maxCells: number;
 }
 
-export const defaultSurfaceOptions: SurfaceOptions = { tolerance: 0.15, maxCells: 4_000_000 };
+export const defaultSurfaceOptions: SurfaceOptions = { tolerance: 0.12, drift: 0.6, maxCells: 4_000_000 };
 
 /**
  * A cell edge a little over twice the typical spacing between points, so
@@ -70,15 +80,47 @@ export function buildSurfaceGrid(cloud: PointCloud, cellSize = surfaceCellSize(c
     const y = positions[point * 3 + 1]!;
     if (!(top[cell]! >= y)) top[cell] = y;
   }
+  fillSpeckles(top, cols, rows);
   return { cellSize, cols, rows, originX, originZ, top };
 }
 
 /**
- * Grows the surface under a point out from it, cell by cell, taking each
- * neighbour that lies on the same plane within the tolerance. The plane is
- * fitted again as the surface grows, so it follows the roof's own pitch
- * rather than the few cells it started from; a step up, a parapet, a wall or
- * a tree lies off the plane and ends it. Holes inside the surface where no
+ * Fills the scattered empty cells a thinned or sparse scan leaves across a
+ * surface: an empty cell with at least half its eight neighbours filled takes
+ * their mean height. Twice, so pairs of empty cells close too. Wider gaps -
+ * water, a courtyard's shadow, the edge of the scan - stay empty.
+ */
+function fillSpeckles(top: Float32Array, cols: number, rows: number): void {
+  for (let pass = 0; pass < 2; pass += 1) {
+    const source = top.slice();
+    for (let row = 1; row < rows - 1; row += 1) {
+      for (let col = 1; col < cols - 1; col += 1) {
+        const cell = row * cols + col;
+        if (Number.isFinite(source[cell]!)) continue;
+        let sum = 0;
+        let count = 0;
+        for (let dr = -1; dr <= 1; dr += 1) {
+          for (let dc = -1; dc <= 1; dc += 1) {
+            const value = source[cell + dr * cols + dc]!;
+            if (Number.isFinite(value)) {
+              sum += value;
+              count += 1;
+            }
+          }
+        }
+        if (count >= 4) top[cell] = sum / count;
+      }
+    }
+  }
+}
+
+/**
+ * Grows the continuous surface under a point out from it, cell by cell. A
+ * neighbour joins when it carries on from the cell beside it: its height is
+ * where the surface's slope says it should be, within the tolerance. A wall, a
+ * parapet, a kerb or a ridge is a step and ends the surface; a gentle sag or
+ * curve does not. The slope comes from a plane fitted to the surface, fitted
+ * again as it grows. Holes inside the surface where no
  * point fell - under a skylight, or between sparse points - count towards its
  * area, as they would on a plan.
  */
@@ -117,20 +159,42 @@ export function selectSurface(grid: SurfaceGrid, x: number, z: number, options: 
     if (next !== undefined) plane = next;
   };
   const offPlane = (cell: number) => Math.abs(top[cell]! - (plane.a * (cx(cell) - x0) + plane.b * (cz(cell) - z0) + plane.c));
+  const reset = () => {
+    sums.n = 0;
+    sums.x = sums.z = sums.y = sums.xx = sums.xz = sums.zz = sums.xy = sums.zy = 0;
+  };
 
-  // The first plane comes from the seed's own neighbourhood, so the growth starts off at the right tilt.
-  for (let dr = -2; dr <= 2; dr += 1) {
-    for (let dc = -2; dc <= 2; dc += 1) {
+  // The first plane comes from every filled cell around the seed, fitted and
+  // then fitted again without the cells that lie off it - an edge, a chimney -
+  // so a steep surface starts off at its own tilt rather than level.
+  const around: number[] = [];
+  for (let dr = -3; dr <= 3; dr += 1) {
+    for (let dc = -3; dc <= 3; dc += 1) {
       const col = (seed % cols) + dc;
       const row = Math.floor(seed / cols) + dr;
       if (col < 0 || row < 0 || col >= cols || row >= rows) continue;
       const cell = row * cols + col;
-      if (Number.isFinite(top[cell]!) && Math.abs(top[cell]! - top[seed]!) <= options.tolerance * 3) add(cell);
+      if (Number.isFinite(top[cell]!)) around.push(cell);
     }
   }
-  fit();
-  sums.n = 0;
-  sums.x = sums.z = sums.y = sums.xx = sums.xz = sums.zz = sums.xy = sums.zy = 0;
+  let kept = around;
+  for (let round = 0; round < 3; round += 1) {
+    reset();
+    for (const cell of kept) add(cell);
+    fit();
+    const next = kept.filter((cell) => offPlane(cell) <= options.tolerance * 1.5);
+    // Keep the seed's side of an edge: when the fit straddles two surfaces, the cells nearest the seed's height win.
+    if (next.length < 6 || next.length === kept.length) break;
+    kept = next;
+  }
+  if (offPlane(seed) > options.tolerance * 1.5) {
+    // The seed is not on the fitted plane - it sits on a small step of its own: start level at its height.
+    plane = { a: 0, b: 0, c: top[seed]! };
+  }
+  reset();
+
+  // The height a neighbour should have if it carries on from a cell along the surface's slope.
+  const expected = (from: number, dc: number, dr: number) => top[from]! + (plane.a * dc + plane.b * dr) * cellSize;
 
   const inRegion = new Uint8Array(cols * rows);
   const queue = new Int32Array(Math.min(cols * rows, options.maxCells) + 1);
@@ -149,7 +213,8 @@ export function selectSurface(grid: SurfaceGrid, x: number, z: number, options: 
       const nr = row + dr;
       if (nc < 0 || nr < 0 || nc >= cols || nr >= rows) continue;
       const next = nr * cols + nc;
-      if (inRegion[next] !== 0 || !Number.isFinite(top[next]!) || offPlane(next) > options.tolerance) continue;
+      if (inRegion[next] !== 0 || !Number.isFinite(top[next]!)) continue;
+      if (Math.abs(top[next]! - expected(cell, dc, dr)) > options.tolerance || offPlane(next) > options.drift) continue;
       if (tail >= queue.length) break;
       inRegion[next] = 1;
       queue[tail++] = next;
