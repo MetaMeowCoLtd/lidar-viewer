@@ -299,13 +299,23 @@ export class LidarViewer {
     return new Vector3(hit.cloud.positions[offset], hit.cloud.positions[offset + 1], hit.cloud.positions[offset + 2]);
   }
 
-  /** Hidden noise is not on screen, so a click must go through it to what is. */
+  /** Hidden noise and flight lines are not on screen, so a click must go through them to what is. */
   private hiddenPoint(): ((cloud: PointCloud, index: number) => boolean) | undefined {
-    if (this.pointCloudRenderer.getNoiseDisplay() !== "hidden") return undefined;
+    const noiseHidden = this.pointCloudRenderer.getNoiseDisplay() === "hidden";
+    const lines = this.pointCloudRenderer.getHiddenFlightLines();
+    if (!noiseHidden && lines === undefined) return undefined;
     return (cloud, index) => {
       const code = cloud.classification?.[index];
-      return code !== undefined && isNoiseClass(code);
+      if (noiseHidden && code !== undefined && isNoiseClass(code)) return true;
+      const line = cloud.pointSourceId?.[index];
+      return lines !== undefined && line !== undefined && lines.has(line);
     };
+  }
+
+  /** Leaves these flight lines out while the scan is coloured by flight line. */
+  public setHiddenFlightLines(hidden: ReadonlySet<number>): void {
+    this.assertNotDisposed();
+    this.pointCloudRenderer.setHiddenFlightLines(hidden);
   }
 
   /** Shows, hides or highlights the points labelled as noise. */

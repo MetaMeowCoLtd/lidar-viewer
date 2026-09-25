@@ -66,6 +66,8 @@ export class ThreePointCloudRenderer {
   private hasIntensity = false;
   private hasObjects = false;
   private hasFlightLines = false;
+  private flightLineMode = false;
+  private hiddenFlightLines: ReadonlySet<number> = new Set();
   private readonly outlines = new ObjectOutlines();
   private readonly annotations = new MeasurementOverlay();
   private readonly drawingSize = new Vector2();
@@ -96,6 +98,7 @@ export class ThreePointCloudRenderer {
     });
     this.material.setHasRgb(source.supportsColorMode("rgb"));
     this.material.setNoiseDisplay(this.noiseDisplay);
+    this.applyFlightLineFilter();
     this.hasRgb = source.supportsColorMode("rgb");
     this.hasClassification = source.supportsColorMode("classification");
     this.hasHeightAboveGround = source.supportsColorMode("heightAboveGround");
@@ -169,6 +172,8 @@ export class ThreePointCloudRenderer {
     const supportedMode = unsupported ? "height" : mode;
     this.reliefEnabled = supportedMode === "relief";
     this.material?.setColorMode(supportedMode);
+    this.flightLineMode = supportedMode === "flightLine";
+    this.applyFlightLineFilter();
   }
 
   public setSize(width: number, height: number): void {
@@ -195,6 +200,25 @@ export class ThreePointCloudRenderer {
   public setNoiseDisplay(display: NoiseDisplay): void {
     this.noiseDisplay = display;
     this.material?.setNoiseDisplay(display);
+  }
+
+  /**
+   * Flight lines to leave out while the scan is coloured by flight line. The
+   * choice is made in that view, from its legend, so it applies only there;
+   * every other view draws every line.
+   */
+  public setHiddenFlightLines(hidden: ReadonlySet<number>): void {
+    this.hiddenFlightLines = hidden;
+    this.applyFlightLineFilter();
+  }
+
+  /** The flight lines not on screen right now, if any are left out. */
+  public getHiddenFlightLines(): ReadonlySet<number> | undefined {
+    return this.flightLineMode && this.hiddenFlightLines.size > 0 ? this.hiddenFlightLines : undefined;
+  }
+
+  private applyFlightLineFilter(): void {
+    this.material?.setHiddenFlightLines(this.getHiddenFlightLines() ?? new Set());
   }
 
   public getNoiseDisplay(): NoiseDisplay {

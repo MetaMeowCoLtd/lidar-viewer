@@ -41,18 +41,39 @@ export function Legend({ workspace }: { workspace: Workspace }) {
 
   if (view.colorMode === "flightLine" && view.flightLines.length > 1) {
     const more = view.flightLines.length - maxFlightLines;
+    const hiddenCount = view.hiddenLines.size;
     return (
-      <div className="ws-legend" aria-label="Flight lines in this scan">
-        <span className="ws-legend-title" title="A flight line is one straight pass of the aircraft; the scanner sweeps a strip of ground under it, and neighbouring strips overlap">
-          {`${view.flightLines.length} flight lines · one colour per pass`}
+      <div className="ws-legend ws-legend-lines" aria-label="Flight lines in this scan">
+        <span
+          className="ws-legend-title"
+          title="A flight line is one straight pass of the aircraft; the scanner sweeps a strip of ground under it, and neighbouring strips overlap"
+        >
+          {hiddenCount === 0
+            ? `${view.flightLines.length} flight lines · click to hide, Alt+click to show one alone`
+            : `${view.flightLines.length - hiddenCount} of ${view.flightLines.length} flight lines shown`}
+          {hiddenCount === 0 ? null : (
+            <button type="button" className="link-btn" onClick={view.showAllLines}>
+              Show all
+            </button>
+          )}
         </span>
-        {view.flightLines.slice(0, maxFlightLines).map(({ id, count }) => (
-          <span key={id} title={`Point source ID ${id}`}>
-            <i style={{ background: flightLineCss(id) }} />
-            {`Line ${id}`}
-            <small>{formatShare(count, source.pointCount)}</small>
-          </span>
-        ))}
+        {view.flightLines.slice(0, maxFlightLines).map(({ id, count }) => {
+          const hidden = view.hiddenLines.has(id);
+          return (
+            <button
+              type="button"
+              key={id}
+              className="ws-legend-line"
+              aria-pressed={!hidden}
+              title={`Point source ID ${id}. Click to ${hidden ? "show" : "hide"} it; Alt+click to show it alone.`}
+              onClick={(event) => view.toggleLine(id, event.altKey)}
+            >
+              <i style={{ background: flightLineCss(id) }} />
+              {`Line ${id}`}
+              <small>{formatShare(count, source.pointCount)}</small>
+            </button>
+          );
+        })}
         {more > 0 ? <span>{`+${more} more`}</span> : null}
       </div>
     );

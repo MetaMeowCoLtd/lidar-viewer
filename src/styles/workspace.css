@@ -554,8 +554,36 @@
 
 .ws-legend .ws-legend-title {
   flex-basis: 100%;
+  gap: 10px;
   color: var(--text);
   font-weight: 600;
+}
+
+.ws-legend-line {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 2px 4px;
+  margin: -2px -4px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--text-2);
+  font: inherit;
+  cursor: pointer;
+}
+
+.ws-legend-line:hover {
+  background: var(--surface-3);
+}
+
+.ws-legend-line[aria-pressed="false"] {
+  opacity: 0.4;
+  text-decoration: line-through;
+}
+
+.ws-legend-lines {
+  max-width: min(640px, 70%);
 }
 
 .ws-legend i {

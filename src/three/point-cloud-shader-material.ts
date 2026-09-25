@@ -72,6 +72,8 @@ export class PointCloudShaderMaterial extends ShaderMaterial {
       uIntensityLow: { value: options.intensityRange?.[0] ?? 0 },
       uIntensityHigh: { value: options.intensityRange?.[1] ?? 1 },
       uPixelsPerUnit: { value: 0 },
+      uLineMask: { value: createFlightLineMask() },
+      uLineFilter: { value: 0 },
     };
     super({
       uniforms,
@@ -85,6 +87,8 @@ export class PointCloudShaderMaterial extends ShaderMaterial {
         attribute float intensity;
         attribute float pointSourceId;
         uniform float uNoiseMode;
+        uniform sampler2D uLineMask;
+        uniform float uLineFilter;
         varying float vNoise;
         varying vec3 vColor;
         varying float vIntensity;
@@ -112,6 +116,16 @@ export class PointCloudShaderMaterial extends ShaderMaterial {
             gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
             gl_PointSize = 0.0;
             return;
+          }
+          // Flight lines switched off are sent out of view the same way. The
+          // mask holds one texel per possible line id, 256 by 256.
+          if (uLineFilter > 0.5) {
+            vec2 texel = vec2((mod(pointSourceId, 256.0) + 0.5) / 256.0, (floor(pointSourceId / 256.0) + 0.5) / 256.0);
+            if (texture2D(uLineMask, texel).r < 0.5) {
+              gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+              gl_PointSize = 0.0;
+              return;
+            }
           }
           vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
           float chosenSize = clamp(uPointSize * (uSizeScale / max(uMinDepth, -mvPosition.z)), ${minDotSize.toFixed(1)}, ${maxDotSize.toFixed(1)});
@@ -242,6 +256,16 @@ export class PointCloudShaderMaterial extends ShaderMaterial {
     this.uniforms.uNoiseMode!.value = noiseDisplayToNumber[display];
   }
 
+  /** Leaves out the points of these flight lines; an empty set draws every line. */
+  public setHiddenFlightLines(hidden: ReadonlySet<number>): void {
+    const texture = this.uniforms.uLineMask!.value as DataTexture;
+    const mask = texture.image.data as Uint8Array;
+    mask.fill(255);
+    for (const id of hidden) if (id >= 0 && id < 65536) mask.fill(0, id * 4, id * 4 + 4);
+    texture.needsUpdate = true;
+    this.uniforms.uLineFilter!.value = hidden.size > 0 ? 1 : 0;
+  }
+
   /**
    * Radius, in drawing-surface pixels, of the dot drawn for a point this far in
    * front of the camera. Mirrors the vertex shader, so picking agrees with what
@@ -287,6 +311,15 @@ export class PointCloudShaderMaterial extends ShaderMaterial {
  * a class code is an identifier, not a quantity, so blending between
  * neighbouring entries would paint colours belonging to neither class.
  */
+/** One texel per possible flight line id (a LAS point source ID is 16 bits), all shown. */
+function createFlightLineMask(): DataTexture {
+  const texture = new DataTexture(new Uint8Array(256 * 256 * 4).fill(255), 256, 256, RGBAFormat, UnsignedByteType);
+  texture.magFilter = NearestFilter;
+  texture.minFilter = NearestFilter;
+  texture.needsUpdate = true;
+  return texture;
+}
+
 function createClassificationPalette(): DataTexture {
   const rgb = classificationPaletteBytes();
   const rgba = new Uint8Array(256 * 4);

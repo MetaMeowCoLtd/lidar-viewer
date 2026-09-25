@@ -91,6 +91,8 @@ export function useWorkspace(options: WorkspaceOptions) {
   }, [useGpu]);
   const noiseJobRef = useRef<NoiseDetectionJob | undefined>(undefined);
   const [noiseDisplay, setNoiseDisplay] = useState<NoiseDisplay>("hidden");
+  /** Flight lines switched off in the flight-line view, to inspect the others on their own. */
+  const [hiddenLines, setHiddenLines] = useState<ReadonlySet<number>>(() => new Set());
   const [ground, setGround] = useState<GroundState>({ status: "idle" });
   const groundJobRef = useRef<GroundDetectionJob | undefined>(undefined);
   const [count, setCount] = useState<CountState>({ status: "idle" });
@@ -238,6 +240,7 @@ export function useWorkspace(options: WorkspaceOptions) {
         };
         setSourceLabel(label);
         setShownSample(sample);
+        setHiddenLines(new Set());
         checkpointsRef.current = undefined;
         setCheckpoints(undefined);
         setStatus("processing");
@@ -806,6 +809,26 @@ export function useWorkspace(options: WorkspaceOptions) {
     viewerRef.current?.setNoiseDisplay(noiseDisplay);
   }, [noiseDisplay]);
 
+  useEffect(() => {
+    viewerRef.current?.setHiddenFlightLines(hiddenLines);
+  }, [hiddenLines]);
+
+  /** Shows or hides one flight line, or with `only` shows that line alone. */
+  const toggleLine = useCallback(
+    (id: number, only: boolean) => {
+      setHiddenLines((hidden) => {
+        if (only) return new Set(flightLines.map((line) => line.id).filter((other) => other !== id));
+        const next = new Set(hidden);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        // Every line off leaves nothing to look at; that click means "all of them" again.
+        return next.size === flightLines.length ? new Set() : next;
+      });
+    },
+    [flightLines],
+  );
+  const showAllLines = useCallback(() => setHiddenLines(new Set()), []);
+
   useEffect(
     () => () => {
       terrainJobRef.current?.cancel();
@@ -847,6 +870,9 @@ export function useWorkspace(options: WorkspaceOptions) {
       setPointShape,
       classHistogram,
       flightLines,
+      hiddenLines,
+      toggleLine,
+      showAllLines,
       aboveGroundTop,
       showBuildingOutlines,
       setShowBuildingOutlines,
