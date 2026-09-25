@@ -43,9 +43,9 @@ export const sampleSurveys: readonly SampleSurvey[] = [
     place: "Shiba Park, Minato, Tokyo, Japan",
     captured: "Published 2024, Tokyo's city-wide survey",
     platform: "Aircraft laser scanner, 16 or more points per m² across the 23 wards",
-    area: "750 × 550 m, 5.1 million points",
+    area: "920 × 610 m, 5.6 million points",
     about:
-      "Tokyo Tower and the city around it: the 333 m lattice tower, the 330 m Azabudai Hills Mori JP Tower behind it (Japan's tallest building), Zōjō-ji temple, the trees of Shiba Park, an elevated expressway and the blocks of Shiba and Azabudai, from the Tokyo Metropolitan Government's LiDAR survey of the whole city. It was flown from an aircraft, not a drone, in seven straight passes (flight lines).",
+      "Tokyo Tower and the city around it: the 333 m lattice tower, the 330 m Azabudai Hills Mori JP Tower behind it (Japan's tallest building), Zōjō-ji temple, the trees of Shiba Park, an elevated expressway and the blocks of Shiba and Azabudai, from the Tokyo Metropolitan Government's LiDAR survey of the whole city. It was flown from an aircraft, not a drone, in eight straight passes (flight lines).",
     why:
       "City-scale work: a government scanning a whole city for its digital twin, the kind of base data a drone survey is often asked to extend or update in detail. Next to the drone samples it shows the difference: coverage of an entire city at lower density, with roofs and treetops well seen but building walls thin.",
     tryThis: [
@@ -54,8 +54,8 @@ export const sampleSurveys: readonly SampleSurvey[] = [
       "Compare its point density in the quality report with the drone samples",
     ],
     prepared:
-      "Six of the survey's 400 × 300 m sheets joined and cropped around the tower, then thinned evenly to one point in five, except the tower itself, which keeps every point. The survey's own flight lines are kept, numbered 1 to 7 in flight order; its class for rejected ground points is folded into unclassified.",
-    credit: "Tokyo Metropolitan Government (2024). 東京都デジタルツイン実現プロジェクト 区部点群データ (Tokyo Digital Twin Project, 23-ward point cloud), sheets 09LD2759, 09LD2769, 09LD2779, 09LD2850, 09LD2860 and 09LD2870. G空間情報センター.",
+      "Nine of the survey's 400 × 300 m sheets joined and cropped around the two towers, then thinned evenly to about one point in seven; Tokyo Tower keeps every point and the Mori JP Tower most of them. The survey's own flight lines are kept, numbered 1 to 8 in flight order; its class for rejected ground points is folded into unclassified.",
+    credit: "Tokyo Metropolitan Government (2024). 東京都デジタルツイン実現プロジェクト 区部点群データ (Tokyo Digital Twin Project, 23-ward point cloud), sheets 09LD2758, 2759, 2768, 2769, 2778, 2779, 2850, 2860 and 2870. G空間情報センター.",
     creditShort: "Tokyo Metropolitan Government, Digital Twin Project",
     ...ccBy,
     sourceUrl: "https://www.geospatial.jp/ckan/dataset/tokyopc-23ku-2024",
