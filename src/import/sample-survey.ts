@@ -81,6 +81,30 @@ export const sampleSurveys: readonly SampleSurvey[] = [
     sourceUrl: "https://doi.org/10.5281/zenodo.8113105",
     url: "samples/vineyard-2022.laz",
   },
+  {
+    id: "campus",
+    name: "City campus, Munich",
+    summary: "University buildings, courtyards and streets in a city centre",
+    place: "Technical University of Munich, city-centre campus, Germany",
+    captured: "December 2024, leaf-off",
+    platform: "DJI Matrice 350 RTK with a Zenmuse L2, RTK-corrected over the Bavarian SAPOS network",
+    area: "250 × 190 m, 4.1 million points",
+    about:
+      "The core of TUM's city-centre campus: university buildings from the 19th century to today, with flat and pitched roofs, inner courtyards, a curved lecture hall, and the streets and parked cars around them. Flown in two crossing missions of straight passes (flight lines) for the TUM2TWIN digital twin project.",
+    why:
+      "Urban mapping and building work: digital twins and 3D city models, roof inspection and solar planning, as-built surveys before construction, and street-level asset inventories. Buildings are what a city client pays for, so this is the scan to test footprints, heights and roof shapes on.",
+    tryThis: [
+      "Analyze the scan and count buildings: each one is outlined with its footprint and height",
+      "Measure a building's height and the width of a street with the ruler",
+      "Colour by flight line: the two missions cross each other, so every roof is seen from several passes",
+    ],
+    prepared:
+      "Cropped from the nadir missions of the survey and thinned evenly to one point in twenty. Each point's flight line was taken from the drone's recorded trajectory, which the survey publishes alongside the scan.",
+    credit: "Anders, K., Wang, J., Wysocki, O., Huang, X., Liu, S. (2025). UAV Laser Scanning and Photogrammetry of TUM Downtown Campus. Zenodo.",
+    ...ccBy,
+    sourceUrl: "https://doi.org/10.5281/zenodo.15282970",
+    url: "samples/tum-campus-2024.laz",
+  },
 ];
 
 /** The sample opened by default, and by the landing page's button. */
