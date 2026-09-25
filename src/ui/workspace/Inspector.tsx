@@ -4,6 +4,7 @@ import { measureBetween, type PointDetails } from "../../core/point-inspection.j
 import { formatCoordinate, formatLength, formatNumber } from "../format.js";
 import type { DetectedObject } from "../../core/object-detection.js";
 import type { Workspace } from "./use-workspace.js";
+import type { Ruler } from "./types.js";
 
 /**
  * What the last click found, beside the scan: a point with everything known
@@ -15,10 +16,19 @@ export function Inspector({ workspace }: { workspace: Workspace }) {
   if (source === undefined) return null;
   const { picks, clickTool, inspectedObject } = picking;
 
-  if (clickTool === "measure" && picks.from !== undefined) {
+  if (clickTool === "measure" && picks.rulers.length > 0) {
     return (
-      <Card title="Measurement" onClose={picking.clearMeasurement}>
-        <MeasurementBody from={picks.from} to={picks.to} />
+      <Card title={picks.rulers.length === 1 ? "Measurement" : `${picks.rulers.length} rulers`} onClose={picking.clearRulers} closeLabel="Remove every ruler">
+        {picks.rulers.length === 1 ? (
+          <MeasurementBody from={picks.rulers[0]!.from} to={picks.rulers[0]!.to} />
+        ) : (
+          <RulerList rulers={picks.rulers} onRemove={picking.removeRuler} />
+        )}
+        <p className="ws-inspector-hint">
+          {picks.rulers.at(-1)?.to === undefined
+            ? "Click where this ruler ends; Esc drops it."
+            : "Click twice for another ruler; drag an end to adjust it."}
+        </p>
       </Card>
     );
   }
@@ -34,12 +44,12 @@ export function Inspector({ workspace }: { workspace: Workspace }) {
   return null;
 }
 
-function Card({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+function Card({ title, onClose, closeLabel, children }: { title: string; onClose: () => void; closeLabel?: string; children: React.ReactNode }) {
   return (
     <section className="ws-inspector" aria-label={title} aria-live="polite">
       <header>
         <h2>{title}</h2>
-        <button type="button" className="icon-btn" onClick={onClose} aria-label={`Clear the ${title.toLowerCase()}`}>
+        <button type="button" className="icon-btn" onClick={onClose} aria-label={closeLabel ?? `Clear the ${title.toLowerCase()}`} title={closeLabel}>
           <Icon name="close" />
         </button>
       </header>
@@ -100,11 +110,38 @@ function PointBody({ point, object }: { point: PointDetails; object: DetectedObj
   );
 }
 
+/** Every ruler on one line each: its length, its height and slope, and a button to take it away. */
+function RulerList({ rulers, onRemove }: { rulers: readonly Ruler[]; onRemove: (id: number) => void }) {
+  return (
+    <ol className="ws-rulers">
+      {rulers.map((ruler) => {
+        const measurement = ruler.to === undefined ? undefined : measureBetween(ruler.from, ruler.to);
+        return (
+          <li key={ruler.id}>
+            <b>{ruler.id}</b>
+            {measurement === undefined ? (
+              <span className="ws-rulers-pending">placing…</span>
+            ) : (
+              <span>
+                <strong>{formatLength(measurement.distance)}</strong>
+                <small>{`${measurement.vertical >= 0 ? "+" : "−"}${formatLength(Math.abs(measurement.vertical))} · ${measurement.slopeDegrees.toFixed(1)}°`}</small>
+              </span>
+            )}
+            <button type="button" className="icon-btn" onClick={() => onRemove(ruler.id)} aria-label={`Remove ruler ${ruler.id}`} title="Remove this ruler">
+              <Icon name="close" />
+            </button>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
 function MeasurementBody({ from, to }: { from: PointDetails; to: PointDetails | undefined }) {
   if (to === undefined) {
     return (
       <p className="ws-inspector-hint">
-        <i className="ws-pick-dot ws-pick-from" />A is at {formatLength(from.map[2])} elevation. Click a second point.
+        <i className="ws-pick-dot ws-pick-from" />A is at {formatLength(from.map[2])} elevation.
       </p>
     );
   }
@@ -128,7 +165,7 @@ function MeasurementBody({ from, to }: { from: PointDetails; to: PointDetails | 
       </dl>
       <p className="ws-inspector-hint">
         <i className="ws-pick-dot ws-pick-from" />A {formatLength(from.map[2])}
-        <i className="ws-pick-dot ws-pick-to" />B {formatLength(to.map[2])} · drag A or B to adjust, click elsewhere to start over
+        <i className="ws-pick-dot ws-pick-to" />B {formatLength(to.map[2])}
       </p>
     </>
   );

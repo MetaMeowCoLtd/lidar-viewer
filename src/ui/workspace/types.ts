@@ -25,11 +25,20 @@ export interface Sampling {
   readonly total: number;
 }
 
-export interface Picks {
-  readonly inspected?: PointDetails | undefined;
-  readonly from?: PointDetails | undefined;
+/** One ruler: the point it starts from and, once placed, the point it ends at. */
+export interface Ruler {
+  readonly id: number;
+  readonly from: PointDetails;
   readonly to?: PointDetails | undefined;
 }
+
+/** What the clicks have picked: the point inspected, and every ruler laid on the scan. */
+export interface Picks {
+  readonly inspected?: PointDetails | undefined;
+  readonly rulers: readonly Ruler[];
+}
+
+export const noPicks: Picks = { rulers: [] };
 
 /** Where a run of several analyses has got: which step of how many, and what it is doing. */
 export interface PipelineState {

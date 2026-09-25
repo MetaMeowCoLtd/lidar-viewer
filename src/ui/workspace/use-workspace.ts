@@ -38,6 +38,7 @@ import type {
   TerrainState,
   ViewerStatus,
 } from "./types.js";
+import { noPicks } from "./types.js";
 
 export interface WorkspaceOptions {
   /**
@@ -118,7 +119,7 @@ export function useWorkspace(options: WorkspaceOptions) {
   const [showPoints, setShowPoints] = useState(true);
   const [clickTool, setClickTool] = useState<ClickTool>("inspect");
   const clickToolRef = useRef(clickTool);
-  const [picks, setPicks] = useState<Picks>({});
+  const [picks, setPicks] = useState<Picks>(noPicks);
   const [pipeline, setPipeline] = useState<PipelineState>();
   /**
    * Set while "Analyze scan" runs every step. Run one at a time, a step shows
@@ -202,7 +203,7 @@ export function useWorkspace(options: WorkspaceOptions) {
 
   /** Abandons any analysis in flight and its results, for when the scan it was working on is replaced. */
   const resetAnalysis = useCallback(() => {
-    setPicks({});
+    setPicks(noPicks);
     importJobRef.current?.cancel();
     importJobRef.current = undefined;
     importRunRef.current += 1;
@@ -306,24 +307,40 @@ export function useWorkspace(options: WorkspaceOptions) {
       }
       // A miss while measuring is most likely a slip, so it keeps what was measured.
       if (details === undefined) return;
-      setPicks((current) =>
-        current.from === undefined || current.to !== undefined ? { inspected: current.inspected, from: details } : { ...current, to: details },
-      );
+      // A click ends the ruler being laid, or starts a new one beside those already there.
+      setPicks((current) => {
+        const last = current.rulers.at(-1);
+        if (last !== undefined && last.to === undefined) return { ...current, rulers: [...current.rulers.slice(0, -1), { ...last, to: details }] };
+        // Numbered one past the highest on screen, so the numbers stay short and follow the order they were laid.
+        const id = current.rulers.reduce((highest, ruler) => Math.max(highest, ruler.id), 0) + 1;
+        return { ...current, rulers: [...current.rulers, { id, from: details }] };
+      });
     });
     // A marker dragged across the scan moves the point it marks; the measurement follows it.
     const unsubscribeDrag = viewer.onMarkerDrag((id, hit) => {
       const details = describePoint(hit.cloud, hit.index);
-      setPicks((current) => (id === "from" ? { ...current, from: details } : id === "to" ? { ...current, to: details } : { ...current, inspected: details }));
+      if (id === "inspected") {
+        setPicks((current) => ({ ...current, inspected: details }));
+        return;
+      }
+      // Ruler ends are named "<ruler>:from" and "<ruler>:to".
+      const [ruler, end] = id.split(":");
+      setPicks((current) => ({
+        ...current,
+        rulers: current.rulers.map((each) => (String(each.id) === ruler ? (end === "from" ? { ...each, from: details } : { ...each, to: details }) : each)),
+      }));
     });
-    // The measurement label follows its line as the camera moves, written
-    // straight to the element each frame rather than through React state.
+    // Measurement labels follow their lines as the camera moves, written
+    // straight to the elements each frame rather than through React state.
     const unsubscribeFrame = viewer.onFrame(() => {
-      const label = measureLabelRef.current;
-      const anchor = label?.dataset.anchor;
-      if (label === null || anchor === undefined) return;
-      const spot = viewer.projectToCanvas(JSON.parse(anchor) as [number, number, number]);
-      label.style.visibility = spot.visible ? "visible" : "hidden";
-      label.style.transform = `translate(${spot.x.toFixed(1)}px, ${spot.y.toFixed(1)}px) translate(-50%, -140%)`;
+      const layer = measureLabelRef.current;
+      if (layer === null) return;
+      for (const label of layer.children) {
+        if (!(label instanceof HTMLElement) || label.dataset.anchor === undefined) continue;
+        const spot = viewer.projectToCanvas(JSON.parse(label.dataset.anchor) as [number, number, number]);
+        label.style.visibility = spot.visible ? "visible" : "hidden";
+        label.style.transform = `translate(${spot.x.toFixed(1)}px, ${spot.y.toFixed(1)}px) translate(-50%, -140%)`;
+      }
     });
     const unsubscribe = viewer.session.subscribe((nextState) => {
       if (nextState.status === "processing") {
@@ -377,7 +394,11 @@ export function useWorkspace(options: WorkspaceOptions) {
       if (event.target instanceof HTMLInputElement || event.metaKey || event.ctrlKey || event.altKey) return;
       const key = event.key.toLowerCase();
       if (key === "h") setUiHidden((hidden) => !hidden);
-      if (event.key === "Escape") setPicks({});
+      // Escape drops the ruler still being laid, and otherwise the point inspected; finished rulers stay.
+      if (event.key === "Escape")
+        setPicks((current) =>
+          current.rulers.length > 0 && current.rulers.at(-1)?.to === undefined ? { ...current, rulers: current.rulers.slice(0, -1) } : { rulers: current.rulers },
+        );
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
@@ -780,7 +801,7 @@ export function useWorkspace(options: WorkspaceOptions) {
   // cloud, so what was inspected is dropped; a measurement is only positions,
   // which no analysis moves, so it stays.
   useEffect(() => {
-    setPicks((current) => (current.inspected === undefined ? current : { from: current.from, to: current.to }));
+    setPicks((current) => (current.inspected === undefined ? current : { rulers: current.rulers }));
   }, [source]);
 
   useEffect(() => {
@@ -791,16 +812,18 @@ export function useWorkspace(options: WorkspaceOptions) {
       viewer.setDraggableMarkers(picks.inspected === undefined ? [] : [{ id: "inspected", position: picks.inspected.local }]);
       return;
     }
-    viewer.setDraggableMarkers([
-      ...(picks.from === undefined ? [] : [{ id: "from", position: picks.from.local }]),
-      ...(picks.to === undefined ? [] : [{ id: "to", position: picks.to.local }]),
-    ]);
+    viewer.setDraggableMarkers(
+      picks.rulers.flatMap((ruler) => [
+        { id: `${ruler.id}:from`, position: ruler.from.local },
+        ...(ruler.to === undefined ? [] : [{ id: `${ruler.id}:to`, position: ruler.to.local }]),
+      ]),
+    );
     viewer.setAnnotations({
-      markers: [
-        ...(picks.from === undefined ? [] : [{ position: picks.from.local, tone: "from" as const }]),
-        ...(picks.to === undefined ? [] : [{ position: picks.to.local, tone: "to" as const }]),
-      ],
-      ...(picks.from === undefined || picks.to === undefined ? {} : { measurement: { from: picks.from.local, to: picks.to.local } }),
+      markers: picks.rulers.flatMap((ruler) => [
+        { position: ruler.from.local, tone: "from" as const },
+        ...(ruler.to === undefined ? [] : [{ position: ruler.to.local, tone: "to" as const }]),
+      ]),
+      measurements: picks.rulers.flatMap((ruler) => (ruler.to === undefined ? [] : [{ from: ruler.from.local, to: ruler.to.local }])),
     });
   }, [clickTool, picks]);
 
@@ -939,8 +962,9 @@ export function useWorkspace(options: WorkspaceOptions) {
       setClickTool,
       picks,
       inspectedObject,
-      clearInspected: () => setPicks((current) => ({ from: current.from, to: current.to })),
-      clearMeasurement: () => setPicks((current) => ({ inspected: current.inspected })),
+      clearInspected: () => setPicks((current) => ({ rulers: current.rulers })),
+      removeRuler: (id: number) => setPicks((current) => ({ ...current, rulers: current.rulers.filter((ruler) => ruler.id !== id) })),
+      clearRulers: () => setPicks((current) => ({ inspected: current.inspected, rulers: [] })),
     },
     exports: {
       exporting,

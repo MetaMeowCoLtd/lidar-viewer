@@ -1239,3 +1239,66 @@
   font-size: 11px;
   text-align: right;
 }
+
+.ws-measure-labels {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.ws-measure-label b {
+  margin-right: 6px;
+  color: var(--accent);
+}
+
+.ws-rulers {
+  display: grid;
+  gap: 2px;
+  max-height: 220px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.ws-rulers li {
+  display: grid;
+  grid-template-columns: 20px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.ws-rulers li > b {
+  color: var(--accent);
+  font-family: var(--mono);
+}
+
+.ws-rulers li span {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.ws-rulers strong,
+.ws-rulers small {
+  white-space: nowrap;
+}
+
+.ws-rulers strong {
+  font-family: var(--mono);
+}
+
+.ws-rulers small,
+.ws-rulers-pending {
+  color: var(--text-3);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.ws-rulers .icon-btn {
+  width: 24px;
+  height: 24px;
+}

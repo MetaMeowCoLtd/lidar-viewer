@@ -12,8 +12,8 @@ export interface MarkerAnnotation {
 
 export interface Annotations {
   readonly markers: readonly MarkerAnnotation[];
-  /** A measured line; the two legs showing its horizontal and vertical parts are drawn with it. */
-  readonly measurement?: { readonly from: readonly [number, number, number]; readonly to: readonly [number, number, number] };
+  /** Measured lines; the two legs showing each one's horizontal and vertical parts are drawn with it. */
+  readonly measurements?: ReadonlyArray<{ readonly from: readonly [number, number, number]; readonly to: readonly [number, number, number] }>;
 }
 
 const toneColors: Record<MarkerTone, readonly [number, number, number]> = {
@@ -78,13 +78,19 @@ export class MeasurementOverlay {
       this.markers.renderOrder = 30;
       this.scene.add(this.markers);
     }
-    const measurement = annotations.measurement;
-    if (measurement !== undefined) {
-      const [low, high] = measurement.from[1] <= measurement.to[1] ? [measurement.from, measurement.to] : [measurement.to, measurement.from];
-      // The corner sits under the higher point at the lower point's elevation.
-      const corner = [high[0], low[1], high[2]];
-      this.line = segments([...measurement.from, ...measurement.to], this.lineMaterial, 21);
-      this.legs = segments([...low, ...corner, ...corner, ...high], this.legMaterial, 20);
+    const measurements = annotations.measurements ?? [];
+    if (measurements.length > 0) {
+      const lines: number[] = [];
+      const legs: number[] = [];
+      for (const measurement of measurements) {
+        const [low, high] = measurement.from[1] <= measurement.to[1] ? [measurement.from, measurement.to] : [measurement.to, measurement.from];
+        // The corner sits under the higher point at the lower point's elevation.
+        const corner = [high[0], low[1], high[2]];
+        lines.push(...measurement.from, ...measurement.to);
+        legs.push(...low, ...corner, ...corner, ...high);
+      }
+      this.line = segments(lines, this.lineMaterial, 21);
+      this.legs = segments(legs, this.legMaterial, 20);
       this.scene.add(this.legs, this.line);
     }
   }

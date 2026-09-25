@@ -99,16 +99,18 @@ export function Viewport({ workspace }: { workspace: Workspace }) {
         </>
       )}
 
-      {picking.clickTool === "measure" && picks.from !== undefined && picks.to !== undefined ? (
-        <div
-          ref={measureLabelRef}
-          className="ws-measure-label"
-          aria-hidden="true"
-          data-anchor={JSON.stringify(midpoint(picks.from.local, picks.to.local))}
-        >
-          {formatLength(measureBetween(picks.from, picks.to).distance)}
-        </div>
-      ) : null}
+      <div ref={measureLabelRef} className="ws-measure-labels" aria-hidden="true">
+        {picking.clickTool === "measure"
+          ? picks.rulers.map((ruler) =>
+              ruler.to === undefined ? null : (
+                <div key={ruler.id} className="ws-measure-label" data-anchor={JSON.stringify(midpoint(ruler.from.local, ruler.to.local))}>
+                  {picks.rulers.length > 1 ? <b>{ruler.id}</b> : null}
+                  {formatLength(measureBetween(ruler.from, ruler.to).distance)}
+                </div>
+              ),
+            )
+          : null}
+      </div>
 
       {importProgress === undefined ? null : (
         <div className="ws-loading" aria-live="polite">
