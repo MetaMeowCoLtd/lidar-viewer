@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { LidarViewer } from "../../three/lidar-viewer.js";
-import { fetchSampleFile, sampleSurvey } from "../../import/sample-survey.js";
+import { defaultSample, fetchSampleFile } from "../../import/sample-survey.js";
 import { startScanImport } from "../../import/scan-import-job.js";
 import { createLodSpecs } from "../lod-specs.js";
 
@@ -33,7 +33,7 @@ export function LandingPreview() {
     viewer.start();
     let disposed = false;
     void (async () => {
-      const file = await fetchSampleFile(sampleSurvey.previewUrl);
+      const file = await fetchSampleFile(defaultSample.previewUrl ?? defaultSample.url);
       if (disposed) return;
       const { cloud } = await startScanImport(file, Number.POSITIVE_INFINITY).result;
       if (!disposed) void viewer.load(cloud, createLodSpecs(cloud.bounds.diagonal));

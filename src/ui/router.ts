@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
-export type Route = { readonly page: "landing" } | { readonly page: "app"; readonly sample: boolean } | { readonly page: "benchmark" };
+/** `sample` names the sample survey to open, from `#/app?sample=<id>`. */
+export type Route = { readonly page: "landing" } | { readonly page: "app"; readonly sample?: string } | { readonly page: "benchmark" };
 
 /**
  * Pages are addressed by the URL's hash - `#/` for the landing page, `#/app`
@@ -10,7 +11,10 @@ export type Route = { readonly page: "landing" } | { readonly page: "app"; reado
  */
 export function parseRoute(hash: string): Route {
   const [path = "", query = ""] = hash.replace(/^#/, "").split("?");
-  if (path === "/app") return { page: "app", sample: new URLSearchParams(query).get("sample") === "city" };
+  if (path === "/app") {
+    const sample = new URLSearchParams(query).get("sample");
+    return sample === null ? { page: "app" } : { page: "app", sample };
+  }
   if (path === "/benchmark") return { page: "benchmark" };
   return { page: "landing" };
 }
@@ -29,6 +33,6 @@ export function useRoute(): Route {
 }
 
 export const appHref = "#/app";
-export const sampleHref = "#/app?sample=city";
+export const sampleHref = "#/app?sample=default";
 export const landingHref = "#/";
 export const benchmarkHref = "#/benchmark";

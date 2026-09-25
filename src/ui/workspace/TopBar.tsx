@@ -32,6 +32,24 @@ export function TopBar({ workspace, sidebarOpen, onToggleSidebar }: { workspace:
       )}
 
       <div className="ws-top-actions">
+        <Menu label="Samples" icon="city">
+          {(close) => (
+            <>
+              <p className="menu-title">Real drone surveys</p>
+              {workspace.samples.map((sample) => (
+                <MenuItem
+                  key={sample.id}
+                  label={sample.name}
+                  hint={sample.summary}
+                  onClick={() => {
+                    close();
+                    void workspace.actions.loadSample(sample);
+                  }}
+                />
+              ))}
+            </>
+          )}
+        </Menu>
         <button type="button" className="btn" onClick={workspace.actions.openFilePicker}>
           <Icon name="folder" /> Open scan
         </button>

@@ -1,7 +1,7 @@
 import { ThemeToggle } from "../ThemeToggle.js";
 import { Icon, type IconName } from "../icons.js";
 import { appHref, sampleHref } from "../router.js";
-import { sampleSurvey } from "../../import/sample-survey.js";
+import { sampleSurveys } from "../../import/sample-survey.js";
 import { LandingPreview } from "./LandingPreview.js";
 
 const features: readonly { icon: IconName; title: string; text: string }[] = [
@@ -121,13 +121,18 @@ export function Landing() {
         </span>
         <span>Reads LAS, LAZ and PLY · Exports LAS, GeoTIFF, GeoJSON and CSV</span>
         <span>
-          {"Sample survey: "}
-          <a href={sampleSurvey.sourceUrl} target="_blank" rel="noreferrer">
-            Virginia Tech StREAM Lab
-          </a>
-          {", via OpenTopography, "}
-          <a href={sampleSurvey.licenceUrl} target="_blank" rel="noreferrer">
-            {sampleSurvey.licence}
+          {"Sample surveys: "}
+          {sampleSurveys.map((sample, index) => (
+            <span key={sample.id}>
+              {index === 0 ? "" : " · "}
+              <a href={sample.sourceUrl} target="_blank" rel="noreferrer">
+                {sample.name}
+              </a>
+            </span>
+          ))}
+          {", "}
+          <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noreferrer">
+            CC BY 4.0
           </a>
         </span>
       </footer>

@@ -3,7 +3,7 @@ import { Icon, type IconName } from "../icons.js";
 import { Note, ProgressBar, Segmented, Toggle } from "../controls.js";
 import { formatCount, formatShare, ordinalSuffix } from "../format.js";
 import { countSummary, groundSummary, noiseSummary, qualitySummary, terrainSummary } from "./analysis-text.js";
-import { sampleSurvey } from "../../import/sample-survey.js";
+import type { SampleSurvey } from "../../import/sample-survey.js";
 import type { Workspace } from "./use-workspace.js";
 import type { CountState, GroundState, NoiseState, QualityState, TerrainState } from "./types.js";
 
@@ -19,7 +19,7 @@ export function Sidebar({ workspace }: { workspace: Workspace }) {
   return (
     <aside className="ws-panel ws-sidebar" aria-label="Scan and analysis">
       <ThinningNote workspace={workspace} />
-      {workspace.sampleShown ? <SampleCredit /> : null}
+      {workspace.shownSample === undefined ? null : <SampleAbout sample={workspace.shownSample} />}
       {source === undefined ? null : <Analysis workspace={workspace} />}
     </aside>
   );
@@ -37,20 +37,54 @@ function ThinningNote({ workspace }: { workspace: Workspace }) {
   );
 }
 
-/** Whose survey the sample is, as its licence asks. */
-function SampleCredit() {
+/**
+ * What the sample on screen is, where it comes from and why it is worth a
+ * look, so a sample reads as a real job rather than a random scan. The one
+ * line and the credit stay in view; the rest folds away under them.
+ */
+function SampleAbout({ sample }: { sample: SampleSurvey }) {
   return (
-    <section className="side-section">
+    <section className="side-section sample-about">
+      <p className="sample-about-lead">
+        <strong>{sample.name}</strong>
+        {` · real drone survey, ${sample.captured}`}
+      </p>
+      <details>
+        <summary>About this sample</summary>
+        <p>{sample.about}</p>
+        <h4>Why it is useful</h4>
+        <p>{sample.why}</p>
+        <h4>Try</h4>
+        <ul>
+          {sample.tryThis.map((item) => (
+            <li key={item}>{item}</li>
+          ))}
+        </ul>
+        <dl className="stat-list">
+          <div>
+            <dt>Where</dt>
+            <dd>{sample.place}</dd>
+          </div>
+          <div>
+            <dt>Flown with</dt>
+            <dd>{sample.platform}</dd>
+          </div>
+          <div>
+            <dt>Patch</dt>
+            <dd>{sample.area}</dd>
+          </div>
+        </dl>
+        <p className="note">{sample.prepared}</p>
+      </details>
       <p className="note">
-        {"A real drone survey: DJI Zenmuse L1, August 2024. "}
-        <a href={sampleSurvey.sourceUrl} target="_blank" rel="noreferrer">
-          Virginia Tech StREAM Lab
+        {`${sample.credit} `}
+        <a href={sample.sourceUrl} target="_blank" rel="noreferrer">
+          Source
         </a>
-        {", via OpenTopography, "}
-        <a href={sampleSurvey.licenceUrl} target="_blank" rel="noreferrer">
-          {sampleSurvey.licence}
+        {" · "}
+        <a href={sample.licenceUrl} target="_blank" rel="noreferrer">
+          {sample.licence}
         </a>
-        {". Cropped and thinned for the web."}
       </p>
     </section>
   );

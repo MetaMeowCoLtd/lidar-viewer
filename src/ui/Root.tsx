@@ -5,7 +5,7 @@ import { useRoute } from "./router.js";
 
 export function Root() {
   const route = useRoute();
-  if (route.page === "app") return <Workspace loadSampleOnStart={route.sample} />;
+  if (route.page === "app") return <Workspace sampleOnStart={route.sample} />;
   if (route.page === "benchmark") return <Benchmark />;
   return <Landing />;
 }

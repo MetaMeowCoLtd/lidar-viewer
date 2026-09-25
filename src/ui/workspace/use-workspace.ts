@@ -5,7 +5,7 @@ import { QualityReportCancelled, startQualityReport, type QualityReportJob } fro
 import { defaultQualityReportOptions, parseCheckpoints } from "../../core/quality-report.js";
 import { densityHeatmapUrl, qualityReportHtml } from "../../export/quality-report-html.js";
 import { ScanImportCancelled, startScanImport, type ScanImportJob } from "../../import/scan-import-job.js";
-import { fetchSampleFile, sampleSurvey } from "../../import/sample-survey.js";
+import { defaultSample, fetchSampleFile, findSample, sampleSurveys, type SampleSurvey } from "../../import/sample-survey.js";
 import { LidarViewer, type LodRenderSummary } from "../../three/lidar-viewer.js";
 import { GroundDetectionCancelled, startGroundDetection, type GroundDetectionJob } from "../../core/ground-detection-job.js";
 import { ObjectDetectionCancelled, startObjectDetection, type ObjectDetectionJob } from "../../core/object-detection-job.js";
@@ -40,8 +40,11 @@ import type {
 } from "./types.js";
 
 export interface WorkspaceOptions {
-  /** Load the sample survey as soon as the viewer starts. */
-  readonly loadSampleOnStart: boolean;
+  /**
+   * A sample survey to open as soon as the viewer starts, by id; an id that
+   * names no sample (such as older links' "city") opens the default one.
+   */
+  readonly sampleOnStart?: string | undefined;
 }
 
 /**
@@ -56,7 +59,7 @@ export interface WorkspaceOptions {
  * rather than applied to the wrong scan.
  */
 export function useWorkspace(options: WorkspaceOptions) {
-  const { loadSampleOnStart } = options;
+  const { sampleOnStart } = options;
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const measureLabelRef = useRef<HTMLDivElement>(null);
@@ -69,8 +72,8 @@ export function useWorkspace(options: WorkspaceOptions) {
   const [colorMode, setColorMode] = useState<PointCloudColorMode>("rgb");
   const [pointShape, setPointShape] = useState<PointCloudPointShape>(() => viewerConfig().pointShape);
   const [sourceLabel, setSourceLabel] = useState("");
-  /** Set while the sample is on screen: whose survey it is, as its licence asks. */
-  const [sampleShown, setSampleShown] = useState(false);
+  /** The sample on screen, if the scan is one: what it is and whose, as its licence asks. */
+  const [shownSample, setShownSample] = useState<SampleSurvey>();
   const [uiHidden, setUiHidden] = useState(false);
   const [lodMode, setLodMode] = useState<LodMode>(() => (viewerConfig().distanceLod.enabledByDefault ? "distance" : "manual"));
   const [lodSummary, setLodSummary] = useState<LodRenderSummary>();
@@ -226,7 +229,7 @@ export function useWorkspace(options: WorkspaceOptions) {
    * detail levels.
    */
   const importScan = useCallback(
-    async (label: string, isSample: boolean, getFile: (report: (stage: ImportProgress["stage"], fraction: number) => void) => Promise<File>) => {
+    async (label: string, sample: SampleSurvey | undefined, getFile: (report: (stage: ImportProgress["stage"], fraction: number) => void) => Promise<File>) => {
       resetAnalysis();
       const run = importRunRef.current;
       try {
@@ -234,7 +237,7 @@ export function useWorkspace(options: WorkspaceOptions) {
           if (importRunRef.current === run) setImportProgress({ stage, fraction });
         };
         setSourceLabel(label);
-        setSampleShown(isSample);
+        setShownSample(sample);
         checkpointsRef.current = undefined;
         setCheckpoints(undefined);
         setStatus("processing");
@@ -267,14 +270,14 @@ export function useWorkspace(options: WorkspaceOptions) {
     [resetAnalysis],
   );
 
-  const loadFile = useCallback((file: File) => importScan(file.name, false, async () => file), [importScan]);
+  const loadFile = useCallback((file: File) => importScan(file.name, undefined, async () => file), [importScan]);
 
   const loadSample = useCallback(
-    () =>
-      importScan(sampleSurvey.name, true, (report) => {
+    (sample: SampleSurvey = defaultSample) =>
+      importScan(sample.name, sample, (report) => {
         setStatusText("Downloading the sample survey");
         report("downloading", 0);
-        return fetchSampleFile(sampleSurvey.url, (fraction) => report("downloading", fraction));
+        return fetchSampleFile(sample.url, (fraction) => report("downloading", fraction));
       }),
     [importScan],
   );
@@ -335,7 +338,7 @@ export function useWorkspace(options: WorkspaceOptions) {
     });
     resizeObserver.observe(canvas.parentElement!);
     viewer.start();
-    if (loadSampleOnStart) void loadSample();
+    if (sampleOnStart !== undefined) void loadSample(findSample(sampleOnStart) ?? defaultSample);
 
     return () => {
       unsubscribe();
@@ -829,7 +832,8 @@ export function useWorkspace(options: WorkspaceOptions) {
     statusText,
     source,
     sourceLabel,
-    sampleShown,
+    shownSample,
+    samples: sampleSurveys,
     sampling,
     importProgress,
     uiHidden,

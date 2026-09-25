@@ -15,8 +15,8 @@ import { QualityReportDialog } from "./QualityReportDialog.js";
  * scan itself. The panel can be tucked away with the button in the corner, and
  * H hides everything but the scan.
  */
-export function Workspace({ loadSampleOnStart }: { loadSampleOnStart: boolean }) {
-  const workspace = useWorkspace({ loadSampleOnStart });
+export function Workspace({ sampleOnStart }: { sampleOnStart?: string | undefined }) {
+  const workspace = useWorkspace({ sampleOnStart });
   const [sidebarOpen, setSidebarOpen] = useState(true);
   // Before a scan is open the viewport's own welcome says everything; a panel beside it would repeat it.
   const showSidebar = sidebarOpen && workspace.source !== undefined;
