@@ -41,7 +41,7 @@ export function TopBar({ workspace, sidebarOpen, onToggleSidebar }: { workspace:
         <Menu label="Samples" icon="city">
           {(close) => (
             <>
-              <p className="menu-title">Real drone surveys</p>
+              <p className="menu-title">Real LiDAR surveys</p>
               {workspace.samples.map((sample) => (
                 <MenuItem
                   key={sample.id}

@@ -11,7 +11,7 @@ export function SampleAbout({ sample }: { sample: SampleSurvey }) {
     <div className="sample-about">
       <p className="sample-about-lead">
         <strong>{sample.name}</strong>
-        {` · real drone survey, ${sample.captured}`}
+        {` · ${sample.captured}`}
       </p>
       <p>{sample.about}</p>
       <h4>Why it is useful</h4>

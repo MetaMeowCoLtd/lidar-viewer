@@ -14,7 +14,7 @@ const features: readonly { icon: IconName; title: string; text: string }[] = [
 ];
 
 const steps: readonly { title: string; text: string }[] = [
-  { title: "Open a scan", text: "Drop a LAS, LAZ or PLY file, or start with the sample: a real drone survey." },
+  { title: "Open a scan", text: "Drop a LAS, LAZ or PLY file, or start with a sample: real scans of Tokyo Tower, a city campus, a vineyard and a stream." },
   { title: "Analyze", text: "Find the ground, build the terrain and count buildings and trees in seconds." },
   { title: "Export", text: "Download results ready for QGIS, ArcGIS or your CAD tool." },
 ];
