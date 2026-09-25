@@ -63,6 +63,31 @@ export const sampleSurveys: readonly SampleSurvey[] = [
     previewUrl: "samples/tokyo-tower-2024-preview.laz",
   },
   {
+    id: "nelder-wheel",
+    name: "Tree wheel, British Columbia",
+    summary: "A spoked research plantation scanned with DJI's newest L3 sensor",
+    place: "Coastal western-hemlock forest, about 60 km east of Vancouver, Canada",
+    captured: "Published March 2026",
+    platform: "DJI Matrice 400 with a Zenmuse L3 at 100 kHz, 80 m above the trees at 8 m/s, RTK base station",
+    area: "85 × 85 m, the whole plot, 3.2 million points",
+    about:
+      "A Nelder wheel: a forestry trial where young conifers are planted on spokes radiating from a centre, so each ring of trees stands at a different spacing. Seen from above it is a wheel of separate crowns. Scanned by the University of British Columbia to compare DJI's L2 and L3 sensors, in six straight passes (flight lines).",
+    why:
+      "Forestry and carbon work: counting trees, measuring their heights and crowns, and comparing how planting density changes growth. With every tree standing apart it shows tree detection at its clearest, and the L3 is the sensor many drone operators are moving to.",
+    tryThis: [
+      "Analyze the scan: every tree on the wheel is found and outlined, with its height",
+      "Colour by height above ground to see the trees grow taller towards the rim",
+      "Colour by flight line to see six passes, each crossing the whole plot",
+    ],
+    prepared:
+      "The whole published plot, every point kept. The survey publishes heights above the ground rather than elevations, so the ground sits at zero. It gives every point the same flight line, so each point's pass was recovered from its GPS time. A forest floor has no hard, level surface, so the quality report's precision check, meant for roads and roofs, reads the brush and fails here.",
+    credit: "McGlade, J., Irwin, L. A. K., Russell, S. J. S., Coops, N. C. (2026). DJI L2 / DJI L3: Drone LiDAR Forest Representation Comparison. Zenodo.",
+    creditShort: "McGlade, Irwin, Russell and Coops, UBC",
+    ...ccBy,
+    sourceUrl: "https://doi.org/10.5281/zenodo.19006903",
+    url: "samples/nelder-wheel.laz",
+  },
+  {
     id: "streamlab",
     name: "Stream corridor, Virginia",
     summary: "Stream, wooded banks, farm road and fields",
