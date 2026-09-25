@@ -79,7 +79,7 @@ function agreementOf(a: Uint8Array, b: Uint8Array): string {
 
 /**
  * Side by side, the CPU and WebGPU versions of the heavy preprocessing stages,
- * on the sample survey and on a large synthetic grid: how long each takes,
+ * on a simulated factory survey and on a large synthetic grid: how long each takes,
  * and whether they agree.
  */
 export function Benchmark() {
@@ -103,7 +103,7 @@ export function Benchmark() {
       setRows([...results]);
     };
     try {
-      setStage("Simulating the sample survey");
+      setStage("Simulating a factory survey");
       const cloud = await generateSampleCloud({ pointCount, seed: 21, name: "benchmark" });
       const count = `${(cloud.pointCount / 1e6).toFixed(1)} M points`;
 
@@ -220,7 +220,7 @@ export function Benchmark() {
         <h1>CPU against GPU, on the same scan</h1>
         <p className="bench-lede">
           The heaviest preprocessing stages - the noise filter's neighbour search, the ground filter's surface openings and voxel thinning - written
-          twice: as JavaScript on the CPU and as WGSL compute shaders on the GPU. Each runs here on the sample survey and, for the ground filter, on a
+          twice: as JavaScript on the CPU and as WGSL compute shaders on the GPU. Each runs here on a simulated factory survey and, for the ground filter, on a
           large grid, and the results are compared for agreement as well as speed.
         </p>
 

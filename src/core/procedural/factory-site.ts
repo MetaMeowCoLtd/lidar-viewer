@@ -758,27 +758,3 @@ export function insideCrown(tree: Tree, x: number, y: number, z: number): boolea
   const radius = tree.radius * lobe;
   return horizontal / (radius * radius) + dy * dy < 1;
 }
-
-/**
- * Where a surveyor would put checkpoints on this site: open, hard or level
- * hard ground that a laser sees clearly - the yard, the road, the lawn and the
- * stripped plot - spread across both flight strips and their overlap. Tall
- * grass lifts returns off the ground, which is why non-vegetated accuracy is
- * checked on surfaces like these.
- */
-export const checkpointSites: ReadonlyArray<readonly [name: string, x: number, z: number]> = [
-  ["CP01 yard west", -40, 15],
-  ["CP02 yard centre", -10, 22],
-  ["CP03 yard east", 12, 30],
-  ["CP04 north apron", 0, -51],
-  ["CP05 car park aisle", -60, 40],
-  ["CP06 office lawn", -75, -1],
-  ["CP07 road west", -60, 61],
-  ["CP08 road east", 40, 62.5],
-  ["CP09 road centre", -30, 62],
-  ["CP10 road verge east", 20, 64.5],
-  ["CP11 plot north", 60, -8],
-  ["CP12 plot east", 86, -32],
-  ["CP13 plot south", 58, 30],
-  ["CP14 plot centre", 78, -6],
-];

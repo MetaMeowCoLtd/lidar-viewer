@@ -1,8 +1,6 @@
 import { PointCloud, type PointCloudOrigin } from "./point-cloud.js";
 import { geoKeyDirectoryRecordId, projectionUserId, spatialReferenceFromRecords, type SpatialReference } from "./spatial-reference.js";
 import { simulateSurvey } from "./procedural/lidar-simulator.js";
-import { checkpointSites, groundAt } from "./procedural/factory-site.js";
-import type { Checkpoint } from "./quality-report.js";
 import { mulberry32 } from "./procedural/sampling.js";
 
 export interface ProceduralCloudOptions {
@@ -76,20 +74,3 @@ export function sampleSpatialReference(): SpatialReference | undefined {
   return spatialReferenceFromRecords([{ userId: projectionUserId, recordId: geoKeyDirectoryRecordId, description: "GeoKeyDirectoryTag", data }]);
 }
 
-/**
- * Checkpoints for the sample survey, as a ground crew would deliver them:
- * surveyed ground heights at known spots, each off the true ground by the
- * centimetre or so of a GNSS RTK measurement.
- */
-export function sampleCheckpoints(): Checkpoint[] {
-  return checkpointSites.map(([name, x, z], index) => {
-    // A fixed, varied error of up to about ±1.5 cm, so the sample always reports the same accuracy.
-    const surveyError = 0.015 * Math.sin(index * 2.399 + 0.7);
-    return {
-      name,
-      east: sampleOrigin[0] + x,
-      north: -(sampleOrigin[2] + z),
-      elevation: sampleOrigin[1] + groundAt(x, z).height + surveyError,
-    };
-  });
-}
