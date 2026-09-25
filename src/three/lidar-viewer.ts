@@ -27,6 +27,14 @@ const clickDuration = 600;
 const pickTolerance = 8;
 /** The same for aiming the camera, which is happy with a point a little further off. */
 const pivotTolerance = 14;
+/** How close, in CSS pixels, a press must land to a marker to grab it rather than move the camera. */
+const handleRadius = 13;
+
+/** A marker the user can drag to another spot on the scan. */
+export interface DraggableMarker {
+  readonly id: string;
+  readonly position: readonly [number, number, number];
+}
 
 export interface LidarViewerOptions {
   readonly pointBudget?: number;
@@ -78,6 +86,60 @@ export class LidarViewer {
   private pointsVisible = true;
   private readonly framingDistance: number | undefined;
   private pressed: { x: number; y: number; time: number; pointerId: number } | undefined;
+  private draggableMarkers: readonly DraggableMarker[] = [];
+  private readonly markerDragListeners = new Set<(id: string, hit: PointHit, done: boolean) => void>();
+  private markerDrag: { id: string; pointerId: number; x: number; y: number; pending: boolean } | undefined;
+  /**
+   * A press on a marker starts dragging it instead of moving the camera: the
+   * press is caught before the navigation controls see it. Anywhere else, the
+   * press goes on to them untouched.
+   */
+  private readonly onHandlePointerDown = (event: PointerEvent) => {
+    if (!event.isPrimary || event.button !== 0 || event.altKey || event.shiftKey || event.ctrlKey || event.metaKey) return;
+    const id = this.markerAt(event.clientX, event.clientY);
+    if (id === undefined) return;
+    event.stopImmediatePropagation();
+    // Also keeps the browser from firing the mousedown the controls listen for.
+    event.preventDefault();
+    this.pressed = undefined;
+    this.markerDrag = { id, pointerId: event.pointerId, x: event.clientX, y: event.clientY, pending: false };
+    // Keeps the drag when the cursor leaves the canvas; a pointer the browser no longer tracks cannot be captured.
+    try {
+      this.renderer.domElement.setPointerCapture(event.pointerId);
+    } catch {
+      // The drag still works while the cursor stays over the scan.
+    }
+    this.renderer.domElement.style.cursor = "grabbing";
+  };
+  private readonly onHandlePointerMove = (event: PointerEvent) => {
+    const drag = this.markerDrag;
+    if (drag === undefined) {
+      // Only hovering: say that the marker under the cursor can be picked up.
+      if (event.buttons === 0 && this.draggableMarkers.length > 0) {
+        const over = this.markerAt(event.clientX, event.clientY) !== undefined;
+        const style = this.renderer.domElement.style;
+        if (over) style.cursor = "grab";
+        else if (style.cursor === "grab") style.cursor = "";
+      }
+      return;
+    }
+    if (event.pointerId !== drag.pointerId) return;
+    event.stopImmediatePropagation();
+    // Snapping searches the whole scan, so it runs once per frame on the latest position rather than on every move.
+    drag.x = event.clientX;
+    drag.y = event.clientY;
+    drag.pending = true;
+  };
+  private readonly onHandlePointerUp = (event: PointerEvent) => {
+    const drag = this.markerDrag;
+    if (drag === undefined || event.pointerId !== drag.pointerId) return;
+    event.stopImmediatePropagation();
+    this.markerDrag = undefined;
+    this.renderer.domElement.style.cursor = "";
+    if (this.renderer.domElement.hasPointerCapture(event.pointerId)) this.renderer.domElement.releasePointerCapture(event.pointerId);
+    const hit = this.pickAt(event.clientX, event.clientY);
+    if (hit !== undefined) for (const listener of this.markerDragListeners) listener(drag.id, hit, true);
+  };
   private readonly onPointerDown = (event: PointerEvent) => {
     this.pressed = event.isPrimary && event.button === 0 ? { x: event.clientX, y: event.clientY, time: event.timeStamp, pointerId: event.pointerId } : undefined;
   };
@@ -109,6 +171,11 @@ export class LidarViewer {
     this.renderer.setPixelRatio(options.pixelRatio ?? Math.min(window.devicePixelRatio, 2));
     this.controls = new NavigationControls(this.camera, canvas, (clientX, clientY) => this.pivotAt(clientX, clientY));
     this.pointCloudRenderer = new ThreePointCloudRenderer(this.scene, this.renderer, this.camera);
+    // Registered before the controls' own listeners and in the capture phase, so a press on a marker never reaches them.
+    canvas.addEventListener("pointerdown", this.onHandlePointerDown, { capture: true });
+    canvas.addEventListener("pointermove", this.onHandlePointerMove, { capture: true });
+    canvas.addEventListener("pointerup", this.onHandlePointerUp, { capture: true });
+    canvas.addEventListener("pointercancel", this.onHandlePointerUp, { capture: true });
     canvas.addEventListener("pointerdown", this.onPointerDown);
     canvas.addEventListener("pointerup", this.onPointerUp);
 
@@ -330,6 +397,46 @@ export class LidarViewer {
     return () => this.clickListeners.delete(listener);
   }
 
+  /**
+   * Markers the user may pick up and drag. While dragged, each follows the
+   * scan's surface under the cursor - it snaps to the nearest real point, so a
+   * measurement always runs between measured points - and listeners hear every
+   * new spot, the last with `done` set.
+   */
+  public setDraggableMarkers(markers: readonly DraggableMarker[]): void {
+    this.draggableMarkers = markers;
+  }
+
+  public onMarkerDrag(listener: (id: string, hit: PointHit, done: boolean) => void): () => void {
+    this.markerDragListeners.add(listener);
+    return () => this.markerDragListeners.delete(listener);
+  }
+
+  /** The draggable marker nearest the cursor, if one is close enough to grab. */
+  private markerAt(clientX: number, clientY: number): string | undefined {
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    let best: string | undefined;
+    let bestDistance = handleRadius;
+    for (const marker of this.draggableMarkers) {
+      const spot = this.projectToCanvas(marker.position);
+      if (!spot.visible) continue;
+      const distance = Math.hypot(clientX - rect.left - spot.x, clientY - rect.top - spot.y);
+      if (distance <= bestDistance) {
+        bestDistance = distance;
+        best = marker.id;
+      }
+    }
+    return best;
+  }
+
+  private snapDraggedMarker(): void {
+    const drag = this.markerDrag;
+    if (drag === undefined || !drag.pending) return;
+    drag.pending = false;
+    const hit = this.pickAt(drag.x, drag.y);
+    if (hit !== undefined) for (const listener of this.markerDragListeners) listener(drag.id, hit, false);
+  }
+
   /** Markers and measurement lines drawn over the scan; they stay until replaced. */
   public setAnnotations(annotations: Annotations): void {
     this.assertNotDisposed();
@@ -415,6 +522,7 @@ export class LidarViewer {
         this.pointCloudRenderer.applyCameraDistanceLod(this.camera.position.x, this.camera.position.y, this.camera.position.z, this.activeTiledPyramid);
         this.notifySummary();
       }
+      this.snapDraggedMarker();
       this.pointCloudRenderer.render();
       for (const listener of this.frameListeners) listener();
       this.frameHandle = requestAnimationFrame(tick);
@@ -431,9 +539,14 @@ export class LidarViewer {
   public dispose(): void {
     if (this.disposed) return;
     this.stop();
+    this.renderer.domElement.removeEventListener("pointerdown", this.onHandlePointerDown, { capture: true });
+    this.renderer.domElement.removeEventListener("pointermove", this.onHandlePointerMove, { capture: true });
+    this.renderer.domElement.removeEventListener("pointerup", this.onHandlePointerUp, { capture: true });
+    this.renderer.domElement.removeEventListener("pointercancel", this.onHandlePointerUp, { capture: true });
     this.renderer.domElement.removeEventListener("pointerdown", this.onPointerDown);
     this.renderer.domElement.removeEventListener("pointerup", this.onPointerUp);
     this.clickListeners.clear();
+    this.markerDragListeners.clear();
     this.frameListeners.clear();
     this.session.cancelPendingLoad();
     this.controls.dispose();

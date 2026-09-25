@@ -128,7 +128,7 @@ function MeasurementBody({ from, to }: { from: PointDetails; to: PointDetails | 
       </dl>
       <p className="ws-inspector-hint">
         <i className="ws-pick-dot ws-pick-from" />A {formatLength(from.map[2])}
-        <i className="ws-pick-dot ws-pick-to" />B {formatLength(to.map[2])} · click again to start over
+        <i className="ws-pick-dot ws-pick-to" />B {formatLength(to.map[2])} · drag A or B to adjust, click elsewhere to start over
       </p>
     </>
   );

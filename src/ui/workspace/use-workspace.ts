@@ -310,6 +310,11 @@ export function useWorkspace(options: WorkspaceOptions) {
         current.from === undefined || current.to !== undefined ? { inspected: current.inspected, from: details } : { ...current, to: details },
       );
     });
+    // A marker dragged across the scan moves the point it marks; the measurement follows it.
+    const unsubscribeDrag = viewer.onMarkerDrag((id, hit) => {
+      const details = describePoint(hit.cloud, hit.index);
+      setPicks((current) => (id === "from" ? { ...current, from: details } : id === "to" ? { ...current, to: details } : { ...current, inspected: details }));
+    });
     // The measurement label follows its line as the camera moves, written
     // straight to the element each frame rather than through React state.
     const unsubscribeFrame = viewer.onFrame(() => {
@@ -347,6 +352,7 @@ export function useWorkspace(options: WorkspaceOptions) {
       unsubscribe();
       unsubscribeTier();
       unsubscribeClick();
+      unsubscribeDrag();
       unsubscribeFrame();
       resizeObserver.disconnect();
       viewer.dispose();
@@ -782,8 +788,13 @@ export function useWorkspace(options: WorkspaceOptions) {
     if (viewer === undefined) return;
     if (clickTool === "inspect") {
       viewer.setAnnotations({ markers: picks.inspected === undefined ? [] : [{ position: picks.inspected.local, tone: "inspect" }] });
+      viewer.setDraggableMarkers(picks.inspected === undefined ? [] : [{ id: "inspected", position: picks.inspected.local }]);
       return;
     }
+    viewer.setDraggableMarkers([
+      ...(picks.from === undefined ? [] : [{ id: "from", position: picks.from.local }]),
+      ...(picks.to === undefined ? [] : [{ id: "to", position: picks.to.local }]),
+    ]);
     viewer.setAnnotations({
       markers: [
         ...(picks.from === undefined ? [] : [{ position: picks.from.local, tone: "from" as const }]),
