@@ -128,12 +128,13 @@ export function Landing() {
               <a href={sample.sourceUrl} target="_blank" rel="noreferrer">
                 {sample.name}
               </a>
+              {" ("}
+              <a href={sample.licenceUrl} target="_blank" rel="noreferrer">
+                {sample.licence}
+              </a>
+              {")"}
             </span>
           ))}
-          {", "}
-          <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noreferrer">
-            CC BY 4.0
-          </a>
         </span>
       </footer>
     </div>

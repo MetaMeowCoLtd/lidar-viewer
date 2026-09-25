@@ -31,6 +31,8 @@ export interface SampleSurvey {
   readonly url: string;
   /** A lighter copy for the landing page's live preview. */
   readonly previewUrl?: string;
+  /** How it is coloured when it opens, for a scan with no colour of its own; true colour otherwise. */
+  readonly colour?: "classification" | "height";
 }
 
 const ccBy = { licence: "CC BY 4.0", licenceUrl: "https://creativecommons.org/licenses/by/4.0/" } as const;
@@ -61,6 +63,33 @@ export const sampleSurveys: readonly SampleSurvey[] = [
     sourceUrl: "https://www.geospatial.jp/ckan/dataset/tokyopc-23ku-2024",
     url: "samples/tokyo-tower-2024.laz",
     previewUrl: "samples/tokyo-tower-2024-preview.laz",
+  },
+  {
+    id: "sheffield-hallam",
+    name: "Sheffield Hallam University, Sheffield",
+    summary: "The City Campus, the station and Park Hill, from England's national survey",
+    place: "City Campus, Sheffield Hallam University, Sheffield, England",
+    captured: "March 2021",
+    platform: "Aircraft laser scanner, Environment Agency National LiDAR Programme",
+    area: "1,200 × 1,000 m, 3.4 million points",
+    about:
+      "Central Sheffield around Sheffield Hallam's City Campus: the university buildings along Howard Street and Arundel Gate, Sheaf Square and Sheffield station with its tracks, the zig-zag blocks of Park Hill on the hill beyond, and St Paul's Tower, the city's tallest building. From the survey that covers all of England, flown by aircraft in three passes (flight lines) and classified by the Environment Agency.",
+    why:
+      "National mapping data, free for anyone to use: the base a surveyor starts from before flying a drone for the detail. It comes classified - ground, vegetation, buildings - but without colour, and at a few points per square metre it shows what a drone adds.",
+    tryThis: [
+      "Measure a campus roof with the surface tool, and the drop from the city centre down to the station",
+      "Build the terrain to see how steeply Sheffield falls to the River Sheaf",
+      "Compare the survey's own classes with a fresh Analyze scan",
+    ],
+    prepared:
+      "Cropped from the survey's 5 km tile SK38NE, every point kept. The survey's own classes and flight lines are kept, the lines numbered 1 to 3 in flight order. It has no colour, so it opens coloured by class.",
+    credit: "Environment Agency (2021). National LIDAR Programme point cloud, tile SK38NE. Contains public sector information licensed under the Open Government Licence v3.0.",
+    creditShort: "Environment Agency, National LIDAR Programme",
+    licence: "Open Government Licence v3.0",
+    licenceUrl: "https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/",
+    sourceUrl: "https://environment.data.gov.uk/dataset/2e8d0733-4f43-48b4-9e51-631c25d1b0a9",
+    url: "samples/sheffield-hallam-2021.laz",
+    colour: "classification",
   },
   {
     id: "nelder-wheel",
