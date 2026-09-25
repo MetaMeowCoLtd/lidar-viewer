@@ -280,12 +280,15 @@ export function useWorkspace(options: WorkspaceOptions) {
   const loadFile = useCallback((file: File) => importScan(file.name, undefined, async () => file), [importScan]);
 
   const loadSample = useCallback(
-    (sample: SampleSurvey = defaultSample) =>
-      importScan(sample.name, sample, (report) => {
+    (sample: SampleSurvey = defaultSample) => {
+      // A scan with no colour of its own opens in the view its sample names.
+      setColorMode(sample.colour ?? "rgb");
+      return importScan(sample.name, sample, (report) => {
         setStatusText("Downloading the sample survey");
         report("downloading", 0);
         return fetchSampleFile(sample.url, (fraction) => report("downloading", fraction));
-      }),
+      });
+    },
     [importScan],
   );
 
@@ -429,13 +432,13 @@ export function useWorkspace(options: WorkspaceOptions) {
     viewerRef.current?.setPointShape(pointShape);
   }, [pointShape]);
 
+  // The chosen colour is kept as chosen and only stood in for while the scan
+  // on screen cannot show it: writing the stand-in back would lose the choice,
+  // and a sample opened from a scan without colour would stay grey.
+  const shownColorMode: PointCloudColorMode = source !== undefined && !source.supportsColorMode(colorMode) ? "height" : colorMode;
   useEffect(() => {
-    if (source !== undefined && !source.supportsColorMode(colorMode)) {
-      setColorMode("height");
-      return;
-    }
-    viewerRef.current?.setColorMode(colorMode);
-  }, [colorMode, source]);
+    viewerRef.current?.setColorMode(shownColorMode);
+  }, [shownColorMode]);
 
   const openFilePicker = useCallback(() => fileInputRef.current?.click(), []);
 
@@ -958,7 +961,7 @@ export function useWorkspace(options: WorkspaceOptions) {
     importProgress,
     uiHidden,
     view: {
-      colorMode,
+      colorMode: shownColorMode,
       setColorMode,
       supports,
       pointSize,
