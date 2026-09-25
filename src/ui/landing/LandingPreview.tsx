@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { LidarViewer } from "../../three/lidar-viewer.js";
-import { generateSampleCloud } from "../../core/sample-job.js";
+import { fetchSampleFile, sampleSurvey } from "../../import/sample-survey.js";
+import { startScanImport } from "../../import/scan-import-job.js";
 import { createLodSpecs } from "../lod-specs.js";
 
 /**
@@ -31,9 +32,12 @@ export function LandingPreview() {
     observer.observe(canvas.parentElement!);
     viewer.start();
     let disposed = false;
-    void generateSampleCloud({ pointCount: 450_000, seed: 21, name: "Sample factory survey" }).then((cloud) => {
+    void (async () => {
+      const file = await fetchSampleFile(sampleSurvey.previewUrl);
+      if (disposed) return;
+      const { cloud } = await startScanImport(file, Number.POSITIVE_INFINITY).result;
       if (!disposed) void viewer.load(cloud, createLodSpecs(cloud.bounds.diagonal));
-    });
+    })().catch(() => undefined);
     return () => {
       disposed = true;
       unsubscribe();

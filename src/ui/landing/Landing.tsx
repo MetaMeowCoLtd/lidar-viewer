@@ -1,6 +1,7 @@
 import { ThemeToggle } from "../ThemeToggle.js";
 import { Icon, type IconName } from "../icons.js";
 import { appHref, sampleHref } from "../router.js";
+import { sampleSurvey } from "../../import/sample-survey.js";
 import { LandingPreview } from "./LandingPreview.js";
 
 const features: readonly { icon: IconName; title: string; text: string }[] = [
@@ -13,7 +14,7 @@ const features: readonly { icon: IconName; title: string; text: string }[] = [
 ];
 
 const steps: readonly { title: string; text: string }[] = [
-  { title: "Open a scan", text: "Drop a LAS, LAZ or PLY file, or start with the sample survey." },
+  { title: "Open a scan", text: "Drop a LAS, LAZ or PLY file, or start with the sample: a real drone survey." },
   { title: "Analyze", text: "Find the ground, build the terrain and count buildings and trees in seconds." },
   { title: "Export", text: "Download results ready for QGIS, ArcGIS or your CAD tool." },
 ];
@@ -119,6 +120,16 @@ export function Landing() {
           Vertex LiDAR
         </span>
         <span>Reads LAS, LAZ and PLY · Exports LAS, GeoTIFF, GeoJSON and CSV</span>
+        <span>
+          {"Sample survey: "}
+          <a href={sampleSurvey.sourceUrl} target="_blank" rel="noreferrer">
+            Virginia Tech StREAM Lab
+          </a>
+          {", via OpenTopography, "}
+          <a href={sampleSurvey.licenceUrl} target="_blank" rel="noreferrer">
+            {sampleSurvey.licence}
+          </a>
+        </span>
       </footer>
     </div>
   );

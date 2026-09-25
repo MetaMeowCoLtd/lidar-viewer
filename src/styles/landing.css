@@ -486,3 +486,7 @@
   color: var(--text-3);
   font-size: 12px;
 }
+
+.lp-footer a {
+  color: inherit;
+}
