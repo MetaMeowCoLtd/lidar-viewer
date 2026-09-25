@@ -3,7 +3,6 @@ import { Icon, type IconName } from "../icons.js";
 import { Note, ProgressBar, Segmented, Toggle } from "../controls.js";
 import { formatCount, formatShare, ordinalSuffix } from "../format.js";
 import { countSummary, groundSummary, noiseSummary, qualitySummary, terrainSummary } from "./analysis-text.js";
-import type { SampleSurvey } from "../../import/sample-survey.js";
 import type { Workspace } from "./use-workspace.js";
 import type { CountState, GroundState, NoiseState, QualityState, TerrainState } from "./types.js";
 
@@ -19,7 +18,6 @@ export function Sidebar({ workspace }: { workspace: Workspace }) {
   return (
     <aside className="ws-panel ws-sidebar" aria-label="Scan and analysis">
       <ThinningNote workspace={workspace} />
-      {workspace.shownSample === undefined ? null : <SampleAbout sample={workspace.shownSample} />}
       {source === undefined ? null : <Analysis workspace={workspace} />}
     </aside>
   );
@@ -33,59 +31,6 @@ function ThinningNote({ workspace }: { workspace: Workspace }) {
   return (
     <section className="side-section">
       <Note tone="warning">{`Every ${every}${ordinalSuffix(every)} of ${formatCount(sampling.total)} points is loaded, spread evenly.`}</Note>
-    </section>
-  );
-}
-
-/**
- * What the sample on screen is, where it comes from and why it is worth a
- * look, so a sample reads as a real job rather than a random scan. The one
- * line and the credit stay in view; the rest folds away under them.
- */
-function SampleAbout({ sample }: { sample: SampleSurvey }) {
-  return (
-    <section className="side-section sample-about">
-      <p className="sample-about-lead">
-        <strong>{sample.name}</strong>
-        {` · real drone survey, ${sample.captured}`}
-      </p>
-      <details>
-        <summary>About this sample</summary>
-        <p>{sample.about}</p>
-        <h4>Why it is useful</h4>
-        <p>{sample.why}</p>
-        <h4>Try</h4>
-        <ul>
-          {sample.tryThis.map((item) => (
-            <li key={item}>{item}</li>
-          ))}
-        </ul>
-        <dl className="stat-list">
-          <div>
-            <dt>Where</dt>
-            <dd>{sample.place}</dd>
-          </div>
-          <div>
-            <dt>Flown with</dt>
-            <dd>{sample.platform}</dd>
-          </div>
-          <div>
-            <dt>Patch</dt>
-            <dd>{sample.area}</dd>
-          </div>
-        </dl>
-        <p className="note">{sample.prepared}</p>
-      </details>
-      <p className="note">
-        {`${sample.credit} `}
-        <a href={sample.sourceUrl} target="_blank" rel="noreferrer">
-          Source
-        </a>
-        {" · "}
-        <a href={sample.licenceUrl} target="_blank" rel="noreferrer">
-          {sample.licence}
-        </a>
-      </p>
     </section>
   );
 }

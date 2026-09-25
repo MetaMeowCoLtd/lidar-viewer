@@ -22,6 +22,8 @@ export interface SampleSurvey {
   /** What was done to the published data to make the sample. */
   readonly prepared: string;
   readonly credit: string;
+  /** The credit in a few words, for the attribution line on the scan. */
+  readonly creditShort: string;
   readonly licence: string;
   readonly licenceUrl: string;
   readonly sourceUrl: string;
@@ -53,6 +55,7 @@ export const sampleSurveys: readonly SampleSurvey[] = [
     prepared:
       "Cropped from the full survey and thinned evenly to one point in seventeen. The published files carry no flight lines, so each point's line was recovered from its GPS time.",
     credit: "Hession, W., Lehmann, L., Resop, J., Kobayashi, Y. (2026). Virginia Tech StREAM Lab Summer 2024 Drone Lidar Survey. Distributed by OpenTopography.",
+    creditShort: "Virginia Tech StREAM Lab, via OpenTopography",
     ...ccBy,
     sourceUrl: "https://doi.org/10.5069/G9J67F57",
     url: "samples/streamlab-2024.laz",
@@ -77,6 +80,7 @@ export const sampleSurveys: readonly SampleSurvey[] = [
     ],
     prepared: "The whole block, thinned evenly to one point in five. The published file carries no flight lines, so each point's line was recovered from its GPS time.",
     credit: "Vélez, S., Ariza-Sentís, M., Valente, J. (2023). High resolution LiDAR dataset acquired using UAV over two vineyards and two years located in Tomiño, Pontevedra, Spain. Zenodo.",
+    creditShort: "Vélez, Ariza-Sentís and Valente, VineLiDAR",
     ...ccBy,
     sourceUrl: "https://doi.org/10.5281/zenodo.8113105",
     url: "samples/vineyard-2022.laz",
@@ -101,6 +105,7 @@ export const sampleSurveys: readonly SampleSurvey[] = [
     prepared:
       "Cropped from the nadir missions of the survey and thinned evenly to one point in twenty. Each point's flight line was taken from the drone's recorded trajectory, which the survey publishes alongside the scan.",
     credit: "Anders, K., Wang, J., Wysocki, O., Huang, X., Liu, S. (2025). UAV Laser Scanning and Photogrammetry of TUM Downtown Campus. Zenodo.",
+    creditShort: "Technical University of Munich, TUM2TWIN",
     ...ccBy,
     sourceUrl: "https://doi.org/10.5281/zenodo.15282970",
     url: "samples/tum-campus-2024.laz",

@@ -110,12 +110,15 @@ export function Menu({
   icon,
   disabled,
   align = "end",
+  wide = false,
   children,
 }: {
   label: string;
   icon?: IconName | undefined;
   disabled?: boolean | undefined;
   align?: "start" | "end" | undefined;
+  /** A panel to read rather than a list to pick from. */
+  wide?: boolean | undefined;
   children: (close: () => void) => ReactNode;
 }) {
   const [open, setOpen] = useState(false);
@@ -146,7 +149,7 @@ export function Menu({
         <Icon name="chevronDown" />
       </button>
       {open ? (
-        <div className={`menu-popover menu-${align}`} role="menu">
+        <div className={`menu-popover menu-${align}${wide ? " menu-wide" : ""}`} role={wide ? "dialog" : "menu"}>
           {children(() => setOpen(false))}
         </div>
       ) : null}

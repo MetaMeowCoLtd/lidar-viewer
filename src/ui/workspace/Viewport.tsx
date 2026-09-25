@@ -1,3 +1,4 @@
+import { SampleAttribution } from "./SampleAbout.js";
 import { useState, type ChangeEvent, type DragEvent } from "react";
 import { Icon } from "../icons.js";
 import { Menu, MenuItem, ProgressBar } from "../controls.js";
@@ -93,6 +94,7 @@ export function Viewport({ workspace }: { workspace: Workspace }) {
           </div>
 
           <Legend workspace={workspace} />
+          {workspace.shownSample === undefined ? null : <SampleAttribution sample={workspace.shownSample} />}
           <Inspector workspace={workspace} />
         </>
       )}

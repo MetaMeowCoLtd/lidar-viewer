@@ -5,6 +5,7 @@ import { landingHref } from "../router.js";
 import type { Workspace } from "./use-workspace.js";
 import { DisplayMenu } from "./DisplayMenu.js";
 import { ThemeToggle } from "../ThemeToggle.js";
+import { SampleAbout } from "./SampleAbout.js";
 
 /** The scan on screen, the things done to a whole scan - opening and exporting it - and how it is drawn. */
 export function TopBar({ workspace, sidebarOpen, onToggleSidebar }: { workspace: Workspace; sidebarOpen: boolean; onToggleSidebar: () => void }) {
@@ -29,6 +30,11 @@ export function TopBar({ workspace, sidebarOpen, onToggleSidebar }: { workspace:
           <span>{`${Math.round(source.bounds.size[0])} × ${Math.round(source.bounds.size[2])} m`}</span>
           <span>{crs === undefined ? (source.isGeoreferenced ? "World coordinates" : "Local coordinates") : `EPSG:${crs}`}</span>
         </div>
+      )}
+      {source === undefined || workspace.shownSample === undefined ? null : (
+        <Menu label="About" icon="info" align="start" wide>
+          {() => <SampleAbout sample={workspace.shownSample!} />}
+        </Menu>
       )}
 
       <div className="ws-top-actions">
