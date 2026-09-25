@@ -15,6 +15,7 @@ const labels: Record<PointCloudColorMode, string> = {
   classification: "Classes",
   heightAboveGround: "Above ground",
   objects: "Objects",
+  flightLine: "Flight lines",
 };
 
 export function colorModeLabel(mode: PointCloudColorMode): string {
@@ -28,6 +29,7 @@ export function colorModeChoices(supports: {
   classification: boolean;
   heightAboveGround: boolean;
   objects: boolean;
+  flightLine: boolean;
 }): readonly ColourChoice[] {
   return [
     { value: "rgb", label: labels.rgb, hint: supports.rgb ? "The scan's own colour" : "This scan has no colour", disabled: !supports.rgb },
@@ -56,6 +58,12 @@ export function colorModeChoices(supports: {
       label: labels.objects,
       hint: supports.objects ? "A colour per building and tree" : "Count buildings and trees first",
       disabled: !supports.objects,
+    },
+    {
+      value: "flightLine",
+      label: labels.flightLine,
+      hint: supports.flightLine ? "A colour per pass of the aircraft" : "This scan does not record its flight lines",
+      disabled: !supports.flightLine,
     },
   ];
 }

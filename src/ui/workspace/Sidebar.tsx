@@ -163,7 +163,7 @@ function Analysis({ workspace }: { workspace: Workspace }) {
   );
 }
 
-function ColourLink({ workspace, mode, label }: { workspace: Workspace; mode: "heightAboveGround" | "objects"; label: string }) {
+function ColourLink({ workspace, mode, label }: { workspace: Workspace; mode: "heightAboveGround" | "objects" | "flightLine"; label: string }) {
   const { view } = workspace;
   if (view.colorMode === mode || !view.supports[mode]) return null;
   return (
@@ -270,6 +270,7 @@ function QualityCard({ workspace, busy }: { workspace: Workspace; busy: boolean 
           )}
         </dl>
       )}
+      {report?.strips === undefined ? null : <ColourLink workspace={workspace} mode="flightLine" label="Colour by flight line" />}
       <p className="side-checkpoints">
         {checkpoints === undefined ? "No checkpoints: accuracy is skipped." : `${checkpoints.checkpoints.length} checkpoints · ${checkpoints.source}`}
         <label className="link-btn">

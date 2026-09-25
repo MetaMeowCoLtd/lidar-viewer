@@ -1,6 +1,10 @@
 import { classificationColor, classificationName } from "../../core/point-cloud-classification.js";
+import { flightLineCss } from "../../core/flight-line-colour.js";
 import { formatRampHeight, formatShare } from "../format.js";
 import type { Workspace } from "./use-workspace.js";
+
+/** Past this many, flight lines are summed up rather than listed; the colours still tell them apart. */
+const maxFlightLines = 16;
 
 /**
  * The key to whatever the points are coloured by, in the corner of the scan
@@ -31,6 +35,22 @@ export function Legend({ workspace }: { workspace: Workspace }) {
             <small>{formatShare(count, source.pointCount)}</small>
           </span>
         ))}
+      </div>
+    );
+  }
+
+  if (view.colorMode === "flightLine" && view.flightLines.length > 1) {
+    const more = view.flightLines.length - maxFlightLines;
+    return (
+      <div className="ws-legend" aria-label="Flight lines in this scan">
+        {view.flightLines.slice(0, maxFlightLines).map(({ id, count }) => (
+          <span key={id} title={`Point source ID ${id}`}>
+            <i style={{ background: flightLineCss(id) }} />
+            {`Line ${id}`}
+            <small>{formatShare(count, source.pointCount)}</small>
+          </span>
+        ))}
+        {more > 0 ? <span>{`+${more} more`}</span> : null}
       </div>
     );
   }

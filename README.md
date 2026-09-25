@@ -17,7 +17,7 @@ only responsible for GPU resources and draw configuration.
   every point's height above ground, without overwriting existing classes
 - Building and tree counting on a worker: finds each building and tree,
   labels its points, traces its footprint or crown, and draws the outlines
-- Colour by height, RGB, relief, ASPRS class, height above ground or object
+- Colour by height, RGB, intensity, relief, ASPRS class, height above ground, object or flight line (LAS point source ID), the last to see each pass of the aircraft and where passes overlap
 - A 3D terrain model built from the ground points: a shaded surface with
   contour lines, exported as a GeoTIFF elevation model and GeoJSON contours
 - Click any point to read its map coordinates, class, height above ground and

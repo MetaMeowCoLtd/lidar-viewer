@@ -65,6 +65,7 @@ export class ThreePointCloudRenderer {
   private hasHeightAboveGround = false;
   private hasIntensity = false;
   private hasObjects = false;
+  private hasFlightLines = false;
   private readonly outlines = new ObjectOutlines();
   private readonly annotations = new MeasurementOverlay();
   private readonly drawingSize = new Vector2();
@@ -100,6 +101,7 @@ export class ThreePointCloudRenderer {
     this.hasHeightAboveGround = source.supportsColorMode("heightAboveGround");
     this.hasIntensity = source.supportsColorMode("intensity");
     this.hasObjects = source.supportsColorMode("objects");
+    this.hasFlightLines = source.supportsColorMode("flightLine");
 
     const material = this.material;
     for (const tile of tiled.tiles) {
@@ -162,7 +164,8 @@ export class ThreePointCloudRenderer {
       (mode === "intensity" && !this.hasIntensity) ||
       (mode === "classification" && !this.hasClassification) ||
       (mode === "heightAboveGround" && !this.hasHeightAboveGround) ||
-      (mode === "objects" && !this.hasObjects);
+      (mode === "objects" && !this.hasObjects) ||
+      (mode === "flightLine" && !this.hasFlightLines);
     const supportedMode = unsupported ? "height" : mode;
     this.reliefEnabled = supportedMode === "relief";
     this.material?.setColorMode(supportedMode);
@@ -321,6 +324,7 @@ export class ThreePointCloudRenderer {
     this.hasClassification = false;
     this.hasHeightAboveGround = false;
     this.hasObjects = false;
+    this.hasFlightLines = false;
     this.outlines.setObjects(undefined);
   }
 }
@@ -348,6 +352,9 @@ function createGeometry(cloud: PointCloud): BufferGeometry {
     // float - every point in the scan silently disappears. The GPU gets a float
     // copy instead, which holds ids exactly up to sixteen million objects.
     geometry.setAttribute("objectId", new BufferAttribute(Float32Array.from(cloud.objectId), 1));
+  }
+  if (cloud.pointSourceId !== undefined) {
+    geometry.setAttribute("pointSourceId", new BufferAttribute(cloud.pointSourceId, 1, false));
   }
   geometry.computeBoundingSphere();
   return geometry;

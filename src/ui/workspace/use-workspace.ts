@@ -124,12 +124,16 @@ export function useWorkspace(options: WorkspaceOptions) {
   // Writing the cap back into it would shrink the budget to the size of a small
   // scan and leave the next, larger one drawn at a fraction of its detail.
   const effectivePointBudget = Math.min(pointBudget, source?.pointCount ?? pointBudget);
+  // A full pass over the flight-line channel, once per loaded scan.
+  const flightLines = useMemo(() => source?.flightLineHistogram() ?? [], [source]);
   const supports = {
     rgb: source?.supportsColorMode("rgb") ?? false,
     intensity: source?.supportsColorMode("intensity") ?? false,
     classification: source?.supportsColorMode("classification") ?? false,
     heightAboveGround: source?.supportsColorMode("heightAboveGround") ?? false,
     objects: source?.supportsColorMode("objects") ?? false,
+    // One line is no comparison: a scan whose points all share an id has nothing to colour apart.
+    flightLine: flightLines.length > 1,
   };
   const analysing = pipeline !== undefined || quality.status === "running" || noise.status === "running" || ground.status === "running" || count.status === "running" || terrain.status === "running";
   const exportBlocked = source === undefined || status !== "ready" || analysing || exporting !== undefined;
@@ -139,6 +143,7 @@ export function useWorkspace(options: WorkspaceOptions) {
   // A full pass over the class channel, so it is computed once per loaded
   // scan rather than on every render.
   const classHistogram = useMemo(() => source?.classificationHistogram() ?? [], [source]);
+
   const hasGround = classHistogram.some(({ code, count: points }) => code === 2 && points >= 100);
   const noisePoints = classHistogram.reduce((sum, { code, count: points }) => (code === 7 || code === 18 ? sum + points : sum), 0);
   const aboveGroundTop = useMemo(
@@ -818,6 +823,7 @@ export function useWorkspace(options: WorkspaceOptions) {
       pointShape,
       setPointShape,
       classHistogram,
+      flightLines,
       aboveGroundTop,
       showBuildingOutlines,
       setShowBuildingOutlines,

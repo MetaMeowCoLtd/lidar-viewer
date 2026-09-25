@@ -1,6 +1,6 @@
 import type { SpatialReference } from "./spatial-reference.js";
 
-export type PointCloudColorMode = "height" | "rgb" | "intensity" | "relief" | "classification" | "heightAboveGround" | "objects";
+export type PointCloudColorMode = "height" | "rgb" | "intensity" | "relief" | "classification" | "heightAboveGround" | "objects" | "flightLine";
 export type PointCloudPointShape = "circle" | "square";
 
 export interface PointCloudBounds {
@@ -192,6 +192,7 @@ export class PointCloud {
     if (mode === "classification") return this.classification !== undefined;
     if (mode === "heightAboveGround") return this.heightAboveGround !== undefined;
     if (mode === "objects") return this.objectId !== undefined;
+    if (mode === "flightLine") return this.pointSourceId !== undefined;
     return mode === "height" || mode === "relief";
   }
 
@@ -200,6 +201,24 @@ export class PointCloud {
    * in descending order of population so the classes that dominate a scan come
    * first.
    */
+  /**
+   * Counts points per flight line (LAS point source ID), in the order the
+   * lines were numbered.
+   */
+  public flightLineHistogram(): { id: number; count: number }[] {
+    if (this.pointSourceId === undefined) return [];
+    const counts = new Int32Array(65536);
+    for (let point = 0; point < this.pointCount; point += 1) {
+      const id = this.pointSourceId[point]!;
+      counts[id] = counts[id]! + 1;
+    }
+    const histogram: { id: number; count: number }[] = [];
+    for (let id = 0; id < counts.length; id += 1) {
+      if (counts[id]! > 0) histogram.push({ id, count: counts[id]! });
+    }
+    return histogram;
+  }
+
   public classificationHistogram(): { code: number; count: number }[] {
     if (this.classification === undefined) return [];
     const counts = new Int32Array(256);

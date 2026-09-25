@@ -9,6 +9,7 @@ import {
 } from "three";
 import type { PointCloudColorMode, PointCloudPointShape } from "../core/point-cloud.js";
 import { classificationPaletteBytes } from "../core/point-cloud-classification.js";
+import { flightLineHueStep, flightLineLightness, flightLineSaturation } from "../core/flight-line-colour.js";
 
 const colorModeToNumber: Record<PointCloudColorMode, number> = {
   height: 0,
@@ -18,6 +19,7 @@ const colorModeToNumber: Record<PointCloudColorMode, number> = {
   heightAboveGround: 4,
   objects: 5,
   intensity: 6,
+  flightLine: 7,
 };
 const pointShapeToNumber: Record<PointCloudPointShape, number> = { circle: 0, square: 1 };
 
@@ -81,6 +83,7 @@ export class PointCloudShaderMaterial extends ShaderMaterial {
         attribute float heightAboveGround;
         attribute float objectId;
         attribute float intensity;
+        attribute float pointSourceId;
         uniform float uNoiseMode;
         varying float vNoise;
         varying vec3 vColor;
@@ -89,6 +92,7 @@ export class PointCloudShaderMaterial extends ShaderMaterial {
         varying float vClass;
         varying float vAboveGround;
         varying float vObject;
+        varying float vLine;
         uniform float uPointSize;
         uniform float uSizeScale;
         uniform float uMinDepth;
@@ -101,6 +105,7 @@ export class PointCloudShaderMaterial extends ShaderMaterial {
           vAboveGround = heightAboveGround;
           vObject = objectId;
           vIntensity = intensity;
+          vLine = pointSourceId;
           // ASPRS 7 and 18: low and high noise. Hidden points are sent outside the clip volume.
           vNoise = (abs(classification - 7.0) < 0.5 || abs(classification - 18.0) < 0.5) ? 1.0 : 0.0;
           if (vNoise > 0.5 && uNoiseMode > 0.5 && uNoiseMode < 1.5) {
@@ -142,6 +147,7 @@ export class PointCloudShaderMaterial extends ShaderMaterial {
         varying float vClass;
         varying float vAboveGround;
         varying float vObject;
+        varying float vLine;
 
         vec3 hsl(float hue, float saturation, float lightness) {
           vec3 rgb = clamp(abs(mod(hue * 6.0 + vec3(0.0, 4.0, 2.0), 6.0) - 3.0) - 1.0, 0.0, 1.0);
@@ -193,6 +199,11 @@ export class PointCloudShaderMaterial extends ShaderMaterial {
           return vec3(pow(t, 0.8) * 0.92 + 0.04);
         }
 
+        // Each flight line in its own colour; see flight-line-colour.ts.
+        vec3 flightLineColor(float id) {
+          return hsl(fract(id * ${flightLineHueStep.toFixed(10)}), ${flightLineSaturation.toFixed(2)}, ${flightLineLightness.toFixed(2)});
+        }
+
         void main() {
           if (uPointShape < 0.5 && length(gl_PointCoord - vec2(0.5)) > 0.5) discard;
           vec3 heightColor = mix(uLowHeightColor, uHighHeightColor, clamp((vHeight - uMinHeight) / (uMaxHeight - uMinHeight), 0.0, 1.0));
@@ -202,7 +213,7 @@ export class PointCloudShaderMaterial extends ShaderMaterial {
           vec3 classColor = texture2D(uClassPalette, vec2((vClass + 0.5) / 256.0, 0.5)).rgb;
           vec3 finalColor = uColorMode < 0.5
             ? heightColor
-            : (uColorMode < 1.5 ? vColor : (uColorMode < 2.5 ? reliefColor : (uColorMode < 3.5 ? classColor : (uColorMode < 4.5 ? aboveGroundColor(vAboveGround) : (uColorMode < 5.5 ? objectColor(vObject, vClass) : intensityColor(vIntensity))))));
+            : (uColorMode < 1.5 ? vColor : (uColorMode < 2.5 ? reliefColor : (uColorMode < 3.5 ? classColor : (uColorMode < 4.5 ? aboveGroundColor(vAboveGround) : (uColorMode < 5.5 ? objectColor(vObject, vClass) : (uColorMode < 6.5 ? intensityColor(vIntensity) : flightLineColor(vLine)))))));
           if (vNoise > 0.5 && uNoiseMode > 1.5) finalColor = vec3(1.0, 0.16, 0.6);
           gl_FragColor = vec4(finalColor, 1.0);
         }
