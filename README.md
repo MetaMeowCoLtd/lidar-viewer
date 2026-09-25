@@ -30,7 +30,10 @@ only responsible for GPU resources and draw configuration.
   carried from the source file into the LAS export. LAS output is uncompressed:
   the bundled laz-perf can read LAZ but not write it
 - Immutable typed-array point clouds with bounds and optional RGB/intensity data
-- A real drone LiDAR survey as the sample: a 230 × 150 m patch of Virginia Tech's StREAM Lab (a stream, its wooded corridor, a gravel road and fields), flown in August 2024 by a DJI Matrice 350 RTK with a Zenmuse L1. It is cropped and thinned evenly to 4.1 million points (`public/samples/`), with classes, colour, intensity, returns and EPSG:6346 kept as delivered. The source files carry no flight lines, so each point's line was recovered from its GPS time. Source: Hession, W., Lehmann, L., Resop, J., Kobayashi, Y. (2026), Virginia Tech StREAM Lab Summer 2024 Drone Lidar Survey, distributed by OpenTopography, https://doi.org/10.5069/G9J67F57, CC BY 4.0
+- Real drone LiDAR surveys as samples, picked from the Samples menu, each with an "About this sample" note on where it comes from and the work it stands for. All are CC BY 4.0, cropped and thinned evenly for the web (`public/samples/`), with flight lines recovered from GPS time where the source files lack them:
+  - Stream corridor, Virginia (default): a 230 × 150 m patch of Virginia Tech's StREAM Lab, DJI Matrice 350 RTK with a Zenmuse L1, August 2024, 4.1 million points. Hession, W., Lehmann, L., Resop, J., Kobayashi, Y. (2026), Virginia Tech StREAM Lab Summer 2024 Drone Lidar Survey, OpenTopography, https://doi.org/10.5069/G9J67F57
+  - Vineyard, Galicia: a 94 × 127 m vineyard block in Tomiño, Spain, DJI Matrice 300 RTK with a Zenmuse L1 at 30 m, July 2022, 3.5 million points, unclassified. Vélez, S., Ariza-Sentís, M., Valente, J. (2023), VineLiDAR, Zenodo, https://doi.org/10.5281/zenodo.8113105
+- Flight lines: colour by LAS point source ID and pick lines from the legend (click to hide, Alt+click to see one alone) to inspect a pass and its overlap with its neighbours
 - A simulated drone survey of a factory site, kept for the benchmark page and tests (a DJI L2-style flight: 70° line scan, 20% side overlap, multiple returns, intensity, EPSG:25830)
 - Voxel-grid decimation and a precomputed LOD pyramid
 - Point-budget LOD selection and transaction-safe loading session
