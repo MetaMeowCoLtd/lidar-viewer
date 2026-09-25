@@ -1280,8 +1280,10 @@
 
 .ws-rulers li span {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
-  gap: 8px;
+  gap: 0 8px;
+  min-width: 0;
 }
 
 .ws-rulers strong,
@@ -1303,4 +1305,13 @@
 .ws-rulers .icon-btn {
   width: 24px;
   height: 24px;
+}
+
+.ws-area-label {
+  border: 1px solid #ffd54a;
+}
+
+.ws-area-total {
+  margin-top: 6px;
+  font-size: 16px;
 }

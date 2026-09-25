@@ -2,7 +2,7 @@ import { SampleAttribution } from "./SampleAbout.js";
 import { useState, type ChangeEvent, type DragEvent } from "react";
 import { Icon } from "../icons.js";
 import { Menu, MenuItem, ProgressBar } from "../controls.js";
-import { formatCount, formatLength } from "../format.js";
+import { formatCount, formatLength, formatArea } from "../format.js";
 import { measureBetween } from "../../core/point-inspection.js";
 import { supportedScanExtensions } from "../../import/scan-file-importer.js";
 import { colorModeLabel, colorModeChoices } from "./colour.js";
@@ -68,6 +68,15 @@ export function Viewport({ workspace }: { workspace: Workspace }) {
             >
               <Icon name="ruler" />
             </button>
+            <button
+              type="button"
+              className="icon-btn"
+              aria-pressed={picking.clickTool === "area"}
+              title="Measure a surface: click a roof, a yard or a road"
+              onClick={() => picking.setClickTool("area")}
+            >
+              <Icon name="area" />
+            </button>
             <span className="ws-tools-divider" />
             <button type="button" className="icon-btn" title="Frame the whole scan" onClick={actions.resetView}>
               <Icon name="focus" />
@@ -109,6 +118,14 @@ export function Viewport({ workspace }: { workspace: Workspace }) {
                 </div>
               ),
             )
+          : null}
+        {picking.clickTool === "area"
+          ? picks.surfaces.map((each) => (
+              <div key={each.id} className="ws-measure-label ws-area-label" data-anchor={JSON.stringify(each.surface.centre)}>
+                {picks.surfaces.length > 1 ? <b>{each.id}</b> : null}
+                {formatArea(each.surface.planArea)}
+              </div>
+            ))
           : null}
       </div>
 

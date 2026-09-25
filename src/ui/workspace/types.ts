@@ -1,3 +1,4 @@
+import type { SurfaceSelection } from "../../core/surface-area.js";
 import type { Checkpoint, QualityReport } from "../../core/quality-report.js";
 import type { NoiseDetectionStats } from "../../core/noise-detection.js";
 import type { GroundDetectionStats } from "../../core/ground-detection.js";
@@ -9,7 +10,7 @@ export type ViewerStatus = "initializing" | "processing" | "ready" | "error";
 
 export type ExportKind = "inventory" | "geojson" | "las" | "cleaned" | "classes" | "elevation" | "contours";
 
-export type ClickTool = "inspect" | "measure";
+export type ClickTool = "inspect" | "measure" | "area";
 
 export type LodMode = "manual" | "distance";
 
@@ -32,13 +33,20 @@ export interface Ruler {
   readonly to?: PointDetails | undefined;
 }
 
-/** What the clicks have picked: the point inspected, and every ruler laid on the scan. */
+/** One surface measured with the area tool. */
+export interface SurfacePick {
+  readonly id: number;
+  readonly surface: SurfaceSelection;
+}
+
+/** What the clicks have picked: the point inspected, every ruler laid on the scan and every surface measured. */
 export interface Picks {
   readonly inspected?: PointDetails | undefined;
   readonly rulers: readonly Ruler[];
+  readonly surfaces: readonly SurfacePick[];
 }
 
-export const noPicks: Picks = { rulers: [] };
+export const noPicks: Picks = { rulers: [], surfaces: [] };
 
 /** Where a run of several analyses has got: which step of how many, and what it is doing. */
 export interface PipelineState {

@@ -14,6 +14,8 @@ export interface Annotations {
   readonly markers: readonly MarkerAnnotation[];
   /** Measured lines; the two legs showing each one's horizontal and vertical parts are drawn with it. */
   readonly measurements?: ReadonlyArray<{ readonly from: readonly [number, number, number]; readonly to: readonly [number, number, number] }>;
+  /** Outlines of measured surfaces, each as line segments: x, y, z of both ends. */
+  readonly surfaces?: ReadonlyArray<Float32Array>;
 }
 
 const toneColors: Record<MarkerTone, readonly [number, number, number]> = {
@@ -63,6 +65,8 @@ export class MeasurementOverlay {
   });
   private readonly lineMaterial = lineMaterial(0xffffff, 2, 0.95);
   private readonly legMaterial = lineMaterial(0x9fdcf5, 1.2, 0.55);
+  private readonly surfaceMaterial = lineMaterial(0xffd54a, 2.5, 0.95);
+  private surfaceLines: LineSegments2 | undefined;
   private markers: Points | undefined;
   private line: LineSegments2 | undefined;
   private legs: LineSegments2 | undefined;
@@ -93,12 +97,31 @@ export class MeasurementOverlay {
       this.legs = segments(legs, this.legMaterial, 20);
       this.scene.add(this.legs, this.line);
     }
+    this.addSurfaces(annotations.surfaces ?? []);
+  }
+
+  private addSurfaces(surfaces: ReadonlyArray<Float32Array>): void {
+    const total = surfaces.reduce((sum, outline) => sum + outline.length, 0);
+    if (total === 0) return;
+    const positions = new Float32Array(total);
+    let offset = 0;
+    for (const outline of surfaces) {
+      positions.set(outline, offset);
+      offset += outline.length;
+    }
+    const geometry = new LineSegmentsGeometry();
+    geometry.setPositions(positions);
+    this.surfaceLines = new LineSegments2(geometry, this.surfaceMaterial);
+    this.surfaceLines.frustumCulled = false;
+    this.surfaceLines.renderOrder = 19;
+    this.scene.add(this.surfaceLines);
   }
 
   /** Line widths and marker sizes are in pixels, so they need the drawing surface's size and density. */
   public setResolution(width: number, height: number, pixelRatio: number): void {
     this.lineMaterial.resolution.set(width, height);
     this.legMaterial.resolution.set(width, height);
+    this.surfaceMaterial.resolution.set(width, height);
     this.markerMaterial.uniforms.uSize!.value = markerSize * pixelRatio;
   }
 
@@ -115,10 +138,11 @@ export class MeasurementOverlay {
     this.markerMaterial.dispose();
     this.lineMaterial.dispose();
     this.legMaterial.dispose();
+    this.surfaceMaterial.dispose();
   }
 
   private clear(): void {
-    for (const object of [this.markers, this.line, this.legs]) {
+    for (const object of [this.markers, this.line, this.legs, this.surfaceLines]) {
       if (object === undefined) continue;
       this.scene.remove(object);
       object.geometry.dispose();
@@ -126,6 +150,7 @@ export class MeasurementOverlay {
     this.markers = undefined;
     this.line = undefined;
     this.legs = undefined;
+    this.surfaceLines = undefined;
   }
 }
 

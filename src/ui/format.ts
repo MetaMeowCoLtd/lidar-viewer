@@ -40,3 +40,8 @@ export function ordinalSuffix(value: number): string {
   if (lastTwo >= 11 && lastTwo <= 13) return "th";
   return ["th", "st", "nd", "rd"][value % 10] ?? "th";
 }
+
+/** An area in square metres: to a tenth under a hundred, whole above, with thousands grouped. */
+export function formatArea(squareMetres: number): string {
+  return `${squareMetres < 100 ? squareMetres.toFixed(1) : Math.round(squareMetres).toLocaleString("en-US")} m²`;
+}

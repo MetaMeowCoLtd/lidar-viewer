@@ -16,6 +16,7 @@ import { writeLas } from "../../export/las-writer.js";
 import { classSummaryCsv, objectInventoryCsv, objectsGeoJson } from "../../export/object-inventory.js";
 import { fileStem, saveFile } from "../../export/save-file.js";
 import { describePoint } from "../../core/point-inspection.js";
+import { buildSurfaceGrid, selectSurface, type SurfaceGrid } from "../../core/surface-area.js";
 import { TerrainCancelled, startTerrainBuild, type TerrainJob } from "../../core/terrain-job.js";
 import { NoiseDetectionCancelled, startNoiseDetection, type NoiseDetectionJob } from "../../core/noise-detection-job.js";
 import { withoutNoise } from "../../export/clean.js";
@@ -120,6 +121,8 @@ export function useWorkspace(options: WorkspaceOptions) {
   const [clickTool, setClickTool] = useState<ClickTool>("inspect");
   const clickToolRef = useRef(clickTool);
   const [picks, setPicks] = useState<Picks>(noPicks);
+  /** The scan's top surface for the area tool, built on its first use and kept while the points stay the same. */
+  const surfaceGridRef = useRef<{ positions: Float32Array; grid: SurfaceGrid } | undefined>(undefined);
   const [pipeline, setPipeline] = useState<PipelineState>();
   /**
    * Set while "Analyze scan" runs every step. Run one at a time, a step shows
@@ -305,6 +308,24 @@ export function useWorkspace(options: WorkspaceOptions) {
         setPicks((current) => ({ ...current, inspected: details }));
         return;
       }
+      if (clickToolRef.current === "area") {
+        const cloud = sourceRef.current;
+        if (hit === undefined || cloud === undefined) return;
+        // Analyses replace the cloud but never move its points, so the grid lasts until another scan is opened.
+        let cached = surfaceGridRef.current;
+        if (cached === undefined || cached.positions !== cloud.positions) {
+          cached = { positions: cloud.positions, grid: buildSurfaceGrid(cloud) };
+          surfaceGridRef.current = cached;
+        }
+        const offset = hit.index * 3;
+        const surface = selectSurface(cached.grid, hit.cloud.positions[offset]!, hit.cloud.positions[offset + 2]!);
+        if (surface === undefined) return;
+        setPicks((current) => {
+          const id = current.surfaces.reduce((highest, each) => Math.max(highest, each.id), 0) + 1;
+          return { ...current, surfaces: [...current.surfaces, { id, surface }] };
+        });
+        return;
+      }
       // A miss while measuring is most likely a slip, so it keeps what was measured.
       if (details === undefined) return;
       // A click ends the ruler being laid, or starts a new one beside those already there.
@@ -397,7 +418,7 @@ export function useWorkspace(options: WorkspaceOptions) {
       // Escape drops the ruler still being laid, and otherwise the point inspected; finished rulers stay.
       if (event.key === "Escape")
         setPicks((current) =>
-          current.rulers.length > 0 && current.rulers.at(-1)?.to === undefined ? { ...current, rulers: current.rulers.slice(0, -1) } : { rulers: current.rulers },
+          current.rulers.length > 0 && current.rulers.at(-1)?.to === undefined ? { ...current, rulers: current.rulers.slice(0, -1) } : { rulers: current.rulers, surfaces: current.surfaces },
         );
     };
     window.addEventListener("keydown", onKeyDown);
@@ -801,7 +822,7 @@ export function useWorkspace(options: WorkspaceOptions) {
   // cloud, so what was inspected is dropped; a measurement is only positions,
   // which no analysis moves, so it stays.
   useEffect(() => {
-    setPicks((current) => (current.inspected === undefined ? current : { rulers: current.rulers }));
+    setPicks((current) => (current.inspected === undefined ? current : { rulers: current.rulers, surfaces: current.surfaces }));
   }, [source]);
 
   useEffect(() => {
@@ -810,6 +831,11 @@ export function useWorkspace(options: WorkspaceOptions) {
     if (clickTool === "inspect") {
       viewer.setAnnotations({ markers: picks.inspected === undefined ? [] : [{ position: picks.inspected.local, tone: "inspect" }] });
       viewer.setDraggableMarkers(picks.inspected === undefined ? [] : [{ id: "inspected", position: picks.inspected.local }]);
+      return;
+    }
+    if (clickTool === "area") {
+      viewer.setAnnotations({ markers: [], surfaces: picks.surfaces.map((each) => each.surface.outline) });
+      viewer.setDraggableMarkers([]);
       return;
     }
     viewer.setDraggableMarkers(
@@ -962,9 +988,11 @@ export function useWorkspace(options: WorkspaceOptions) {
       setClickTool,
       picks,
       inspectedObject,
-      clearInspected: () => setPicks((current) => ({ rulers: current.rulers })),
+      clearInspected: () => setPicks((current) => ({ rulers: current.rulers, surfaces: current.surfaces })),
       removeRuler: (id: number) => setPicks((current) => ({ ...current, rulers: current.rulers.filter((ruler) => ruler.id !== id) })),
-      clearRulers: () => setPicks((current) => ({ inspected: current.inspected, rulers: [] })),
+      clearRulers: () => setPicks((current) => ({ ...current, rulers: [] })),
+      removeSurface: (id: number) => setPicks((current) => ({ ...current, surfaces: current.surfaces.filter((each) => each.id !== id) })),
+      clearSurfaces: () => setPicks((current) => ({ ...current, surfaces: [] })),
     },
     exports: {
       exporting,

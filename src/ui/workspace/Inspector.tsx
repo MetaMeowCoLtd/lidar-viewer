@@ -1,7 +1,7 @@
 import { Icon } from "../icons.js";
 import { classificationName } from "../../core/point-cloud-classification.js";
 import { measureBetween, type PointDetails } from "../../core/point-inspection.js";
-import { formatCoordinate, formatLength, formatNumber } from "../format.js";
+import { formatArea, formatCoordinate, formatLength, formatNumber } from "../format.js";
 import type { DetectedObject } from "../../core/object-detection.js";
 import type { Workspace } from "./use-workspace.js";
 import type { Ruler } from "./types.js";
@@ -29,6 +29,40 @@ export function Inspector({ workspace }: { workspace: Workspace }) {
             ? "Click where this ruler ends; Esc drops it."
             : "Click twice for another ruler; drag an end to adjust it."}
         </p>
+      </Card>
+    );
+  }
+
+  if (clickTool === "area") {
+    if (picks.surfaces.length === 0) {
+      return (
+        <Card title="Surface area" onClose={() => picking.setClickTool("inspect")} closeLabel="Stop measuring surfaces">
+          <p className="ws-inspector-hint">Click a roof, a yard or a road: the flat or evenly sloped surface under the click is outlined and measured.</p>
+        </Card>
+      );
+    }
+    const total = picks.surfaces.reduce((sum, each) => sum + each.surface.planArea, 0);
+    return (
+      <Card title={picks.surfaces.length === 1 ? "Surface area" : `${picks.surfaces.length} surfaces`} onClose={picking.clearSurfaces} closeLabel="Remove every surface">
+        <ol className="ws-rulers">
+          {picks.surfaces.map((each) => {
+            const sloped = each.surface.slopeDegrees >= 2;
+            return (
+              <li key={each.id}>
+                <b>{each.id}</b>
+                <span>
+                  <strong>{formatArea(each.surface.planArea)}</strong>
+                  <small>{sloped ? `${formatArea(each.surface.surfaceArea)} along a ${each.surface.slopeDegrees.toFixed(0)}° pitch` : "level"}</small>
+                </span>
+                <button type="button" className="icon-btn" onClick={() => picking.removeSurface(each.id)} aria-label={`Remove surface ${each.id}`} title="Remove this surface">
+                  <Icon name="close" />
+                </button>
+              </li>
+            );
+          })}
+        </ol>
+        {picks.surfaces.length > 1 ? <p className="ws-inspector-headline ws-area-total">{`${formatArea(total)} in all`}</p> : null}
+        <p className="ws-inspector-hint">Areas are as a plan measures them; a sloped surface's own area is given beside it. Click another surface to add it.</p>
       </Card>
     );
   }
