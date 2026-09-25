@@ -43,6 +43,9 @@ export function Legend({ workspace }: { workspace: Workspace }) {
     const more = view.flightLines.length - maxFlightLines;
     return (
       <div className="ws-legend" aria-label="Flight lines in this scan">
+        <span className="ws-legend-title" title="A flight line is one straight pass of the aircraft; the scanner sweeps a strip of ground under it, and neighbouring strips overlap">
+          {`${view.flightLines.length} flight lines · one colour per pass`}
+        </span>
         {view.flightLines.slice(0, maxFlightLines).map(({ id, count }) => (
           <span key={id} title={`Point source ID ${id}`}>
             <i style={{ background: flightLineCss(id) }} />

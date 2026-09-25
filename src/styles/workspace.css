@@ -552,6 +552,12 @@
   color: var(--text-2);
 }
 
+.ws-legend .ws-legend-title {
+  flex-basis: 100%;
+  color: var(--text);
+  font-weight: 600;
+}
+
 .ws-legend i {
   width: 9px;
   height: 9px;
