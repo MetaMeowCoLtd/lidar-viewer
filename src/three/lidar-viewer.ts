@@ -151,7 +151,8 @@ export class LidarViewer {
     const pressed = this.pressed;
     this.pressed = undefined;
     if (pressed === undefined || pressed.pointerId !== event.pointerId || this.clickListeners.size === 0) return;
-    const moved = Math.hypot(event.clientX - pressed.x, event.clientY - pressed.y);
+    // The controls count the travel too: a drag under the pointer lock ends where it began on screen.
+    const moved = Math.max(Math.hypot(event.clientX - pressed.x, event.clientY - pressed.y), this.controls.dragDistance);
     if (moved > clickSlop || event.timeStamp - pressed.time > clickDuration) return;
     const hit = this.pickAt(event.clientX, event.clientY);
     for (const listener of this.clickListeners) listener(hit);

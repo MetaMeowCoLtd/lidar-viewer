@@ -68,6 +68,9 @@ interface Flight {
  * Dragging follows the pointer exactly. An orbit or pan flicked and released
  * carries on and slows to a stop; walking and looking stop dead, as in Unreal.
  */
+/** How far, in CSS pixels, a mouse press must move before the cursor is locked for a drag. */
+const lockAfter = 4;
+
 export class NavigationControls {
   /** The point the view is centred on; auto-rotation turns around it. */
   public readonly target = new Vector3();
@@ -104,6 +107,18 @@ export class NavigationControls {
   private sceneRadius = 100;
   private groundY = 0;
   private readonly marker: HTMLDivElement;
+  /**
+   * True while a mouse drag holds the pointer lock: the cursor is hidden and
+   * held in place, so it cannot run off the window or onto the page around the
+   * scan, and movement comes from the mouse itself rather than the cursor.
+   */
+  private locked = false;
+  /** How far, in CSS pixels, the pointer has travelled since it was pressed. */
+  private travelled = 0;
+  /** Set when the lock ends mid-drag: the next move starts again from the real cursor. */
+  private resync = false;
+  /** Set when the browser refused the lock, so the rest of the drag does not ask again. */
+  private lockRefused = false;
 
   public constructor(
     private readonly camera: PerspectiveCamera,
@@ -124,6 +139,7 @@ export class NavigationControls {
     window.addEventListener("keydown", this.onKeyDown);
     window.addEventListener("keyup", this.onKeyUp);
     window.addEventListener("blur", this.onBlur);
+    document.addEventListener("pointerlockchange", this.onPointerLockChange);
 
     // A small ring marks the point the view is turning around while dragging.
     this.marker = document.createElement("div");
@@ -204,6 +220,8 @@ export class NavigationControls {
     window.removeEventListener("keydown", this.onKeyDown);
     window.removeEventListener("keyup", this.onKeyUp);
     window.removeEventListener("blur", this.onBlur);
+    document.removeEventListener("pointerlockchange", this.onPointerLockChange);
+    this.releaseLock();
     this.marker.remove();
   }
 
@@ -227,6 +245,8 @@ export class NavigationControls {
     }
     this.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
     this.lastMove = event.timeStamp;
+    this.travelled = 0;
+    this.lockRefused = false;
 
     if (this.pointers.size === 1) {
       // An embedded preview that cannot zoom is a turntable: every drag orbits.
@@ -256,16 +276,28 @@ export class NavigationControls {
       return;
     }
 
-    const dx = event.clientX - previous.x;
-    const dy = event.clientY - previous.y;
-    this.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    // Under the pointer lock the cursor stands still and only the mouse's own
+    // movement arrives; a virtual cursor carries on from where it was, so every
+    // kind of drag works on exactly the same numbers as without the lock.
+    if (this.resync) {
+      this.resync = false;
+      this.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      return;
+    }
+    const dx = this.locked ? event.movementX : event.clientX - previous.x;
+    const dy = this.locked ? event.movementY : event.clientY - previous.y;
+    const at = { x: previous.x + dx, y: previous.y + dy };
+    this.pointers.set(event.pointerId, at);
+    this.travelled += Math.abs(dx) + Math.abs(dy);
+    // Locked only once the press has become a drag, so a click still reaches whatever it clicks.
+    if (!this.locked && !this.lockRefused && event.pointerType === "mouse" && this.enableZoom && this.travelled > lockAfter) this.requestLock();
 
     // Pressing or releasing a second mouse button mid-drag changes what the drag does, as in Unreal.
     if (event.pointerType === "mouse" && this.enableZoom) {
       const drag = mouseDrag(event.buttons, event.altKey, event.shiftKey || event.ctrlKey || event.metaKey);
       if (drag !== undefined && drag !== this.drag) {
         this.stopMotion();
-        this.beginDrag(drag, event.clientX, event.clientY);
+        this.beginDrag(drag, at.x, at.y);
         return;
       }
     }
@@ -298,12 +330,59 @@ export class NavigationControls {
         break;
       }
       default:
-        this.panTo(event.clientX, event.clientY, elapsed);
+        this.panTo(at.x, at.y, elapsed);
     }
+  };
+
+  /**
+   * How far the last press travelled before it was released, in CSS pixels.
+   * Under the pointer lock the cursor never moves, so this - not where the
+   * press and release happened - tells a drag from a click.
+   */
+  public get dragDistance(): number {
+    return this.travelled;
+  }
+
+  private requestLock(): void {
+    this.locked = true;
+    const refused = () => {
+      // Without the lock the drag carries on with the visible cursor, as before.
+      this.locked = false;
+      this.lockRefused = true;
+    };
+    try {
+      // Raw movement, free of the system's pointer acceleration, where the browser offers it.
+      const request = this.element.requestPointerLock({ unadjustedMovement: true }) as Promise<void> | undefined;
+      void request?.catch(() => {
+        if (this.pointers.size === 0) return refused();
+        const plain = this.element.requestPointerLock() as Promise<void> | undefined;
+        void plain?.catch(refused);
+      });
+    } catch {
+      refused();
+    }
+  }
+
+  private releaseLock(): void {
+    if (document.pointerLockElement === this.element) document.exitPointerLock();
+    this.locked = false;
+  }
+
+  /** The lock can end without a release, when Escape is pressed or the window loses focus. */
+  private readonly onPointerLockChange = () => {
+    if (document.pointerLockElement === this.element) {
+      // Granted after a quick drag had already ended: nothing is holding it, so let go at once.
+      if (this.pointers.size === 0) this.releaseLock();
+      return;
+    }
+    if (!this.locked) return;
+    this.locked = false;
+    if (this.drag !== undefined) this.resync = true;
   };
 
   private readonly onPointerUp = (event: PointerEvent) => {
     if (!this.pointers.delete(event.pointerId)) return;
+    if (this.pointers.size === 0) this.releaseLock();
     if (this.element.hasPointerCapture(event.pointerId)) this.element.releasePointerCapture(event.pointerId);
     const still = event.timeStamp - this.lastMove > flingWindow;
     if (this.pointers.size === 1) {
