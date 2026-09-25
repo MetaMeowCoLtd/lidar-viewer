@@ -7,7 +7,7 @@ reconciliation and keeps the data pipeline worker-ready.
 
 ```
 PointCloud (typed arrays, metadata, bounds)
-  ├─ ProceduralCloudGenerator   → simulated drone survey (sample and tests)
+  ├─ ProceduralCloudGenerator   → simulated drone survey (benchmark and tests)
   ├─ LAS / LAZ / PLY readers    → local scan sources
   ├─ detectNoise (worker)       → noise classes 7 and 18
   ├─ detectGround (worker)      → ground class + height above ground

@@ -30,7 +30,8 @@ only responsible for GPU resources and draw configuration.
   carried from the source file into the LAS export. LAS output is uncompressed:
   the bundled laz-perf can read LAZ but not write it
 - Immutable typed-array point clouds with bounds and optional RGB/intensity data
-- A synthetic drone LiDAR survey as the sample: a manufacturing plant and its surroundings (as-built, expansion topography, stockpiles), made by simulating a DJI L2-style flight (70° line scan, 20% side overlap, multiple returns, intensity, georeferenced in EPSG:25830)
+- A real drone LiDAR survey as the sample: a 230 × 150 m patch of Virginia Tech's StREAM Lab (a stream, its wooded corridor, a gravel road and fields), flown in August 2024 by a DJI Matrice 350 RTK with a Zenmuse L1. It is cropped and thinned evenly to 4.1 million points (`public/samples/`), with classes, colour, intensity, returns and EPSG:6346 kept as delivered. The source files carry no flight lines, so each point's line was recovered from its GPS time. Source: Hession, W., Lehmann, L., Resop, J., Kobayashi, Y. (2026), Virginia Tech StREAM Lab Summer 2024 Drone Lidar Survey, distributed by OpenTopography, https://doi.org/10.5069/G9J67F57, CC BY 4.0
+- A simulated drone survey of a factory site, kept for the benchmark page and tests (a DJI L2-style flight: 70° line scan, 20% side overlap, multiple returns, intensity, EPSG:25830)
 - Voxel-grid decimation and a precomputed LOD pyramid
 - Point-budget LOD selection and transaction-safe loading session
 - Three.js `Points` adapter using a custom shader material
