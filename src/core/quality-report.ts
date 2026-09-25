@@ -310,8 +310,8 @@ export function buildQualityReport(
     status: coverage.voids === 0 ? "pass" : "review",
     detail:
       coverage.voids === 0
-        ? `No empty patch reaches the void size of ${coverage.voidThreshold.toFixed(1)} m².`
-        : `${coverage.voids.toLocaleString("en-US")} empty patches of ${coverage.voidThreshold.toFixed(1)} m² or more, ${Math.round(coverage.voidArea).toLocaleString("en-US")} m² in all. Voids over water, dark roofs, fresh asphalt and in building shadows are accepted; any others need a re-flight.`,
+        ? `No empty patch reaches the void size of ${voidSize(coverage.voidThreshold)} m².`
+        : `${coverage.voids.toLocaleString("en-US")} empty patches of ${voidSize(coverage.voidThreshold)} m² or more, ${Math.round(coverage.voidArea).toLocaleString("en-US")} m² in all. Voids over water, dark roofs, fresh asphalt and in building shadows are accepted; any others need a re-flight.`,
   });
   checks.push(
     precision === undefined
@@ -680,4 +680,9 @@ export function parseCheckpoints(text: string): Checkpoint[] {
     checkpoints.push({ name, east: numbers[0]!, north: numbers[1]!, elevation: numbers[2]! });
   }
   return checkpoints;
+}
+
+/** A void size for a sentence: a dense scan's is a fraction of a square metre, so small sizes keep two decimals. */
+export function voidSize(squareMetres: number): string {
+  return squareMetres < 1 ? squareMetres.toFixed(2) : squareMetres.toFixed(1);
 }

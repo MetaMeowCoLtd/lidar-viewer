@@ -1,4 +1,4 @@
-import { qualityLevels, type CheckStatus, type QualityReport } from "../core/quality-report.js";
+import { qualityLevels, type CheckStatus, type QualityReport, voidSize } from "../core/quality-report.js";
 import { classificationName } from "../core/point-cloud-classification.js";
 
 /** Colour of a density cell: gaps red, thin coverage amber, then green brightening with density. */
@@ -139,7 +139,7 @@ ${
 <h2>Coverage and voids</h2>
 <table><tbody>${rows([
     ["Footprint", `${count(Math.round(coverage.footprintArea))} m²`],
-    ["Void size (4 × spacing)²", `${coverage.voidThreshold.toFixed(1)} m²`],
+    ["Void size (4 × spacing)²", `${voidSize(coverage.voidThreshold)} m²`],
     ["Voids", `${count(coverage.voids)}, ${count(Math.round(coverage.voidArea))} m² in all; largest ${count(Math.round(coverage.largestGapArea))} m²`],
     ["Scattered empty cells", `${count(coverage.scatteredCells)} cells too small to be voids (${percent(coverage.gapShare)} of the footprint is empty in all)`],
   ])}</tbody></table>

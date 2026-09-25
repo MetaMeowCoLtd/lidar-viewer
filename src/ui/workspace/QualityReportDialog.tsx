@@ -1,6 +1,6 @@
 import { useEffect, useMemo } from "react";
 import { Icon } from "../icons.js";
-import { qualityLevels } from "../../core/quality-report.js";
+import { qualityLevels, voidSize } from "../../core/quality-report.js";
 import { densityHeatmapUrl } from "../../export/quality-report-html.js";
 import type { Workspace } from "./use-workspace.js";
 
@@ -85,7 +85,7 @@ export function QualityReportDialog({ workspace }: { workspace: Workspace }) {
               <h3>Coverage</h3>
               <dl className="stat-list">
                 <div><dt>Footprint</dt><dd>{`${Math.round(coverage.footprintArea).toLocaleString("en-US")} m²`}</dd></div>
-                <div><dt>{`Voids (≥ ${coverage.voidThreshold.toFixed(1)} m²)`}</dt><dd>{`${coverage.voids.toLocaleString("en-US")} · ${Math.round(coverage.voidArea).toLocaleString("en-US")} m²`}</dd></div>
+                <div><dt>{`Voids (≥ ${voidSize(coverage.voidThreshold)} m²)`}</dt><dd>{`${coverage.voids.toLocaleString("en-US")} · ${Math.round(coverage.voidArea).toLocaleString("en-US")} m²`}</dd></div>
                 <div><dt>Largest</dt><dd>{`${Math.round(coverage.largestGapArea)} m²`}</dd></div>
                 <div><dt>Scattered empty cells</dt><dd>{coverage.scatteredCells.toLocaleString("en-US")}</dd></div>
               </dl>
