@@ -1,72 +1,81 @@
-# LiDAR Point-Cloud Viewer
+# Vertex LiDAR
 
-UI-free foundation for a browser LiDAR viewer. The core keeps typed-array point
-data, LOD creation and selection independent from Three.js; the Three adapter is
-only responsible for GPU resources and draw configuration.
+Open, analyse and measure LiDAR scans in the browser. Everything runs on your
+device: no upload, no account.
 
-## Current scope
+**Live:** https://metameowcoltd.github.io/lidar-viewer/
 
-- LAS, LAZ and PLY readers, dispatched on the file's own leading bytes
-- Large scans load on a worker, read from disk in slices with progress, so the
-  page stays responsive and a file is never held in memory whole. Scans over
-  `maxImportPoints` (60 million by default) are thinned evenly to fit rather
-  than refused; LAZ files are limited to 1.9 GB by the decoder's memory
-- Georeferenced scans held in a local frame with a double-precision origin
-- ASPRS classification and per-pulse return fields, carried through decimation
-- Ground detection on a worker: classifies ground and low noise, and measures
-  every point's height above ground, without overwriting existing classes
-- Building and tree counting on a worker: finds each building and tree,
-  labels its points, traces its footprint or crown, and draws the outlines
-- Colour by height, RGB, intensity, relief, ASPRS class, height above ground, object or flight line (LAS point source ID), the last to see each pass of the aircraft and where passes overlap
-- A 3D terrain model built from the ground points: a shaded surface with
-  contour lines, exported as a GeoTIFF elevation model and GeoJSON contours
-- Click any point to read its map coordinates, class, height above ground and
-  the building or tree it belongs to; click two points to measure the
-  straight-line, horizontal and vertical distance and slope between them
-- Export, made on the device: a CSV inventory of buildings and trees, a GeoJSON
-  map layer of footprints and treetops, a CSV class summary, and a classified
-  LAS 1.4 file carrying heights above ground and object ids as extra bytes.
-  Positions stay in the scan's own coordinate system, whose definition is
-  carried from the source file into the LAS export. LAS output is uncompressed:
-  the bundled laz-perf can read LAZ but not write it
-- Immutable typed-array point clouds with bounds and optional RGB/intensity data
-- Real LiDAR surveys as samples, picked from the Samples menu, each with an "About this sample" note on where it comes from and the work it stands for. All are CC BY 4.0, cropped and thinned evenly for the web (`public/samples/`), with flight lines recovered from GPS time where the source files lack them:
-  - Tokyo Tower, Tokyo (default, and the landing page's preview): a 920 × 610 m patch around Tokyo Tower, the Azabudai Hills Mori JP Tower, Zōjō-ji and Shiba Park from the Tokyo Metropolitan Government's aircraft LiDAR of the 23 wards, 5.6 million points (the towers kept dense), the survey's own eight flight lines kept. Tokyo Metropolitan Government (2024), 東京都デジタルツイン実現プロジェクト 区部点群データ, sheets 09LD2758, 2759, 2768, 2769, 2778, 2779, 2850, 2860 and 2870, G空間情報センター, https://www.geospatial.jp/ckan/dataset/tokyopc-23ku-2024
-  - Sheffield Hallam University, Sheffield: 1,200 × 1,000 m of central Sheffield around the City Campus, the station and Park Hill, from the Environment Agency's National LiDAR Programme (March 2021), 3.4 million points, every one kept, with the survey's classes and three flight lines; opens coloured by class, as it has no colour. Environment Agency, National LIDAR Programme, tile SK38NE, Open Government Licence v3.0
-  - Tree wheel, British Columbia: the University of British Columbia's Nelder wheel plantation, 85 × 85 m, DJI Matrice 400 with a Zenmuse L3, 3.2 million points, every one kept, heights above ground as published, flight lines recovered from GPS time. McGlade, J., Irwin, L. A. K., Russell, S. J. S., Coops, N. C. (2026), DJI L2 / DJI L3: Drone LiDAR Forest Representation Comparison, Zenodo, https://doi.org/10.5281/zenodo.19006903
-  - Stream corridor, Virginia: a 230 × 150 m patch of Virginia Tech's StREAM Lab, DJI Matrice 350 RTK with a Zenmuse L1, August 2024, 4.1 million points. Hession, W., Lehmann, L., Resop, J., Kobayashi, Y. (2026), Virginia Tech StREAM Lab Summer 2024 Drone Lidar Survey, OpenTopography, https://doi.org/10.5069/G9J67F57
-  - Vineyard, Galicia: a 94 × 127 m vineyard block in Tomiño, Spain, DJI Matrice 300 RTK with a Zenmuse L1 at 30 m, July 2022, 3.5 million points, unclassified. Vélez, S., Ariza-Sentís, M., Valente, J. (2023), VineLiDAR, Zenodo, https://doi.org/10.5281/zenodo.8113105
-  - City campus, Munich: a 250 × 190 m patch of the Technical University of Munich's city-centre campus, DJI Matrice 350 RTK with a Zenmuse L2, December 2024, 4.1 million points, unclassified, flight lines from the published trajectory. Anders, K., Wang, J., Wysocki, O., Huang, X., Liu, S. (2025), UAV Laser Scanning and Photogrammetry of TUM Downtown Campus, Zenodo, https://doi.org/10.5281/zenodo.15282970
-- Flight lines: colour by LAS point source ID and pick lines from the legend (click to hide, Alt+click to see one alone) to inspect a pass and its overlap with its neighbours
-- A simulated drone survey of a factory site, kept for the benchmark page and tests (a DJI L2-style flight: 70° line scan, 20% side overlap, multiple returns, intensity, EPSG:25830)
-- Voxel-grid decimation and a precomputed LOD pyramid
-- Point-budget LOD selection and transaction-safe loading session
-- Three.js `Points` adapter using a custom shader material
-- A UI-free `LidarViewer` composition root with one render loop and Unreal Engine-style navigation: left-drag walks, right-drag looks (with WASD/QE to fly and the wheel for speed), middle-drag pans, Alt + left orbits the point under the cursor, the wheel zooms to the cursor and double-click flies to a point
-- A landing page at `#/` and a workspace at `#/app`: one side panel with the
-  scan, an "Analyze scan" button that runs noise, ground, terrain and object
-  detection in order, and a card per result carrying its own layer controls; a
-  Display menu for point size, shape and detail; a full-window viewport with
-  its own toolbar, colour menu, legend and inspector; and a status line
-- Noise clean-up the way PDAL does it: isolated points (radius filter) and low
-  outliers (ELM) labelled as ASPRS classes 7 and 18, hidden or highlighted in
-  the view, and left out of a "cleaned" LAS export
-- Light and dark themes, following the system until one is chosen
-- A survey quality report: first-return density against the USGS quality
-  levels, coverage gaps, vertical offsets between overlapping flight strips
-  (from LAS point source IDs), noise share, and RMSEz / 95% vertical accuracy
-  at checkpoints loaded from CSV; viewed in the app or downloaded as HTML
-- WebGPU compute: the noise filter's neighbour search, the ground filter's
-  surface openings and voxel thinning as WGSL shaders, used by the analyses
-  when WebGPU is available (CPU fallback), and a benchmark page at
-  `#/benchmark` comparing both paths for speed and agreement
+## Features
 
-Everything runs in the browser. No scan data is uploaded.
+**Open**
+- LAS, LAZ and PLY, recognised from the file itself. Large scans stream on a
+  worker with progress; scans over 60 million points are thinned evenly to fit.
+- Georeferenced scans keep their coordinate system from import to export.
+
+**Analyse** – one "Analyze scan" button runs every step; each can also run on its own.
+- **Noise**: stray and low points found the way PDAL does, labelled as ASPRS
+  classes 7 and 18, hidden or highlighted, and left out of a cleaned export.
+- **Ground and terrain**: ground classified, every point's height above ground
+  measured, and a shaded terrain surface with contour lines.
+- **Buildings and trees**: each one found, outlined and measured: footprint,
+  height and crown.
+- **Survey quality**: density against the USGS quality levels, data voids,
+  flat-surface precision, flight-strip alignment and, with checkpoints from a
+  CSV, vertical accuracy. A pass/fail verdict per check, viewable in the app or
+  downloadable as a self-contained HTML report.
+- **WebGPU**: noise and ground detection and voxel thinning run as compute
+  shaders when available, with a CPU fallback and a benchmark page at
+  `#/benchmark`.
+
+**Measure**
+- **Inspect** a point for its coordinates, class, height above ground, return
+  and flight line, and the building or tree it belongs to.
+- **Rulers**: as many as needed, each giving distance, height difference and
+  slope; drag an end to adjust it and it snaps to the scan.
+- **Surface area**: click a roof, a yard or a road to outline the continuous
+  surface under the click, with its plan area, sloped area and pitch. Surfaces
+  that overlap or touch can be merged.
+
+**View**
+- Colour by RGB, intensity, height, relief, class, height above ground, object
+  or flight line. Flight lines can be shown one at a time from the legend.
+- Unreal Engine-style navigation: left-drag walks, right-drag looks (WASD/QE to
+  fly, wheel for speed), middle-drag pans, Alt + left orbits, double-click flies
+  to a point. The cursor is locked while dragging.
+- Precomputed levels of detail and an adjustable point budget keep tens of
+  millions of points fluid.
+- Light and dark themes.
+
+**Export**
+- Classified LAS 1.4 (with heights above ground and object ids), cleaned LAS,
+  class summary CSV, building and tree inventory CSV, GeoJSON footprints and
+  treetops, GeoTIFF elevation model and GeoJSON contours.
+
+## Sample surveys
+
+Real, openly licensed scans in the Samples menu, each with an About note on
+where it comes from and what it is useful for. They are cropped (and some
+thinned evenly) for the web; flight lines are recovered from GPS time where the
+source lacks them.
+
+| Sample | Scan | Source and licence |
+|---|---|---|
+| Tokyo Tower (default) | Aircraft, 920 × 610 m, 5.6M points | Tokyo Metropolitan Government, [Digital Twin Project point cloud](https://www.geospatial.jp/ckan/dataset/tokyopc-23ku-2024) (2024), CC BY 4.0 |
+| Sheffield Hallam University | Aircraft, 1,200 × 1,000 m, 3.4M points | Environment Agency, [National LIDAR Programme](https://environment.data.gov.uk/dataset/2e8d0733-4f43-48b4-9e51-631c25d1b0a9) (2021), Open Government Licence v3.0 |
+| Tree wheel, British Columbia | DJI L3, 85 × 85 m, 3.2M points | McGlade, Irwin, Russell, Coops (2026), [doi:10.5281/zenodo.19006903](https://doi.org/10.5281/zenodo.19006903), CC BY 4.0 |
+| Stream corridor, Virginia | DJI L1, 230 × 150 m, 4.1M points | Hession, Lehmann, Resop, Kobayashi (2026), [doi:10.5069/G9J67F57](https://doi.org/10.5069/G9J67F57), CC BY 4.0 |
+| Vineyard, Galicia | DJI L1, 94 × 127 m, 3.5M points | Vélez, Ariza-Sentís, Valente (2023), [doi:10.5281/zenodo.8113105](https://doi.org/10.5281/zenodo.8113105), CC BY 4.0 |
+| City campus, Munich | DJI L2, 250 × 190 m, 4.1M points | Anders, Wang, Wysocki, Huang, Liu (2025), [doi:10.5281/zenodo.15282970](https://doi.org/10.5281/zenodo.15282970), CC BY 4.0 |
 
 ## Development
 
 ```sh
 npm install
+npm run dev        # local server
+npm test           # unit tests
 npm run typecheck
-npm test
+npm run build      # static site in dist/
 ```
+
+Pushes to `main` are built, tested and deployed to GitHub Pages. The design and
+module boundaries are described in [ARCHITECTURE.md](ARCHITECTURE.md).
