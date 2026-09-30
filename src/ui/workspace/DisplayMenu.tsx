@@ -1,8 +1,9 @@
-import { Field, Menu, Note, Segmented } from "../controls.js";
+import { Field, Menu, Note, Segmented, Toggle } from "../controls.js";
 import { formatCount } from "../format.js";
 import { viewerConfig } from "../../config.js";
 import { benchmarkHref } from "../router.js";
 import type { Workspace } from "./use-workspace.js";
+import { referencePointSize } from "../../three/point-cloud-shader-material.js";
 
 const budgetStep = 10_000;
 
@@ -19,7 +20,24 @@ export function DisplayMenu({ workspace }: { workspace: Workspace }) {
     <Menu label="Display" icon="sliders">
       {() => (
         <div className="display-menu">
-          <Field label="Point size" value={`${view.pointSize.toFixed(1)} px`}>
+          <Field label="Point sizing">
+            <Segmented
+              label="Point sizing"
+              value={view.pointSizeMode}
+              choices={[
+                { value: "adaptive", label: "Adaptive" },
+                { value: "fixed", label: "Fixed pixels" },
+              ]}
+              onChange={view.setPointSizeMode}
+            />
+          </Field>
+          <Note>
+            {view.pointSizeMode === "adaptive"
+              ? "Each dot is as wide as the gap between its points, so dots grow as you come closer and surfaces stay closed at any distance."
+              : "Every dot is the same size on screen, near or far."}
+          </Note>
+
+          <Field label="Point size" value={view.pointSizeMode === "adaptive" ? `${(view.pointSize / referencePointSize).toFixed(1)}×` : `${view.pointSize.toFixed(1)} px`}>
             <input
               aria-label="Point size"
               type="range"
@@ -69,6 +87,7 @@ export function DisplayMenu({ workspace }: { workspace: Workspace }) {
           ) : (
             <Note>Detail follows the camera: full resolution up close, lighter far away.</Note>
           )}
+          <Toggle label="Show levels of detail (L)" pressed={detail.lodDebug} onChange={detail.setLodDebug} />
 
           <Field label="Processing">
             <Segmented

@@ -352,7 +352,13 @@ scan is drawn lives in the Display menu.
 
 The renderer uses one `THREE.Points` draw call for the active tier and a custom
 shader. Vertex RGB, height-gradient and intensity presentation are selected by
-a uniform, while perspective-aware point sizing runs per vertex on the GPU.
+a uniform, while point sizing runs per vertex on the GPU. Adaptive sizing
+gives a dot a size in the world, the spacing of its tile's points at the tier
+drawn (the side of the square each point would cover on the tile's plan), so
+dots grow as the camera approaches and a coarse tier's surfaces stay closed;
+fixed sizing draws the same pixels everywhere. Both scale with the screen's
+pixel density, and picking uses the same per-tile spacing. The
+level-of-detail view tints each tile and its bounding box by the tier it draws.
 Fallback attributes are allocated when a scan has no RGB or intensity data so
 the shader layout stays stable across all clouds.
 

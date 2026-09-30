@@ -10,6 +10,7 @@ import { supportedScanExtensions } from "../../import/scan-file-importer.js";
 import { colorModeLabel, colorModeChoices } from "./colour.js";
 import { Legend } from "./Legend.js";
 import { Inspector } from "./Inspector.js";
+import { LodPanel } from "./LodPanel.js";
 import type { Workspace } from "./use-workspace.js";
 
 /**
@@ -98,6 +99,7 @@ export function Viewport({ workspace }: { workspace: Workspace }) {
           </div>
 
           <Legend workspace={workspace} />
+          {workspace.detail.lodDebug ? <LodPanel workspace={workspace} /> : null}
           {workspace.shownSample === undefined ? null : <SampleAttribution sample={workspace.shownSample} />}
           <Inspector workspace={workspace} />
         </>

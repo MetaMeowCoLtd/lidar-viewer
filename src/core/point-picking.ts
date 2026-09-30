@@ -24,8 +24,8 @@ export interface PickView {
   /** Cursor position from the surface's top-left corner. */
   readonly cursorX: number;
   readonly cursorY: number;
-  /** Radius of the dot drawn for a point at this distance in front of the camera. */
-  readonly dotRadius: (depth: number) => number;
+  /** Radius of the dot drawn for a point of this cloud at this distance in front of the camera. */
+  readonly dotRadius: (depth: number, cloud: PointCloud) => number;
   /** How far from the cursor, when no dot covers it, a point may still be picked. */
   readonly tolerance: number;
   /** The largest radius {@link dotRadius} ever returns, used to rule out whole regions. */
@@ -72,7 +72,7 @@ export function pickPoint(clouds: readonly PointCloud[], view: PickView): PointH
       if (view.skip !== undefined && view.skip(cloud, index)) continue;
 
       const distance = dx * dx + dy * dy;
-      const radius = view.dotRadius(w);
+      const radius = view.dotRadius(w, cloud);
       if (distance <= radius * radius) {
         if (covering === undefined || w < covering.depth) covering = { cloud, index, depth: w };
       } else if (covering === undefined && distance < nearestDistance) {

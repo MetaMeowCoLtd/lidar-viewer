@@ -1,6 +1,6 @@
 import { Matrix4, PerspectiveCamera, Scene, Vector2, Vector3, WebGLRenderer } from "three";
 import { NavigationControls } from "./navigation-controls.js";
-import type { PointCloud, PointCloudColorMode, PointCloudPointShape } from "../core/point-cloud.js";
+import type { PointCloud, PointCloudColorMode, PointCloudPointShape, PointSizeMode } from "../core/point-cloud.js";
 import { PointCloudLodPyramid, type LodTierSpec } from "../core/lod-pyramid.js";
 import { PointCloudSession } from "../core/point-cloud-session.js";
 import { TiledPointCloudLodPyramid, distanceToBounds } from "../core/tiled-lod-pyramid.js";
@@ -9,13 +9,14 @@ import { ThreePointCloudRenderer } from "./three-point-cloud-renderer.js";
 import { viewerConfig } from "../config.js";
 import type { DetectedObject } from "../core/object-detection.js";
 import { pickPoint, type PointHit } from "../core/point-picking.js";
-import { maxDotSize, type NoiseDisplay } from "./point-cloud-shader-material.js";
+import type { NoiseDisplay } from "./point-cloud-shader-material.js";
 import { isNoiseClass } from "../core/noise-detection.js";
 import { arrowLength, arrowPixels, type Annotations } from "./measurement-overlay.js";
 import type { TerrainModel } from "../core/terrain.js";
 import type { ContourSet } from "../core/contours.js";
 
-export type { LodRenderSummary } from "./three-point-cloud-renderer.js";
+export type { LodRenderSummary, LodTierUsage } from "./three-point-cloud-renderer.js";
+export { lodTierColors } from "./three-point-cloud-renderer.js";
 export type { Annotations, ArrowAnnotation, FillStyle, LineStyle, MarkerAnnotation, MarkerTone } from "./measurement-overlay.js";
 import type { LodRenderSummary } from "./three-point-cloud-renderer.js";
 
@@ -401,6 +402,18 @@ export class LidarViewer {
     this.pointCloudRenderer.setPointSize(pointSize);
   }
 
+  /** Dots sized by the spacing of their points in the world, or the same pixels at any distance. */
+  public setPointSizeMode(mode: PointSizeMode): void {
+    this.assertNotDisposed();
+    this.pointCloudRenderer.setPointSizeMode(mode);
+  }
+
+  /** Tints each tile by the detail level it draws and outlines it, to see how detail is spread. */
+  public setLodDebug(enabled: boolean): void {
+    this.assertNotDisposed();
+    this.pointCloudRenderer.setLodDebug(enabled);
+  }
+
   public setPointShape(shape: PointCloudPointShape): void {
     this.assertNotDisposed();
     this.pointShape = shape;
@@ -460,8 +473,8 @@ export class LidarViewer {
         height: size.y,
         cursorX: (clientX - rect.left) * scale,
         cursorY: (clientY - rect.top) * scale,
-        dotRadius: (depth) => this.pointCloudRenderer.dotRadius(depth),
-        maxDotRadius: maxDotSize / 2,
+        dotRadius: (depth, cloud) => this.pointCloudRenderer.dotRadius(depth, cloud),
+        maxDotRadius: this.pointCloudRenderer.maxDotRadius(),
         tolerance: pickTolerance * this.renderer.getPixelRatio(),
         skip: this.hiddenPoint(),
       },
@@ -503,8 +516,8 @@ export class LidarViewer {
       height: size.y,
       cursorX: (clientX - rect.left) * scale,
       cursorY: (clientY - rect.top) * scale,
-      dotRadius: (depth) => this.pointCloudRenderer.dotRadius(depth),
-      maxDotRadius: maxDotSize / 2,
+      dotRadius: (depth, cloud) => this.pointCloudRenderer.dotRadius(depth, cloud),
+      maxDotRadius: this.pointCloudRenderer.maxDotRadius(),
       tolerance: tolerance * this.renderer.getPixelRatio(),
       skip: this.hiddenPoint(),
     });
@@ -854,7 +867,8 @@ export class LidarViewer {
       previous !== undefined &&
       previous.focusTierId === summary.focusTierId &&
       previous.drawnPointCount === summary.drawnPointCount &&
-      previous.tileCount === summary.tileCount
+      previous.tileCount === summary.tileCount &&
+      previous.tiers.map((tier) => tier.tiles).join() === summary.tiers.map((tier) => tier.tiles).join()
     ) {
       return;
     }

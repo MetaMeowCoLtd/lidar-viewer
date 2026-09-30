@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { PointCloud, definedChannels, type PointCloudColorMode, type PointCloudPointShape } from "../../core/point-cloud.js";
+import { PointCloud, definedChannels, type PointCloudColorMode, type PointCloudPointShape, type PointSizeMode } from "../../core/point-cloud.js";
 import type { PointCloudLodPyramid } from "../../core/lod-pyramid.js";
 import { QualityReportCancelled, startQualityReport, type QualityReportJob } from "../../core/quality-report-job.js";
 import { defaultQualityReportOptions, parseCheckpoints } from "../../core/quality-report.js";
@@ -69,6 +69,9 @@ export function useWorkspace(options: WorkspaceOptions) {
   const [pointSize, setPointSize] = useState(() => viewerConfig().pointSize.default);
   const [colorMode, setColorMode] = useState<PointCloudColorMode>("rgb");
   const [pointShape, setPointShape] = useState<PointCloudPointShape>(() => viewerConfig().pointShape);
+  const [pointSizeMode, setPointSizeMode] = useState<PointSizeMode>("adaptive");
+  /** The level-of-detail view: tiles tinted and boxed by the tier they draw, with a panel of what each tier holds. */
+  const [lodDebug, setLodDebug] = useState(false);
   const [sourceLabel, setSourceLabel] = useState("");
   /** The sample on screen, if the scan is one: what it is and whose, as its licence asks. */
   const [shownSample, setShownSample] = useState<SampleSurvey>();
@@ -348,6 +351,7 @@ export function useWorkspace(options: WorkspaceOptions) {
       if (event.target instanceof HTMLInputElement || event.metaKey || event.ctrlKey || event.altKey) return;
       const key = event.key.toLowerCase();
       if (key === "h") setUiHidden((hidden) => !hidden);
+      if (key === "l") setLodDebug((shown) => !shown);
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
@@ -356,6 +360,14 @@ export function useWorkspace(options: WorkspaceOptions) {
   useEffect(() => {
     viewerRef.current?.setPointShape(pointShape);
   }, [pointShape]);
+
+  useEffect(() => {
+    viewerRef.current?.setPointSizeMode(pointSizeMode);
+  }, [pointSizeMode]);
+
+  useEffect(() => {
+    viewerRef.current?.setLodDebug(lodDebug);
+  }, [lodDebug]);
 
   // The chosen colour is kept as chosen and only stood in for while the scan
   // on screen cannot show it: writing the stand-in back would lose the choice,
@@ -831,6 +843,8 @@ export function useWorkspace(options: WorkspaceOptions) {
       setPointSize,
       pointShape,
       setPointShape,
+      pointSizeMode,
+      setPointSizeMode,
       classHistogram,
       flightLines,
       hiddenLines,
@@ -863,6 +877,8 @@ export function useWorkspace(options: WorkspaceOptions) {
       setPointBudget,
       budgetMaximum,
       lodSummary,
+      lodDebug,
+      setLodDebug,
     },
     quality: {
       state: quality,

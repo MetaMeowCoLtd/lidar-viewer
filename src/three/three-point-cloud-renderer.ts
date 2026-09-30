@@ -1,6 +1,9 @@
 import {
   BufferAttribute,
   BufferGeometry,
+  Color,
+  LineBasicMaterial,
+  LineSegments,
   MathUtils,
   PerspectiveCamera,
   Points,
@@ -9,7 +12,7 @@ import {
   type Camera,
   type WebGLRenderer,
 } from "three";
-import type { PointCloud, PointCloudBounds, PointCloudColorMode, PointCloudPointShape } from "../core/point-cloud.js";
+import type { PointCloud, PointCloudBounds, PointCloudColorMode, PointCloudPointShape, PointSizeMode } from "../core/point-cloud.js";
 import type { PointCloudLodTier } from "../core/lod-pyramid.js";
 import { distanceToBounds, type TiledPointCloudLodPyramid } from "../core/tiled-lod-pyramid.js";
 import { PointCloudShaderMaterial, maxDotSize, type NoiseDisplay } from "./point-cloud-shader-material.js";
@@ -29,6 +32,38 @@ export interface LodRenderSummary {
   readonly totalPointCount: number;
   /** Tier id of whichever tile is currently closest to the camera. */
   readonly focusTierId: string | undefined;
+  /** Every detail level, finest first, with how many tiles draw it now and the points they draw. */
+  readonly tiers: readonly LodTierUsage[];
+}
+
+export interface LodTierUsage {
+  readonly id: string;
+  /** Edge of its voxel grid; zero for full resolution. */
+  readonly voxelSize: number;
+  /** Typical distance between its points, across the tiles drawing it. */
+  readonly spacing: number;
+  readonly tiles: number;
+  readonly points: number;
+}
+
+/** Each detail level's colour in the level-of-detail view: green at full resolution through blue and amber to red at the leanest. */
+export const lodTierColors: Readonly<Record<string, string>> = {
+  full: "#3fd09a",
+  fine: "#52c7ff",
+  balanced: "#f5b85c",
+  lean: "#ff6b6b",
+};
+const otherTierColor = "#a4aebb";
+
+/**
+ * Typical distance between a cloud's points: the side of the square each
+ * point would have if they were spread evenly over the tile's plan. Walls
+ * make an aerial tile's surface larger than its plan, so this errs a little
+ * wide, which suits a dot meant to close the gaps.
+ */
+function pointSpacing(bounds: PointCloudBounds, pointCount: number): number {
+  const area = Math.max(bounds.size[0] * bounds.size[2], 1e-6);
+  return Math.max(Math.sqrt(area / Math.max(1, pointCount)), 0.005);
 }
 
 interface TileRenderState {
@@ -74,6 +109,14 @@ export class ThreePointCloudRenderer {
   private readonly terrain: TerrainLayer;
   private pointsVisible = true;
   private noiseDisplay: NoiseDisplay = "shown";
+  private sizeMode: PointSizeMode = "adaptive";
+  /** How far apart the points of every tier of every tile lie, for sizing their dots and picking them. */
+  private spacings = new WeakMap<PointCloud, number>();
+  private lodDebug = false;
+  private readonly tierTints = new Map<string, Color>();
+  private tileBoxes: LineSegments | undefined;
+  private tileBoxesStale = true;
+  private readonly tileBoxMaterial = new LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.75, depthTest: false, depthWrite: false });
 
   public constructor(
     private readonly scene: Scene,
@@ -85,6 +128,7 @@ export class ThreePointCloudRenderer {
     this.outlines.setResolution(size.x, size.y);
     this.terrain.setResolution(size.x, size.y);
     this.annotations.setResolution(size.x, size.y, renderer.getPixelRatio());
+    for (const [id, color] of Object.entries(lodTierColors)) this.tierTints.set(id, new Color(color));
   }
 
   public setTiledPyramid(source: PointCloud, tiled: TiledPointCloudLodPyramid): void {
@@ -97,6 +141,8 @@ export class ThreePointCloudRenderer {
       ...(source.intensity === undefined ? {} : { intensityRange: intensityRange(source.intensity) }),
     });
     this.material.setHasRgb(source.supportsColorMode("rgb"));
+    this.material.setSizeMode(this.sizeMode);
+    this.material.setPixelRatio(this.renderer.getPixelRatio());
     this.material.setNoiseDisplay(this.noiseDisplay);
     this.applyFlightLineFilter();
     this.hasRgb = source.supportsColorMode("rgb");
@@ -107,14 +153,79 @@ export class ThreePointCloudRenderer {
     this.hasFlightLines = source.supportsColorMode("flightLine");
 
     const material = this.material;
+    this.spacings = new WeakMap();
     for (const tile of tiled.tiles) {
+      for (const tier of tile.pyramid.tiers) this.spacings.set(tier.cloud, pointSpacing(tile.bounds, tier.cloud.pointCount));
       const points = new Points(this.emptyGeometry, material);
       points.visible = this.pointsVisible;
       const state: TileRenderState = { id: tile.id, bounds: tile.bounds, points, activeTier: undefined };
-      points.onBeforeRender = () => material.setVoxelSize(state.activeTier?.voxelSize ?? 0);
+      points.onBeforeRender = () => {
+        const tier = state.activeTier;
+        material.setTile(tier === undefined ? 1 : this.spacingOf(tier.cloud), this.lodDebug && tier !== undefined ? this.tintFor(tier.id) : undefined);
+      };
       this.scene.add(points);
       this.tileStates.set(tile.id, state);
     }
+    this.tileBoxesStale = true;
+  }
+
+  /** How dots are sized: by the spacing of their points in the world, or the same pixels everywhere. */
+  public setPointSizeMode(mode: PointSizeMode): void {
+    this.sizeMode = mode;
+    this.material?.setSizeMode(mode);
+  }
+
+  /**
+   * The level-of-detail view: each tile tinted by the tier it draws, with its
+   * bounding box in the same colour, to see where detail goes as the camera
+   * moves and the budget changes.
+   */
+  public setLodDebug(enabled: boolean): void {
+    this.lodDebug = enabled;
+    this.tileBoxesStale = true;
+  }
+
+  private tintFor(tierId: string): Color {
+    let tint = this.tierTints.get(tierId);
+    if (tint === undefined) {
+      tint = new Color(otherTierColor);
+      this.tierTints.set(tierId, tint);
+    }
+    return tint;
+  }
+
+  private spacingOf(cloud: PointCloud): number {
+    return this.spacings.get(cloud) ?? pointSpacing(cloud.bounds, cloud.pointCount);
+  }
+
+  /** Every tile's bounding box as twelve edges in its tier's colour, rebuilt when a tile changes tier. */
+  private updateTileBoxes(): void {
+    if (!this.tileBoxesStale) return;
+    this.tileBoxesStale = false;
+    if (this.tileBoxes !== undefined) {
+      this.scene.remove(this.tileBoxes);
+      this.tileBoxes.geometry.dispose();
+      this.tileBoxes = undefined;
+    }
+    if (!this.lodDebug || this.tileStates.size === 0) return;
+    const positions: number[] = [];
+    const colors: number[] = [];
+    for (const state of this.tileStates.values()) {
+      const { min, max } = state.bounds;
+      const tint = this.tintFor(state.activeTier?.id ?? "");
+      const corner = (i: number): [number, number, number] => [i & 1 ? max[0] : min[0], i & 2 ? max[1] : min[1], i & 4 ? max[2] : min[2]];
+      for (const [a, b] of boxEdges) {
+        positions.push(...corner(a), ...corner(b));
+        colors.push(tint.r, tint.g, tint.b, tint.r, tint.g, tint.b);
+      }
+    }
+    const geometry = new BufferGeometry();
+    geometry.setAttribute("position", new BufferAttribute(Float32Array.from(positions), 3));
+    geometry.setAttribute("color", new BufferAttribute(Float32Array.from(colors), 3));
+    this.tileBoxes = new LineSegments(geometry, this.tileBoxMaterial);
+    this.tileBoxes.frustumCulled = false;
+    this.tileBoxes.renderOrder = 10;
+    this.scene.add(this.tileBoxes);
   }
 
   /** Distributes `pointBudget` across tiles and applies each tile's resulting tier. */
@@ -142,7 +253,18 @@ export class ThreePointCloudRenderer {
     let drawnPointCount = 0;
     let focusTierId: string | undefined;
     let focusDistance = Number.POSITIVE_INFINITY;
+    const usage = new Map<string, { id: string; voxelSize: number; spacing: number; tiles: number; points: number }>();
+    for (const tier of tiled.tiles[0]?.pyramid.tiers ?? []) usage.set(tier.id, { id: tier.id, voxelSize: tier.voxelSize, spacing: 0, tiles: 0, points: 0 });
     for (const state of this.tileStates.values()) {
+      const tier = state.activeTier;
+      if (tier !== undefined) {
+        const entry = usage.get(tier.id) ?? { id: tier.id, voxelSize: tier.voxelSize, spacing: 0, tiles: 0, points: 0 };
+        // A mean over the tiles, weighted by points, so a sliver of a tile at the scan's edge does not skew it.
+        entry.spacing = (entry.spacing * entry.points + this.spacingOf(tier.cloud) * tier.cloud.pointCount) / Math.max(1, entry.points + tier.cloud.pointCount);
+        entry.tiles += 1;
+        entry.points += tier.cloud.pointCount;
+        usage.set(tier.id, entry);
+      }
       drawnPointCount += state.activeTier?.cloud.pointCount ?? 0;
       const distance = distanceToBounds(cameraX, cameraY, cameraZ, state.bounds);
       if (distance < focusDistance) {
@@ -150,7 +272,7 @@ export class ThreePointCloudRenderer {
         focusTierId = state.activeTier?.id;
       }
     }
-    return { tileCount: this.tileStates.size, drawnPointCount, totalPointCount: tiled.totalPointCount, focusTierId };
+    return { tileCount: this.tileStates.size, drawnPointCount, totalPointCount: tiled.totalPointCount, focusTierId, tiers: [...usage.values()] };
   }
 
   public setPointSize(pointSize: number): void {
@@ -181,6 +303,7 @@ export class ThreePointCloudRenderer {
     this.outlines.setResolution(width, height);
     this.terrain.setResolution(width, height);
     this.annotations.setResolution(width, height, this.renderer.getPixelRatio());
+    this.material?.setPixelRatio(this.renderer.getPixelRatio());
   }
 
   /**
@@ -245,9 +368,14 @@ export class ThreePointCloudRenderer {
     this.annotations.setHighlight(id);
   }
 
-  /** Radius in drawing-surface pixels of a point's dot at this depth, and the largest it can be. */
-  public dotRadius(depth: number): number {
-    return this.material?.dotRadius(depth) ?? maxDotSize / 2;
+  /** Radius in drawing-surface pixels of the dot drawn for a point of this cloud at this depth. */
+  public dotRadius(depth: number, cloud: PointCloud): number {
+    return this.material?.dotRadius(depth, this.spacingOf(cloud)) ?? this.maxDotRadius();
+  }
+
+  /** The largest a dot's radius can be, in drawing-surface pixels. */
+  public maxDotRadius(): number {
+    return this.material?.maxDotRadius() ?? (maxDotSize * this.renderer.getPixelRatio()) / 2;
   }
 
   /**
@@ -270,6 +398,7 @@ export class ThreePointCloudRenderer {
       const height = this.renderer.getDrawingBufferSize(this.drawingSize).y;
       this.material.setPixelsPerUnit(height / (2 * Math.tan(MathUtils.degToRad(this.camera.fov) / 2)));
     }
+    this.updateTileBoxes();
     if (!this.reliefEnabled) {
       this.renderer.render(this.scene, this.camera);
       this.drawDepthTestedLines();
@@ -301,6 +430,8 @@ export class ThreePointCloudRenderer {
     this.outlines.dispose();
     this.annotations.dispose();
     this.emptyGeometry.dispose();
+    this.tileBoxes?.geometry.dispose();
+    this.tileBoxMaterial.dispose();
     this.eyeDome?.dispose();
     this.eyeDome = undefined;
   }
@@ -310,6 +441,7 @@ export class ThreePointCloudRenderer {
     if (state === undefined || state.activeTier?.id === nextTier.id) return;
     state.points.geometry = this.geometryFor(tileId, nextTier);
     state.activeTier = nextTier;
+    this.tileBoxesStale = true;
   }
 
   private geometryFor(tileId: string, tier: PointCloudLodTier): BufferGeometry {
@@ -362,6 +494,13 @@ export class ThreePointCloudRenderer {
     this.outlines.setObjects(undefined);
   }
 }
+
+/** The twelve edges of a box, as pairs of corner indices where bit 0 is x, bit 1 y and bit 2 z. */
+const boxEdges = [
+  [0, 1], [2, 3], [4, 5], [6, 7],
+  [0, 2], [1, 3], [4, 6], [5, 7],
+  [0, 4], [1, 5], [2, 6], [3, 7],
+] as const;
 
 function createGeometry(cloud: PointCloud): BufferGeometry {
   const geometry = new BufferGeometry();

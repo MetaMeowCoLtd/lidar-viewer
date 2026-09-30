@@ -1537,3 +1537,85 @@
     max-height: 50%;
   }
 }
+
+/* The level-of-detail view's key and figures, under the colour menu. */
+.ws-lod {
+  position: absolute;
+  z-index: 2;
+  top: 52px;
+  left: 12px;
+  width: 280px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--glass-strong);
+  backdrop-filter: blur(12px);
+  font-size: 12px;
+}
+
+.ws-lod header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.ws-lod h2 {
+  margin: 0;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.ws-lod header span,
+.ws-lod p {
+  color: var(--text-3);
+  font-size: 11px;
+}
+
+.ws-lod table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.ws-lod th {
+  padding: 2px 0;
+  color: var(--text-3);
+  font-weight: 600;
+  text-align: right;
+}
+
+.ws-lod td {
+  padding: 3px 0;
+  font-family: var(--mono);
+  text-align: right;
+}
+
+.ws-lod th:first-child,
+.ws-lod td:first-child {
+  text-align: left;
+}
+
+.ws-lod td i {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin-right: 7px;
+  border-radius: 2px;
+  vertical-align: -1px;
+}
+
+.ws-lod td b {
+  color: var(--accent);
+}
+
+.ws-lod tr.is-idle {
+  opacity: 0.4;
+}
+
+.ws-lod p {
+  margin: 6px 0 0;
+}

@@ -59,7 +59,10 @@ it live, handles light up under the cursor, and every change can be undone.
   fly, wheel for speed), middle-drag pans, Alt + left orbits, double-click flies
   to a point. The cursor is locked while dragging.
 - Precomputed levels of detail and an adjustable point budget keep tens of
-  millions of points fluid.
+  millions of points fluid. Dots are sized adaptively - as wide as the spacing
+  of their points, so they grow as you come closer - or at fixed pixels, and L
+  shows the levels of detail: tiles tinted and boxed by tier, with a panel of
+  their spacing, tiles and points.
 - Light and dark themes.
 
 **Export**

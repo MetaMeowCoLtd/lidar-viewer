@@ -2,6 +2,8 @@ import type { SpatialReference } from "./spatial-reference.js";
 
 export type PointCloudColorMode = "height" | "rgb" | "intensity" | "relief" | "classification" | "heightAboveGround" | "objects" | "flightLine";
 export type PointCloudPointShape = "circle" | "square";
+/** Adaptive dots have a size in the world, the spacing of their points; fixed ones the same pixels at any distance. */
+export type PointSizeMode = "adaptive" | "fixed";
 
 export interface PointCloudBounds {
   readonly min: readonly [number, number, number];

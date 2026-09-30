@@ -7,7 +7,7 @@ import {
   UnsignedByteType,
   type IUniform,
 } from "three";
-import type { PointCloudColorMode, PointCloudPointShape } from "../core/point-cloud.js";
+import type { PointCloudColorMode, PointCloudPointShape, PointSizeMode } from "../core/point-cloud.js";
 import { classificationPaletteBytes } from "../core/point-cloud-classification.js";
 import { flightLineHueStep, flightLineLightness, flightLineSaturation } from "../core/flight-line-colour.js";
 
@@ -26,18 +26,19 @@ const pointShapeToNumber: Record<PointCloudPointShape, number> = { circle: 0, sq
 /** How points labelled as noise (classes 7 and 18) are drawn. */
 export type NoiseDisplay = "shown" | "hidden" | "highlighted";
 const noiseDisplayToNumber: Record<NoiseDisplay, number> = { shown: 0, hidden: 1, highlighted: 2 };
-const sizeScaleFraction = 0.78;
-const minDepthFraction = 0.01;
-/** Bounds on a drawn dot's diameter in pixels, shared by the shader and picking. */
-const minDotSize = 0.8;
-export const maxDotSize = 10;
+const sizeModeToNumber: Record<PointSizeMode, number> = { adaptive: 0, fixed: 1 };
+const minDepthFraction = 0.0005;
+/** Bounds on a drawn dot's diameter in CSS pixels, shared by the shader and picking. */
+const minDotSize = 1;
+export const maxDotSize = 48;
+/** The point size the slider starts at; in adaptive mode it is the "1x" of the size factor. */
+export const referencePointSize = 2.4;
 /**
- * A dot drawn for a decimated point grows to cover its voxel, up to this
- * size. Circles on a square grid only close the gaps at their diagonals when
- * a little wider than the grid spacing, hence the factor.
+ * In adaptive mode a dot is as wide as the spacing between the points of the
+ * detail level it belongs to, times this: circles on a grid only close the
+ * gaps at their diagonals when a little wider than the grid spacing.
  */
-const maxCoverDotSize = 40;
-const voxelCoverFactor = 1.3;
+const spacingCoverFactor = 1.4;
 
 export interface PointCloudShaderOptions {
   readonly pointSize?: number;
@@ -54,9 +55,13 @@ export interface PointCloudShaderOptions {
 export class PointCloudShaderMaterial extends ShaderMaterial {
   public constructor(options: PointCloudShaderOptions) {
     const uniforms: Record<string, IUniform> = {
-      uPointSize: { value: options.pointSize ?? 2.4 },
-      uSizeScale: { value: Math.max(options.worldScale, 0.0001) * sizeScaleFraction },
+      uPointSize: { value: options.pointSize ?? referencePointSize },
+      uSizeMode: { value: sizeModeToNumber.adaptive },
+      uSpacing: { value: 1 },
+      uPixelRatio: { value: 1 },
       uMinDepth: { value: Math.max(options.worldScale, 0.0001) * minDepthFraction },
+      uTint: { value: new Color(0, 0, 0) },
+      uTintAmount: { value: 0 },
       uColorMode: { value: colorModeToNumber.height },
       uMinHeight: { value: options.minHeight },
       uMaxHeight: { value: Math.max(options.maxHeight, options.minHeight + 0.0001) },
@@ -67,7 +72,6 @@ export class PointCloudShaderMaterial extends ShaderMaterial {
       uClassPalette: { value: createClassificationPalette() },
       uMaxAboveGround: { value: Math.max(options.maxAboveGround ?? 20, 1) },
       uBuildingCount: { value: 0 },
-      uVoxelSize: { value: 0 },
       uNoiseMode: { value: noiseDisplayToNumber.shown },
       uIntensityLow: { value: options.intensityRange?.[0] ?? 0 },
       uIntensityHigh: { value: options.intensityRange?.[1] ?? 1 },
@@ -98,9 +102,10 @@ export class PointCloudShaderMaterial extends ShaderMaterial {
         varying float vObject;
         varying float vLine;
         uniform float uPointSize;
-        uniform float uSizeScale;
+        uniform float uSizeMode;
+        uniform float uSpacing;
+        uniform float uPixelRatio;
         uniform float uMinDepth;
-        uniform float uVoxelSize;
         uniform float uPixelsPerUnit;
         void main() {
           vColor = color;
@@ -128,13 +133,14 @@ export class PointCloudShaderMaterial extends ShaderMaterial {
             }
           }
           vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-          float chosenSize = clamp(uPointSize * (uSizeScale / max(uMinDepth, -mvPosition.z)), ${minDotSize.toFixed(1)}, ${maxDotSize.toFixed(1)});
-          // A decimated point stands for its whole voxel. Drawn at the chosen
-          // size alone, a coarse tier's surfaces open up between its dots and
-          // whatever lies behind shows through them; covering the voxel keeps
-          // walls and roofs solid at every level of detail.
-          float coverSize = min(uVoxelSize * uPixelsPerUnit / max(uMinDepth, -mvPosition.z) * ${voxelCoverFactor.toFixed(2)}, ${maxCoverDotSize.toFixed(1)});
-          gl_PointSize = max(chosenSize, coverSize);
+          // Adaptive: a dot has a size in the world - the spacing between the
+          // points of its detail level - so it grows as the camera comes closer
+          // and shrinks as it pulls back, like the surface it samples, and a
+          // wall stays closed at every distance. Fixed: the same few pixels
+          // everywhere. Sizes are in CSS pixels, scaled to the screen's density.
+          float adaptive = uPointSize / ${referencePointSize.toFixed(1)} * uSpacing * ${spacingCoverFactor.toFixed(2)} * uPixelsPerUnit / max(uMinDepth, -mvPosition.z);
+          float chosen = uSizeMode < 0.5 ? adaptive : uPointSize * uPixelRatio;
+          gl_PointSize = clamp(chosen, ${minDotSize.toFixed(1)} * uPixelRatio, ${maxDotSize.toFixed(1)} * uPixelRatio);
           // Highlighted noise is drawn large enough to find among millions of points.
           if (vNoise > 0.5 && uNoiseMode > 1.5) gl_PointSize = max(gl_PointSize, 8.0);
           gl_Position = projectionMatrix * mvPosition;
@@ -154,6 +160,8 @@ export class PointCloudShaderMaterial extends ShaderMaterial {
         uniform float uIntensityLow;
         uniform float uIntensityHigh;
         uniform float uNoiseMode;
+        uniform vec3 uTint;
+        uniform float uTintAmount;
         varying float vNoise;
         varying vec3 vColor;
         varying float vIntensity;
@@ -229,6 +237,8 @@ export class PointCloudShaderMaterial extends ShaderMaterial {
             ? heightColor
             : (uColorMode < 1.5 ? vColor : (uColorMode < 2.5 ? reliefColor : (uColorMode < 3.5 ? classColor : (uColorMode < 4.5 ? aboveGroundColor(vAboveGround) : (uColorMode < 5.5 ? objectColor(vObject, vClass) : (uColorMode < 6.5 ? intensityColor(vIntensity) : flightLineColor(vLine)))))));
           if (vNoise > 0.5 && uNoiseMode > 1.5) finalColor = vec3(1.0, 0.16, 0.6);
+          // The level-of-detail view washes each tile in its tier's colour, keeping enough of the scan to recognise it.
+          finalColor = mix(finalColor, uTint, uTintAmount);
           gl_FragColor = vec4(finalColor, 1.0);
         }
       `,
@@ -238,6 +248,14 @@ export class PointCloudShaderMaterial extends ShaderMaterial {
   public setPointSize(pointSize: number): void {
     if (!Number.isFinite(pointSize) || pointSize <= 0) throw new Error("pointSize must be positive");
     this.uniforms.uPointSize!.value = pointSize;
+  }
+
+  public setSizeMode(mode: PointSizeMode): void {
+    this.uniforms.uSizeMode!.value = sizeModeToNumber[mode];
+  }
+
+  public setPixelRatio(pixelRatio: number): void {
+    this.uniforms.uPixelRatio!.value = pixelRatio;
   }
 
   public setHasRgb(hasRgb: boolean): void {
@@ -268,23 +286,37 @@ export class PointCloudShaderMaterial extends ShaderMaterial {
 
   /**
    * Radius, in drawing-surface pixels, of the dot drawn for a point this far in
-   * front of the camera. Mirrors the vertex shader, so picking agrees with what
-   * is on screen.
+   * front of the camera, in a detail level whose points lie `spacing` apart.
+   * Mirrors the vertex shader, so picking agrees with what is on screen.
    */
-  public dotRadius(depth: number): number {
-    const size = this.uniforms.uPointSize!.value * (this.uniforms.uSizeScale!.value / Math.max(this.uniforms.uMinDepth!.value, depth));
-    return Math.min(Math.max(size, minDotSize), maxDotSize) / 2;
+  public dotRadius(depth: number, spacing: number): number {
+    const u = this.uniforms;
+    const pixelRatio = u.uPixelRatio!.value as number;
+    const size =
+      u.uSizeMode!.value === sizeModeToNumber.adaptive
+        ? ((u.uPointSize!.value / referencePointSize) * spacing * spacingCoverFactor * u.uPixelsPerUnit!.value) / Math.max(u.uMinDepth!.value, depth)
+        : u.uPointSize!.value * pixelRatio;
+    return Math.min(Math.max(size, minDotSize * pixelRatio), maxDotSize * pixelRatio) / 2;
+  }
+
+  /** The largest radius {@link dotRadius} can return, in drawing-surface pixels. */
+  public maxDotRadius(): number {
+    return (maxDotSize * this.uniforms.uPixelRatio!.value) / 2;
   }
 
   /**
-   * The voxel edge of the tier about to be drawn, so its dots cover their
-   * voxels; zero for full resolution. The material is shared by every tile,
-   * and tiles show different tiers, so this is set per draw.
+   * What the tile about to be drawn needs of its own: the spacing of its
+   * detail level's points, and its tint in the level-of-detail view. The
+   * material is shared by every tile, and tiles show different tiers, so this
+   * is set per draw.
    */
-  public setVoxelSize(voxelSize: number): void {
-    const uniform = this.uniforms.uVoxelSize!;
-    if (uniform.value === voxelSize) return;
-    uniform.value = voxelSize;
+  public setTile(spacing: number, tint: Color | undefined): void {
+    const u = this.uniforms;
+    const amount = tint === undefined ? 0 : 0.72;
+    if (u.uSpacing!.value === spacing && u.uTintAmount!.value === amount && (tint === undefined || (u.uTint!.value as Color).equals(tint))) return;
+    u.uSpacing!.value = spacing;
+    u.uTintAmount!.value = amount;
+    if (tint !== undefined) (u.uTint!.value as Color).copy(tint);
     // Uniforms are otherwise only uploaded when the program changes, which it
     // does not between tiles drawn with the same material.
     this.uniformsNeedUpdate = true;
