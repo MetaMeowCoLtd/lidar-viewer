@@ -27,14 +27,30 @@ device: no upload, no account.
   shaders when available, with a CPU fallback and a benchmark page at
   `#/benchmark`.
 
-**Measure**
-- **Inspect** a point for its coordinates, class, height above ground, return
-  and flight line, and the building or tree it belongs to.
-- **Rulers**: as many as needed, each giving distance, height difference and
-  slope; drag an end to adjust it and it snaps to the scan.
-- **Surface area**: click a roof, a yard or a road to outline the continuous
-  surface under the click, with its plan area, sloped area and pitch. Surfaces
-  that overlap or touch can be merged.
+**Measure** – tools work the way a DCC or survey package does: the cursor
+shows where a click will snap before it is made, what is being drawn follows
+it live, handles light up under the cursor, and every change can be undone.
+- **Inspect** (I) a point for its coordinates, class, height above ground,
+  return and flight line, and the building or tree it belongs to.
+- **Rulers** (M): as many as needed, each giving distance, height difference and
+  slope; drag an end to adjust it and it snaps to the scan. While placing the
+  end, X, Y or Z holds it to east, north or the vertical and Shift+Z keeps it
+  level, as in Blender: from a point on the street, Z and a hover over the
+  eaves gives a building's height.
+- **Area and volume** (P): click a polygon corner by corner and finish with
+  Enter, a right click or a click on the first corner. It reports plan and
+  surface area and perimeter, and the volume between the scan and a base -
+  through the corners, a fitted plane, the lowest, mean or highest corner, or
+  an elevation - as cut, fill and net, like stockpile tools. Drag the blue
+  arrow to extrude it into a prism (volume, and how much the scan fills), the
+  grey one to move its base; Ctrl snaps to whole metres, and a number typed
+  after a drag sets the value exactly. Drag corners, drag a midpoint to add
+  one, Delete to remove one.
+- **Pick a surface** (R): click a roof, a yard or a road to outline the
+  continuous surface under the click, with its plan area, sloped area and
+  pitch. Surfaces that overlap or touch can be merged.
+- Ctrl+Z and Ctrl+Shift+Z undo and redo, F frames what is selected, and
+  measurements stay on the scan whichever tool is in hand.
 
 **View**
 - Colour by RGB, intensity, height, relief, class, height above ground, object
@@ -49,7 +65,8 @@ device: no upload, no account.
 **Export**
 - Classified LAS 1.4 (with heights above ground and object ids), cleaned LAS,
   class summary CSV, building and tree inventory CSV, GeoJSON footprints and
-  treetops, GeoTIFF elevation model and GeoJSON contours.
+  treetops, GeoTIFF elevation model, GeoJSON contours, and the measurements as
+  GeoJSON - rulers, polygons with their areas and volumes, and surfaces.
 
 ## Sample surveys
 

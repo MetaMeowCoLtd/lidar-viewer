@@ -186,13 +186,77 @@ A press counts as a click only if it moves less than five pixels and lasts less
 than 600 ms, so orbiting and panning never pick. `describePoint` reports the
 point in map coordinates (east, north, elevation) with the channels the cloud
 carries; `measureBetween` gives straight-line, horizontal and vertical distance
-and slope, computed from map coordinates so "vertical" is elevation. Markers
-and the measured line - drawn with its horizontal and vertical legs - are a
-separate overlay pass that ignores depth. The distance label is HTML,
-positioned from the viewer's per-frame callback without going through React
-state. An inspected point is dropped when an analysis replaces the cloud,
-because its class and height may have changed; a measurement is only positions
-and survives.
+and slope, computed from map coordinates so "vertical" is elevation. An
+inspected point is dropped when an analysis replaces the cloud, because its
+class and height may have changed; a measurement is only positions and
+survives.
+
+The tools behave as a DCC's do, after Blender, Unreal and SketchUp:
+
+- **Before the click.** While the cursor rests over the scan the viewer finds
+  the point under it once a frame and the tool draws where a click would land:
+  a snap target, a ruler's line and length, a polygon's next edge, closing
+  edge and running area. This searches only the points drawn - about 4 ms on
+  the 5.6-million-point Tokyo sample seen whole, against 30 ms at full
+  resolution - and backs off when a search is slow. The click itself still
+  snaps to a full-resolution point, and a dragged handle follows the drawn
+  points and snaps to a full-resolution one where it is let go.
+- **Handles.** Markers a tool owns can be picked up; one under the cursor
+  lights yellow, as Unreal lights the axis in hand. A press on a handle that
+  never moves is a click on it, which is how a polygon's first corner closes
+  it. Gizmo arrows stand a fixed size on screen and move along the vertical: a
+  drag takes the point on the arrow's line nearest the cursor's ray, so the
+  arrow stays under the cursor, and falls back to the cursor's height on
+  screen when the view looks along the arrow, from straight above. Ctrl snaps
+  to whole metres of the scan's own elevations, Ctrl+Shift to tenths, Shift
+  alone moves finely, and Escape puts the drag back.
+- **Axis locks.** While a ruler's end is placed, X, Y and Z hold it to east,
+  north or the vertical through its start, and Shift+Z level with it. Held,
+  the end takes the cursor point's coordinate along the axis, so a lock to Z
+  over the eaves measures a building's height from the street. Such an end is
+  not itself a scan point and is described by its position alone.
+- **Exact values.** After an arrow is dragged, a typed number and Enter set its
+  value, as SketchUp's measurements box does; the side card has the same
+  fields.
+- **Undo.** Every measurement change is one step, a whole drag included; the
+  state is a single immutable value, so a step is a reference to the value
+  before it.
+
+`useMeasurements` holds all of it, apart from the workspace; the viewer only
+reports clicks, hovers and drags. Everything drawn - markers, lines, the
+polygon fills and the prisms, and the preview - is a separate overlay pass that
+ignores depth, in two layers so the preview can be replaced every frame
+without rebuilding the rest. Labels are HTML, positioned from the viewer's
+per-frame callback without going through React state; the preview's text is
+written straight into its element.
+
+### Areas and volumes
+
+`measurePolygon` measures a drawn polygon the way stockpile tools do - Pix4D,
+Cyclone 3DR, CloudCompare's 2.5D volume - against a base surface, over the
+scan's surface as a grid holding the mean height of each cell's points. The
+mean, not the highest point a roof click wants: on a slope the highest point
+sits half a cell's rise above the cell's middle, and a cell on a wall or a
+pit's lip should count its two sides in proportion. On the test shapes - a
+block on flat ground, a cone on a slope, a pit - the highest point was 7% and
+8% over and 10% under; the mean is within 1% of all three. The base is the surface through the corners, triangulated (the
+default, which follows the ground a pile stands on), a plane fitted to them,
+a level at their lowest, mean or highest corner, or any elevation. Material
+above the base is cut and space below it fill.
+
+The polygon is split into triangles by ear clipping, which handles concave
+outlines, and each triangle into the parts of grid cells it covers: four
+lines cross each row of cells and each line's span is cut exactly at cell
+edges, so a cell on the outline counts for its share. Plan area is exact from
+the corners. Cells no point fell in are filled from around them and the share
+of the area that needed it is reported. Extruded, the polygon is a prism
+standing on its base: area times height, with the share of it the scan fills.
+Measuring visits every cell under the polygon, about 160 ms for one
+over most of a city scan, so a polygon that large keeps its last figures while
+it is dragged and is measured when it is let go.
+
+A 2.5D surface sees one height per cell: material under an overhang or a
+canopy is invisible to it, as to every tool of this kind.
 
 ## Export
 
