@@ -3,7 +3,8 @@ import type { PointCloud } from "./point-cloud.js";
 /**
  * The scan's top surface as a height grid: for each cell of the horizontal
  * plane, the highest point in it, which is what a roof or a road looks like
- * from above. Empty cells hold NaN.
+ * from above - or, for measuring volumes, the mean of its points. Empty cells
+ * hold NaN.
  */
 export interface SurfaceGrid {
   readonly cellSize: number;
@@ -64,13 +65,23 @@ export function surfaceCellSize(cloud: PointCloud): number {
   return Math.min(1, Math.max(0.25, spacing * 2.5));
 }
 
-export function buildSurfaceGrid(cloud: PointCloud, cellSize = surfaceCellSize(cloud)): SurfaceGrid {
+/**
+ * The highest point in a cell is the surface a click on a roof should find,
+ * edge and all. A volume wants the mean instead: on a slope the highest point
+ * sits half a cell's rise above the cell's middle, which over a whole
+ * stockpile adds up, and a cell straddling a wall or the lip of a pit holds
+ * points from both sides in proportion to how much of it each side covers.
+ */
+export type SurfaceStatistic = "highest" | "mean";
+
+export function buildSurfaceGrid(cloud: PointCloud, cellSize = surfaceCellSize(cloud), statistic: SurfaceStatistic = "highest"): SurfaceGrid {
   const { positions, pointCount, bounds } = cloud;
   const originX = bounds.min[0];
   const originZ = bounds.min[2];
   const cols = Math.max(1, Math.ceil(bounds.size[0] / cellSize) + 1);
   const rows = Math.max(1, Math.ceil(bounds.size[2] / cellSize) + 1);
-  const top = new Float32Array(cols * rows).fill(Number.NaN);
+  const top = new Float32Array(cols * rows).fill(statistic === "mean" ? 0 : Number.NaN);
+  const counts = statistic === "mean" ? new Uint32Array(cols * rows) : undefined;
   const noise = cloud.classification;
   for (let point = 0; point < pointCount; point += 1) {
     // Noise would stand up out of a roof as a spike; it is left out.
@@ -80,8 +91,12 @@ export function buildSurfaceGrid(cloud: PointCloud, cellSize = surfaceCellSize(c
     if (col < 0 || row < 0 || col >= cols || row >= rows) continue;
     const cell = row * cols + col;
     const y = positions[point * 3 + 1]!;
-    if (!(top[cell]! >= y)) top[cell] = y;
+    if (counts !== undefined) {
+      top[cell] = top[cell]! + y;
+      counts[cell] = counts[cell]! + 1;
+    } else if (!(top[cell]! >= y)) top[cell] = y;
   }
+  if (counts !== undefined) for (let cell = 0; cell < top.length; cell += 1) top[cell] = counts[cell]! > 0 ? top[cell]! / counts[cell]! : Number.NaN;
   fillSpeckles(top, cols, rows);
   return { cellSize, cols, rows, originX, originZ, top };
 }
