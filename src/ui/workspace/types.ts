@@ -9,7 +9,7 @@ import type { TerrainResult } from "../../core/terrain-job.js";
 
 export type ViewerStatus = "initializing" | "processing" | "ready" | "error";
 
-export type ExportKind = "inventory" | "geojson" | "las" | "cleaned" | "classes" | "elevation" | "contours";
+export type ExportKind = "inventory" | "geojson" | "las" | "cleaned" | "classes" | "elevation" | "contours" | "measurements";
 
 export type ClickTool = "inspect" | "measure" | "area" | "polygon";
 

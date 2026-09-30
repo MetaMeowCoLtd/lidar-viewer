@@ -21,6 +21,7 @@ import { withoutNoise } from "../../export/clean.js";
 import { gpuSupported } from "../../gpu/gpu-context.js";
 import type { NoiseDisplay } from "../../three/point-cloud-shader-material.js";
 import { contoursGeoJson, terrainGeoTiff } from "../../export/terrain-export.js";
+import { measurementsGeoJson } from "../../export/measurements.js";
 import { useMeasurements } from "./use-measurements.js";
 import type {
   CountState,
@@ -130,6 +131,11 @@ export function useWorkspace(options: WorkspaceOptions) {
   const source = pyramid?.tiers[0]?.cloud;
   const measurements = useMeasurements(viewerRef, source);
   const { attach: attachMeasurements, reset: resetMeasurements } = measurements;
+  // Exports read the measurements now on screen, not those of the render that created the handler.
+  const measurementsRef = useRef(measurements);
+  useLayoutEffect(() => {
+    measurementsRef.current = measurements;
+  }, [measurements]);
   // The budget the user chose is kept as chosen and only capped here, per scan.
   // Writing the cap back into it would shrink the budget to the size of a small
   // scan and leave the next, larger one drawn at a fraction of its detail.
@@ -723,6 +729,19 @@ export function useWorkspace(options: WorkspaceOptions) {
         saveFile(writeLas(withoutNoise(cloud)) as BlobPart[], `${stem}-cleaned.las`, "application/vnd.las");
       } else if (kind === "classes") {
         saveFile([classSummaryCsv(cloud)], `${stem}-classes.csv`, "text/csv");
+      } else if (kind === "measurements") {
+        const { picks, polygonResults, baseLevel } = measurementsRef.current;
+        const layer = measurementsGeoJson(cloud, {
+          rulers: picks.rulers.flatMap((ruler) => (ruler.to === undefined ? [] : [{ id: ruler.id, from: ruler.from.local, to: ruler.to.local }])),
+          polygons: picks.polygons.flatMap((polygon) => {
+            const result = polygonResults.get(polygon.id);
+            if (!polygon.closed || result === undefined || !result.valid) return [];
+            const level = polygon.base !== "triangulated" && polygon.base !== "fit";
+            return [{ id: polygon.id, vertices: polygon.vertices, base: polygon.base, baseLevel: level ? baseLevel(polygon) : undefined, height: polygon.height, result }];
+          }),
+          surfaces: picks.surfaces,
+        });
+        saveFile([layer], `${stem}-measurements.geojson`, "application/geo+json");
       } else if (kind === "elevation" || kind === "contours") {
         const built = terrainRef.current;
         if (built.status !== "done") return;

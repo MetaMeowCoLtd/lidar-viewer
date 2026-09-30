@@ -17,6 +17,7 @@ import { readLasHeader } from "../src/import/las-header.js";
 import { readLasPoints } from "../src/import/las-reader.js";
 import { bufferSource } from "../src/import/byte-source.js";
 import { fileStem } from "../src/export/save-file.js";
+import { measurementsGeoJson } from "../src/export/measurements.js";
 import { buildAerialScene } from "./support/aerial-scene.js";
 
 const utm54Wkt =
@@ -295,6 +296,49 @@ describe("inventory exports", () => {
   it("makes scan names safe as file names", () => {
     expect(fileStem('site: "north"/2026')).toBe("site- -north-2026");
     expect(fileStem("...")).toBe("scan");
+  });
+});
+
+describe("measurement export", () => {
+  const result = {
+    valid: true,
+    planArea: 200,
+    perimeter: 60,
+    edgeLength: 60,
+    surfaceArea: 210,
+    cut: 1500.25,
+    fill: 20,
+    prism: 800,
+    filled: 640,
+    unmeasured: 0,
+    cellSize: 0.5,
+    baseMean: 35,
+  };
+
+  it("writes rulers as 3D lines and polygons as closed anticlockwise rings with their volumes", () => {
+    const layer = JSON.parse(
+      measurementsGeoJson(georeferencedCloud(), {
+        rulers: [{ id: 1, from: [0, 35, 0], to: [3, 39, -4] }],
+        // Wound so that it turns clockwise once z is flipped to north.
+        polygons: [{ id: 2, vertices: [[0, 35, 0], [20, 35, 0], [20, 35, 10], [0, 35, 10]], base: "lowest", baseLevel: 35, height: 4, result }],
+        surfaces: [],
+      }),
+    );
+    expect(layer.crs.properties.name).toBe("urn:ogc:def:crs:EPSG::32654");
+    const [ruler, polygon] = layer.features;
+    expect(ruler.geometry).toEqual({ type: "LineString", coordinates: [[543_000, 4_179_000, 35], [543_003, 4_179_004, 39]] });
+    expect(ruler.properties).toMatchObject({ kind: "distance", distance: 6.403, horizontal: 5, vertical: 4 });
+
+    const ring: [number, number, number][] = polygon.geometry.coordinates[0];
+    expect(ring).toHaveLength(5);
+    expect(ring[4]).toEqual(ring[0]);
+    let twiceArea = 0;
+    for (let index = 0; index < 4; index += 1) {
+      twiceArea += (ring[index]![0] - ring[0]![0]) * (ring[index + 1]![1] - ring[0]![1]) - (ring[index + 1]![0] - ring[0]![0]) * (ring[index]![1] - ring[0]![1]);
+    }
+    expect(twiceArea / 2).toBeCloseTo(200, 6);
+    expect(ring.every((corner) => corner[2] === 35)).toBe(true);
+    expect(polygon.properties).toMatchObject({ kind: "polygon", base: "lowest", base_elevation: 35, cut_volume: 1500.25, net_volume: 1480.25, prism_volume: 800 });
   });
 });
 

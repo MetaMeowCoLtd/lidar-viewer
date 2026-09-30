@@ -68,6 +68,8 @@ export function TopBar({ workspace, sidebarOpen, onToggleSidebar }: { workspace:
             const classified = view.supports.classification;
             const counted = exports.counted;
             const terrainReady = analysis.terrain.status === "done";
+            const { picks } = workspace.picking;
+            const measured = picks.rulers.some((ruler) => ruler.to !== undefined) || picks.polygons.some((polygon) => polygon.closed) || picks.surfaces.length > 0;
             return (
               <>
                 <p className="menu-title">Points</p>
@@ -121,6 +123,14 @@ export function TopBar({ workspace, sidebarOpen, onToggleSidebar }: { workspace:
                   disabled={exports.exportBlocked || !terrainReady}
                   busy={exports.exporting === "contours"}
                   onClick={run("contours")}
+                />
+                <p className="menu-title">Measurements</p>
+                <MenuItem
+                  label="Measurements"
+                  hint={measured ? "GeoJSON of rulers, polygons with their volumes, and surfaces" : "Measure a distance, an area or a volume first"}
+                  disabled={exports.exportBlocked || !measured}
+                  busy={exports.exporting === "measurements"}
+                  onClick={run("measurements")}
                 />
                 <p className="menu-footnote">
                   Written on this device, in the scan's own coordinate system. LAS output is uncompressed.
