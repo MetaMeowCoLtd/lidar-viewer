@@ -15,16 +15,14 @@ import { createLodSpecs } from "../lod-specs.js";
 import { writeLas } from "../../export/las-writer.js";
 import { classSummaryCsv, objectInventoryCsv, objectsGeoJson } from "../../export/object-inventory.js";
 import { fileStem, saveFile } from "../../export/save-file.js";
-import { describePoint } from "../../core/point-inspection.js";
-import { buildSurfaceGrid, combinedPlanArea, mergeSurfaces, selectSurface, surfacesTouch, type SurfaceGrid } from "../../core/surface-area.js";
 import { TerrainCancelled, startTerrainBuild, type TerrainJob } from "../../core/terrain-job.js";
 import { NoiseDetectionCancelled, startNoiseDetection, type NoiseDetectionJob } from "../../core/noise-detection-job.js";
 import { withoutNoise } from "../../export/clean.js";
 import { gpuSupported } from "../../gpu/gpu-context.js";
 import type { NoiseDisplay } from "../../three/point-cloud-shader-material.js";
 import { contoursGeoJson, terrainGeoTiff } from "../../export/terrain-export.js";
+import { useMeasurements } from "./use-measurements.js";
 import type {
-  ClickTool,
   CountState,
   ExportKind,
   GroundState,
@@ -32,14 +30,12 @@ import type {
   LodMode,
   CheckpointSet,
   NoiseState,
-  Picks,
   QualityState,
   PipelineState,
   Sampling,
   TerrainState,
   ViewerStatus,
 } from "./types.js";
-import { noPicks } from "./types.js";
 
 export interface WorkspaceOptions {
   /**
@@ -64,7 +60,6 @@ export function useWorkspace(options: WorkspaceOptions) {
   const { sampleOnStart } = options;
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const measureLabelRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<LidarViewer | undefined>(undefined);
   const [pyramid, setPyramid] = useState<PointCloudLodPyramid>();
   const [status, setStatus] = useState<ViewerStatus>("initializing");
@@ -118,11 +113,6 @@ export function useWorkspace(options: WorkspaceOptions) {
   const [showSurface, setShowSurface] = useState(true);
   const [showContours, setShowContours] = useState(true);
   const [showPoints, setShowPoints] = useState(true);
-  const [clickTool, setClickTool] = useState<ClickTool>("inspect");
-  const clickToolRef = useRef(clickTool);
-  const [picks, setPicks] = useState<Picks>(noPicks);
-  /** The scan's top surface for the area tool, built on its first use and kept while the points stay the same. */
-  const surfaceGridRef = useRef<{ positions: Float32Array; grid: SurfaceGrid } | undefined>(undefined);
   const [pipeline, setPipeline] = useState<PipelineState>();
   /**
    * Set while "Analyze scan" runs every step. Run one at a time, a step shows
@@ -138,6 +128,8 @@ export function useWorkspace(options: WorkspaceOptions) {
   const sourceWaitersRef = useRef<Array<() => void>>([]);
 
   const source = pyramid?.tiers[0]?.cloud;
+  const measurements = useMeasurements(viewerRef, source);
+  const { attach: attachMeasurements, reset: resetMeasurements } = measurements;
   // The budget the user chose is kept as chosen and only capped here, per scan.
   // Writing the cap back into it would shrink the budget to the size of a small
   // scan and leave the next, larger one drawn at a fraction of its detail.
@@ -184,12 +176,6 @@ export function useWorkspace(options: WorkspaceOptions) {
     countRef.current = count;
   }, [count]);
 
-  useLayoutEffect(() => {
-    clickToolRef.current = clickTool;
-    // Two quick clicks while measuring are two points, not a request to fly.
-    viewerRef.current?.setDoubleClickToFly(clickTool === "inspect");
-  }, [clickTool]);
-
   const terrainRef = useRef(terrain);
   useLayoutEffect(() => {
     terrainRef.current = terrain;
@@ -206,7 +192,7 @@ export function useWorkspace(options: WorkspaceOptions) {
 
   /** Abandons any analysis in flight and its results, for when the scan it was working on is replaced. */
   const resetAnalysis = useCallback(() => {
-    setPicks(noPicks);
+    resetMeasurements();
     importJobRef.current?.cancel();
     importJobRef.current = undefined;
     importRunRef.current += 1;
@@ -227,7 +213,7 @@ export function useWorkspace(options: WorkspaceOptions) {
     setGround({ status: "idle" });
     setCount({ status: "idle" });
     clearTerrain();
-  }, [clearTerrain]);
+  }, [clearTerrain, resetMeasurements]);
 
   /**
    * Puts a scan on screen: gets its file (at once for a file the user chose,
@@ -305,67 +291,7 @@ export function useWorkspace(options: WorkspaceOptions) {
     });
     viewerRef.current = viewer;
     const unsubscribeTier = viewer.onLodSummaryChange(setLodSummary);
-    const unsubscribeClick = viewer.onPointClick((hit) => {
-      const details = hit === undefined ? undefined : describePoint(hit.cloud, hit.index);
-      if (clickToolRef.current === "inspect") {
-        setPicks((current) => ({ ...current, inspected: details }));
-        return;
-      }
-      if (clickToolRef.current === "area") {
-        const cloud = sourceRef.current;
-        if (hit === undefined || cloud === undefined) return;
-        // Analyses replace the cloud but never move its points, so the grid lasts until another scan is opened.
-        let cached = surfaceGridRef.current;
-        if (cached === undefined || cached.positions !== cloud.positions) {
-          cached = { positions: cloud.positions, grid: buildSurfaceGrid(cloud) };
-          surfaceGridRef.current = cached;
-        }
-        const offset = hit.index * 3;
-        const surface = selectSurface(cached.grid, hit.cloud.positions[offset]!, hit.cloud.positions[offset + 2]!);
-        if (surface === undefined) return;
-        setPicks((current) => {
-          const id = current.surfaces.reduce((highest, each) => Math.max(highest, each.id), 0) + 1;
-          return { ...current, surfaces: [...current.surfaces, { id, surface }] };
-        });
-        return;
-      }
-      // A miss while measuring is most likely a slip, so it keeps what was measured.
-      if (details === undefined) return;
-      // A click ends the ruler being laid, or starts a new one beside those already there.
-      setPicks((current) => {
-        const last = current.rulers.at(-1);
-        if (last !== undefined && last.to === undefined) return { ...current, rulers: [...current.rulers.slice(0, -1), { ...last, to: details }] };
-        // Numbered one past the highest on screen, so the numbers stay short and follow the order they were laid.
-        const id = current.rulers.reduce((highest, ruler) => Math.max(highest, ruler.id), 0) + 1;
-        return { ...current, rulers: [...current.rulers, { id, from: details }] };
-      });
-    });
-    // A marker dragged across the scan moves the point it marks; the measurement follows it.
-    const unsubscribeDrag = viewer.onMarkerDrag((id, hit) => {
-      const details = describePoint(hit.cloud, hit.index);
-      if (id === "inspected") {
-        setPicks((current) => ({ ...current, inspected: details }));
-        return;
-      }
-      // Ruler ends are named "<ruler>:from" and "<ruler>:to".
-      const [ruler, end] = id.split(":");
-      setPicks((current) => ({
-        ...current,
-        rulers: current.rulers.map((each) => (String(each.id) === ruler ? (end === "from" ? { ...each, from: details } : { ...each, to: details }) : each)),
-      }));
-    });
-    // Measurement labels follow their lines as the camera moves, written
-    // straight to the elements each frame rather than through React state.
-    const unsubscribeFrame = viewer.onFrame(() => {
-      const layer = measureLabelRef.current;
-      if (layer === null) return;
-      for (const label of layer.children) {
-        if (!(label instanceof HTMLElement) || label.dataset.anchor === undefined) continue;
-        const spot = viewer.projectToCanvas(JSON.parse(label.dataset.anchor) as [number, number, number]);
-        label.style.visibility = spot.visible ? "visible" : "hidden";
-        label.style.transform = `translate(${spot.x.toFixed(1)}px, ${spot.y.toFixed(1)}px) translate(-50%, -140%)`;
-      }
-    });
+    const detachMeasurements = attachMeasurements(viewer);
     const unsubscribe = viewer.session.subscribe((nextState) => {
       if (nextState.status === "processing") {
         setStatus("processing");
@@ -392,14 +318,12 @@ export function useWorkspace(options: WorkspaceOptions) {
     return () => {
       unsubscribe();
       unsubscribeTier();
-      unsubscribeClick();
-      unsubscribeDrag();
-      unsubscribeFrame();
+      detachMeasurements();
       resizeObserver.disconnect();
       viewer.dispose();
       viewerRef.current = undefined;
     };
-  }, [loadSample]);
+  }, [loadSample, attachMeasurements]);
 
   useEffect(() => {
     viewerRef.current?.setDistanceBasedLodEnabled(lodMode === "distance");
@@ -418,11 +342,6 @@ export function useWorkspace(options: WorkspaceOptions) {
       if (event.target instanceof HTMLInputElement || event.metaKey || event.ctrlKey || event.altKey) return;
       const key = event.key.toLowerCase();
       if (key === "h") setUiHidden((hidden) => !hidden);
-      // Escape drops the ruler still being laid, and otherwise the point inspected; finished rulers stay.
-      if (event.key === "Escape")
-        setPicks((current) =>
-          current.rulers.length > 0 && current.rulers.at(-1)?.to === undefined ? { ...current, rulers: current.rulers.slice(0, -1) } : { rulers: current.rulers, surfaces: current.surfaces },
-        );
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
@@ -821,41 +740,6 @@ export function useWorkspace(options: WorkspaceOptions) {
     }
   }, []);
 
-  // A point's class, height and object change when an analysis replaces the
-  // cloud, so what was inspected is dropped; a measurement is only positions,
-  // which no analysis moves, so it stays.
-  useEffect(() => {
-    setPicks((current) => (current.inspected === undefined ? current : { rulers: current.rulers, surfaces: current.surfaces }));
-  }, [source]);
-
-  useEffect(() => {
-    const viewer = viewerRef.current;
-    if (viewer === undefined) return;
-    if (clickTool === "inspect") {
-      viewer.setAnnotations({ markers: picks.inspected === undefined ? [] : [{ position: picks.inspected.local, tone: "inspect" }] });
-      viewer.setDraggableMarkers(picks.inspected === undefined ? [] : [{ id: "inspected", position: picks.inspected.local }]);
-      return;
-    }
-    if (clickTool === "area") {
-      viewer.setAnnotations({ markers: [], surfaces: picks.surfaces.map((each) => each.surface.outline) });
-      viewer.setDraggableMarkers([]);
-      return;
-    }
-    viewer.setDraggableMarkers(
-      picks.rulers.flatMap((ruler) => [
-        { id: `${ruler.id}:from`, position: ruler.from.local },
-        ...(ruler.to === undefined ? [] : [{ id: `${ruler.id}:to`, position: ruler.to.local }]),
-      ]),
-    );
-    viewer.setAnnotations({
-      markers: picks.rulers.flatMap((ruler) => [
-        { position: ruler.from.local, tone: "from" as const },
-        ...(ruler.to === undefined ? [] : [{ position: ruler.to.local, tone: "to" as const }]),
-      ]),
-      measurements: picks.rulers.flatMap((ruler) => (ruler.to === undefined ? [] : [{ from: ruler.from.local, to: ruler.to.local }])),
-    });
-  }, [clickTool, picks]);
-
   useEffect(() => {
     viewerRef.current?.setOutlineVisibility(showBuildingOutlines, showTreeOutlines);
   }, [showBuildingOutlines, showTreeOutlines]);
@@ -904,53 +788,13 @@ export function useWorkspace(options: WorkspaceOptions) {
     [],
   );
 
-  // Surfaces that overlap or touch, grouped: each group can be merged into one surface.
-  const surfaceGroups = useMemo(() => {
-    const grid = surfaceGridRef.current?.grid;
-    const surfaces = picks.surfaces;
-    const parent = surfaces.map((_, index) => index);
-    const root = (index: number): number => (parent[index] === index ? index : (parent[index] = root(parent[index]!)));
-    if (grid !== undefined) {
-      for (let a = 0; a < surfaces.length; a += 1) {
-        for (let b = a + 1; b < surfaces.length; b += 1) {
-          if (root(a) !== root(b) && surfacesTouch(grid, surfaces[a]!.surface.cells, surfaces[b]!.surface.cells)) parent[root(b)] = root(a);
-        }
-      }
-    }
-    const groups = new Map<number, number[]>();
-    surfaces.forEach((_, index) => groups.set(root(index), [...(groups.get(root(index)) ?? []), index]));
-    return [...groups.values()];
-  }, [picks.surfaces]);
-  const mergeableSurfaces = surfaceGroups.filter((group) => group.length > 1).reduce((sum, group) => sum + group.length, 0);
-  const totalSurfaceArea = useMemo(() => {
-    const grid = surfaceGridRef.current?.grid;
-    const parts = picks.surfaces.map((each) => each.surface);
-    return grid === undefined ? parts.reduce((sum, part) => sum + part.planArea, 0) : combinedPlanArea(grid, parts);
-  }, [picks.surfaces]);
-  const mergeTouchingSurfaces = useCallback(() => {
-    const grid = surfaceGridRef.current?.grid;
-    if (grid === undefined) return;
-    setPicks((current) => {
-      const merged = surfaceGroups.map((group) => {
-        const members = group.map((index) => current.surfaces[index]).filter((each) => each !== undefined);
-        if (members.length === 1) return members[0]!;
-        // A merged surface keeps the lowest of its parts' numbers.
-        return { id: Math.min(...members.map((each) => each.id)), surface: mergeSurfaces(grid, members.map((each) => each.surface)) };
-      });
-      return { ...current, surfaces: merged.sort((a, b) => a.id - b.id) };
-    });
-  }, [surfaceGroups]);
-
-  const inspectedObject =
-    count.status === "done" && picks.inspected?.objectId !== undefined
-      ? count.objects.find((object) => object.id === picks.inspected?.objectId)
-      : undefined;
+  const inspected = measurements.picks.inspected;
+  const inspectedObject = count.status === "done" && inspected?.objectId !== undefined ? count.objects.find((object) => object.id === inspected.objectId) : undefined;
 
   return {
     maxImportPoints: viewerConfig().maxImportPoints,
     canvasRef,
     fileInputRef,
-    measureLabelRef,
     status,
     statusText,
     source,
@@ -1024,18 +868,8 @@ export function useWorkspace(options: WorkspaceOptions) {
       count,
     },
     picking: {
-      clickTool,
-      setClickTool,
-      picks,
+      ...measurements,
       inspectedObject,
-      clearInspected: () => setPicks((current) => ({ rulers: current.rulers, surfaces: current.surfaces })),
-      removeRuler: (id: number) => setPicks((current) => ({ ...current, rulers: current.rulers.filter((ruler) => ruler.id !== id) })),
-      clearRulers: () => setPicks((current) => ({ ...current, rulers: [] })),
-      removeSurface: (id: number) => setPicks((current) => ({ ...current, surfaces: current.surfaces.filter((each) => each.id !== id) })),
-      clearSurfaces: () => setPicks((current) => ({ ...current, surfaces: [] })),
-      mergeableSurfaces,
-      mergeTouchingSurfaces,
-      totalSurfaceArea,
     },
     exports: {
       exporting,

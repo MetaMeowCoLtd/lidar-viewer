@@ -45,6 +45,14 @@ export function describePoint(cloud: PointCloud, index: number): PointDetails {
   };
 }
 
+/**
+ * A position that is not itself a scan point - the end of a ruler held to an
+ * axis, say - described by where it is and nothing more.
+ */
+export function describeLocation(cloud: PointCloud, local: readonly [number, number, number]): PointDetails {
+  return { local: [local[0], local[1], local[2]], map: toMapCoordinates(cloud.origin, local[0], local[1], local[2]) };
+}
+
 export interface Measurement {
   /** Straight-line distance between the two points. */
   readonly distance: number;

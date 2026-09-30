@@ -1320,3 +1320,220 @@
   justify-self: start;
   margin-top: 8px;
 }
+
+.ws-tools .icon-btn:disabled {
+  color: var(--text-3);
+  cursor: default;
+  opacity: 0.45;
+}
+
+.ws-tools .icon-btn:disabled:hover {
+  background: transparent;
+}
+
+.ws-inspector-wide {
+  width: 300px;
+  max-height: calc(100% - 24px);
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.ws-inspector-section {
+  margin: 12px 0 4px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  color: var(--text-2);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* A setting on one line: its name, then a select, a number or a read-out. */
+.ws-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 3px 0;
+  font-size: 12px;
+}
+
+.ws-field > span:first-child {
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+.ws-field select {
+  min-width: 0;
+  max-width: 180px;
+  padding: 4px 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+}
+
+.ws-field output {
+  font-family: var(--mono);
+}
+
+.ws-number {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--mono);
+  color: var(--text-3);
+}
+
+.ws-number input {
+  width: 92px;
+  padding: 4px 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  text-align: right;
+}
+
+.ws-number input:focus,
+.ws-field select:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+/* Keys and what they do now, as a DCC's status bar lists them. */
+.ws-inspector .ws-keys {
+  gap: 1px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.ws-inspector .ws-keys div {
+  justify-content: flex-start;
+  gap: 8px;
+  padding: 2px 0;
+}
+
+.ws-inspector .ws-keys dt {
+  display: flex;
+  flex: none;
+  gap: 3px;
+  min-width: 74px;
+}
+
+.ws-inspector .ws-keys dd {
+  color: var(--text-3);
+  font-family: inherit;
+  font-size: 11px;
+  white-space: normal;
+}
+
+.ws-inspector kbd {
+  padding: 0 5px;
+  border: 1px solid var(--border-strong);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-family: var(--mono);
+  font-size: 10px;
+  line-height: 16px;
+}
+
+.ws-polygons li {
+  grid-template-columns: 1fr auto;
+  border-radius: var(--radius-sm);
+}
+
+.ws-polygons li.is-selected {
+  background: var(--surface-hover);
+  box-shadow: inset 2px 0 0 var(--polygon);
+}
+
+.ws-row-select {
+  display: grid;
+  grid-template-columns: 20px 1fr;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0 3px 4px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ws-row-select b {
+  color: var(--polygon);
+  font-family: var(--mono);
+}
+
+.ws-polygon-label {
+  border: 1px solid var(--polygon);
+}
+
+.ws-polygon-label.is-selected {
+  box-shadow: 0 0 0 1px var(--polygon);
+}
+
+.ws-polygon-label b {
+  color: var(--polygon);
+}
+
+.ws-polygon-label span {
+  color: var(--text-2);
+}
+
+/* What the cursor is about to do: its text is written straight to it every frame. */
+.ws-preview-label {
+  border: 1px dashed var(--border-hover);
+  color: var(--text);
+}
+
+.ws-preview-label:empty {
+  display: none;
+}
+
+.ws-entry-label {
+  border: 1px solid #ffd61a;
+  font-size: 12px;
+}
+
+.ws-entry-label strong {
+  color: #ffd61a;
+}
+
+.ws-entry-label small {
+  margin-left: 8px;
+  color: var(--text-3);
+  font-size: 10px;
+}
+
+.ws-caret {
+  display: inline-block;
+  width: 1px;
+  height: 12px;
+  margin: 0 1px -2px;
+  background: currentColor;
+  animation: ws-blink 1s steps(1) infinite;
+}
+
+@keyframes ws-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+@media (max-width: 860px) {
+  .ws-inspector-wide {
+    width: auto;
+    max-height: 50%;
+  }
+}

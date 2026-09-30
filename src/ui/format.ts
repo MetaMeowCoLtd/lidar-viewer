@@ -41,6 +41,11 @@ export function ordinalSuffix(value: number): string {
   return ["th", "st", "nd", "rd"][value % 10] ?? "th";
 }
 
+/** A volume in cubic metres: to a tenth under a hundred, whole above, with thousands grouped. */
+export function formatVolume(cubicMetres: number): string {
+  return `${cubicMetres < 100 ? cubicMetres.toFixed(1) : Math.round(cubicMetres).toLocaleString("en-US")} m³`;
+}
+
 /** An area in square metres: to a tenth under a hundred, whole above, with thousands grouped. */
 export function formatArea(squareMetres: number): string {
   return `${squareMetres < 100 ? squareMetres.toFixed(1) : Math.round(squareMetres).toLocaleString("en-US")} m²`;

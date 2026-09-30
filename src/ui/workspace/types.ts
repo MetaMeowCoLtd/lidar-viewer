@@ -1,4 +1,5 @@
 import type { SurfaceSelection } from "../../core/surface-area.js";
+import type { Vec3, VolumeBase } from "../../core/polygon-measure.js";
 import type { Checkpoint, QualityReport } from "../../core/quality-report.js";
 import type { NoiseDetectionStats } from "../../core/noise-detection.js";
 import type { GroundDetectionStats } from "../../core/ground-detection.js";
@@ -10,7 +11,14 @@ export type ViewerStatus = "initializing" | "processing" | "ready" | "error";
 
 export type ExportKind = "inventory" | "geojson" | "las" | "cleaned" | "classes" | "elevation" | "contours";
 
-export type ClickTool = "inspect" | "measure" | "area";
+export type ClickTool = "inspect" | "measure" | "area" | "polygon";
+
+/**
+ * Where the end of a ruler being placed is held, as Blender holds a move to an
+ * axis: along east (X), north (Y) or the vertical (Z), or anywhere level with
+ * its start (the plane, Shift+Z).
+ */
+export type AxisLock = "x" | "y" | "z" | "plane";
 
 export type LodMode = "manual" | "distance";
 
@@ -39,14 +47,36 @@ export interface SurfacePick {
   readonly surface: SurfaceSelection;
 }
 
-/** What the clicks have picked: the point inspected, every ruler laid on the scan and every surface measured. */
+/** A polygon drawn corner by corner on the scan, measured for its area and the volume over its base. */
+export interface PolygonPick {
+  readonly id: number;
+  /** Corners in drawing order, in the local frame. */
+  readonly vertices: readonly Vec3[];
+  /** False while it is still being drawn. */
+  readonly closed: boolean;
+  readonly base: VolumeBase;
+  /** The base's local height when it is a custom level. */
+  readonly customBase?: number | undefined;
+  /** How far it is extruded above its base. */
+  readonly height: number;
+}
+
+/** What the clicks have picked: the point inspected, and every ruler, surface and polygon measured. */
 export interface Picks {
   readonly inspected?: PointDetails | undefined;
   readonly rulers: readonly Ruler[];
   readonly surfaces: readonly SurfacePick[];
+  readonly polygons: readonly PolygonPick[];
 }
 
-export const noPicks: Picks = { rulers: [], surfaces: [] };
+export const noPicks: Picks = { rulers: [], surfaces: [], polygons: [] };
+
+/** A number being typed for a polygon's height or base, applied with Enter - SketchUp's measurements box. */
+export interface ValueEntry {
+  readonly polygon: number;
+  readonly target: "height" | "base";
+  readonly text: string;
+}
 
 /** Where a run of several analyses has got: which step of how many, and what it is doing. */
 export interface PipelineState {
