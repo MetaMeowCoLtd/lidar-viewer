@@ -96,6 +96,8 @@ export class LidarViewer {
   private frameHandle: number | undefined;
   private disposed = false;
   private distanceBasedLodEnabled: boolean;
+  /** In distance mode, the widest gap between points on screen, in CSS pixels, before a tile draws finer detail. */
+  private lodGapPixels = viewerConfig().distanceLod.maxGapPixels.default;
   private lastSummary: LodRenderSummary | undefined;
   private readonly summaryListeners = new Set<(summary: LodRenderSummary) => void>();
   private buildPool: LodBuildPool | undefined;
@@ -384,6 +386,18 @@ export class LidarViewer {
     if (this.distanceBasedLodEnabled === enabled) return;
     this.distanceBasedLodEnabled = enabled;
     if (this.activeTiledPyramid !== undefined) this.applyLodForCurrentMode();
+  }
+
+  /**
+   * How much detail distance mode draws: each tile shows the leanest tier
+   * whose points sit no more than this many CSS pixels apart on screen.
+   * Smaller is sharper and heavier.
+   */
+  public setLodGapPixels(pixels: number): void {
+    this.assertNotDisposed();
+    if (!(pixels > 0)) throw new Error("the gap must be positive");
+    this.lodGapPixels = pixels;
+    if (this.activeTiledPyramid !== undefined && this.distanceBasedLodEnabled) this.applyLodForCurrentMode();
   }
 
   public isDistanceBasedLodEnabled(): boolean {
@@ -804,7 +818,7 @@ export class LidarViewer {
       previous = now;
       this.fitClippingPlanes();
       if (this.distanceBasedLodEnabled && this.activeTiledPyramid !== undefined) {
-        this.pointCloudRenderer.applyCameraDistanceLod(this.camera.position.x, this.camera.position.y, this.camera.position.z, this.activeTiledPyramid);
+        this.pointCloudRenderer.applyScreenSpaceLod(this.activeTiledPyramid, this.lodGapPixels);
         this.notifySummary();
       }
       this.snapDraggedMarker();
@@ -852,7 +866,7 @@ export class LidarViewer {
   private applyLodForCurrentMode(): void {
     if (this.activeTiledPyramid === undefined) return;
     if (this.distanceBasedLodEnabled) {
-      this.pointCloudRenderer.applyCameraDistanceLod(this.camera.position.x, this.camera.position.y, this.camera.position.z, this.activeTiledPyramid);
+      this.pointCloudRenderer.applyScreenSpaceLod(this.activeTiledPyramid, this.lodGapPixels);
     } else {
       this.pointCloudRenderer.applyPointBudget(this.pointBudget, this.activeTiledPyramid);
     }

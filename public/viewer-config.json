@@ -22,11 +22,10 @@
   },
   "distanceLod": {
     "enabledByDefault": false,
-    "distanceMultipliers": {
-      "full": 0,
-      "fine": 0.5,
-      "balanced": 1.2,
-      "lean": 2.5
+    "maxGapPixels": {
+      "default": 2,
+      "min": 0.5,
+      "max": 12
     }
   },
   "tiling": {

@@ -232,6 +232,38 @@ describe("TiledPointCloudLodPyramid", () => {
     expect(farSelection.tier.id).toBe("coarse");
   });
 
+  describe("on screen", () => {
+    // Two 20 by 20 m patches of ground on a 1 m grid, 180 m apart; the coarse tier's 5 m voxels leave points 5 m apart.
+    function patches(): PointCloud {
+      const positions: number[] = [];
+      for (const start of [0, 200]) {
+        for (let x = 0; x < 20; x += 1) for (let z = 0; z < 20; z += 1) positions.push(start + x + 0.5, 0, z + 0.5);
+      }
+      return new PointCloud({ positions: Float32Array.from(positions) });
+    }
+    const tiled = TiledPointCloudLodPyramid.build(patches(), [{ id: "full", voxelSize: 0 }, { id: "coarse", voxelSize: 5 }], { enabled: true, targetPointsPerTile: 400 });
+    const above = { cameraX: 10, cameraY: 50, cameraZ: 10, pixelsPerUnit: 1000 };
+    const tierAt = (selections: ReturnType<typeof tiled.selectForScreenSpace>, near: boolean) =>
+      new Set(selections.filter((s) => (s.tile.bounds.min[0] < 100) === near).map((s) => s.tier.id));
+
+    it("draws the leanest tier whose points stay within the gap on screen", () => {
+      // 50 m away, 1 m spacing is 20 px and 5 m is 100 px; about 196 m away they are 5 and 26 px.
+      const selections = tiled.selectForScreenSpace({ ...above, maxGapPixels: 30 });
+      expect(tierAt(selections, true)).toEqual(new Set(["full"]));
+      expect(tierAt(selections, false)).toEqual(new Set(["coarse"]));
+    });
+
+    it("keeps full detail when even that is sparser than the gap, and goes lean as the gap widens", () => {
+      expect(tierAt(tiled.selectForScreenSpace({ ...above, maxGapPixels: 1 }), false)).toEqual(new Set(["full"]));
+      expect(tierAt(tiled.selectForScreenSpace({ ...above, maxGapPixels: 500 }), true)).toEqual(new Set(["coarse"]));
+    });
+
+    it("draws the leanest tier for tiles out of view", () => {
+      const selections = tiled.selectForScreenSpace({ ...above, maxGapPixels: 30, inView: (bounds) => bounds.min[0] >= 100 });
+      expect(tierAt(selections, true)).toEqual(new Set(["coarse"]));
+    });
+  });
+
   it("treats tiling as a single whole-cloud tile when disabled", () => {
     const tiled = TiledPointCloudLodPyramid.build(makeTwoTileCloud(), specs, { enabled: false, targetPointsPerTile: 3 });
     expect(tiled.tiles.length).toBe(1);

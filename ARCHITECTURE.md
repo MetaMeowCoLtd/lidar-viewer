@@ -359,6 +359,14 @@ dots grow as the camera approaches and a coarse tier's surfaces stay closed;
 fixed sizing draws the same pixels everywhere. Both scale with the screen's
 pixel density, and picking uses the same per-tile spacing. The
 level-of-detail view tints each tile and its bounding box by the tier it draws.
+
+By distance, each tile draws the leanest tier whose points would sit no more
+than a chosen gap apart on screen - the screen-space error rule of Potree and
+3D Tiles - measured from the tier's own point spacing, the distance to the
+nearest point of the tile, the field of view and the view's height in CSS
+pixels. Thresholds in world distances, as a share of the scan's diagonal,
+ignored all of that and left the coarser tiers unused. Tiles outside the view
+draw their leanest tier.
 Fallback attributes are allocated when a scan has no RGB or intensity data so
 the shader layout stays stable across all clouds.
 

@@ -26,22 +26,15 @@ export interface CameraConfig {
   readonly framingDistance: number;
 }
 
-export interface DistanceLodThresholds {
-  readonly full: number;
-  readonly fine: number;
-  readonly balanced: number;
-  readonly lean: number;
-}
-
 export interface DistanceLodConfig {
   /** Whether camera-distance-driven LOD selection starts enabled instead of the manual point budget. */
   readonly enabledByDefault: boolean;
   /**
-   * Multipliers of the cloud's bounding diagonal at which each tier becomes
-   * preferred as the camera moves away. Must be non-decreasing for a sane
-   * near-to-far progression (full detail up close, coarser tiers far away).
+   * The widest gap between neighbouring points on screen, in CSS pixels,
+   * before a tile switches to a finer tier: the default, and the range the
+   * Display menu offers.
    */
-  readonly distanceMultipliers: DistanceLodThresholds;
+  readonly maxGapPixels: { readonly default: number; readonly min: number; readonly max: number };
 }
 
 export interface TilingConfig {
@@ -91,7 +84,7 @@ const fallback: ViewerConfig = {
   camera: { fieldOfView: 55, framingDistance: 1.15 },
   distanceLod: {
     enabledByDefault: false,
-    distanceMultipliers: { full: 0, fine: 0.5, balanced: 1.2, lean: 2.5 },
+    maxGapPixels: { default: 2, min: 0.5, max: 12 },
   },
   tiling: { enabled: true, targetPointsPerTile: 500_000, buildWorkers: 16 },
   gpuPointBudget: 40_000_000,
@@ -122,10 +115,7 @@ export async function loadViewerConfig(): Promise<ViewerConfig> {
         distanceLod: {
           ...fallback.distanceLod,
           ...parsed.distanceLod,
-          distanceMultipliers: {
-            ...fallback.distanceLod.distanceMultipliers,
-            ...parsed.distanceLod?.distanceMultipliers,
-          },
+          maxGapPixels: { ...fallback.distanceLod.maxGapPixels, ...parsed.distanceLod?.maxGapPixels },
         },
         tiling: { ...fallback.tiling, ...parsed.tiling },
         groundDetection: { ...fallback.groundDetection, ...parsed.groundDetection },

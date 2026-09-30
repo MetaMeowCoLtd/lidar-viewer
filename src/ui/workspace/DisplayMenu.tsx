@@ -85,7 +85,23 @@ export function DisplayMenu({ workspace }: { workspace: Workspace }) {
               />
             </Field>
           ) : (
-            <Note>Detail follows the camera: full resolution up close, lighter far away.</Note>
+            <>
+              <Field label="Gap between points" value={`${detail.lodGapPixels.toFixed(1)} px`}>
+                <input
+                  aria-label="Largest gap between points on screen"
+                  type="range"
+                  min={viewerConfig().distanceLod.maxGapPixels.min}
+                  max={viewerConfig().distanceLod.maxGapPixels.max}
+                  step="0.1"
+                  value={detail.lodGapPixels}
+                  onChange={(event) => detail.setLodGapPixels(Number(event.target.value))}
+                />
+              </Field>
+              <Note>
+                Each area draws the lightest detail whose points stay within this many pixels of each other on screen: full resolution up close,
+                lighter far away and out of view. Lower is sharper; higher is faster.
+              </Note>
+            </>
           )}
           <Toggle label="Show levels of detail (L)" pressed={detail.lodDebug} onChange={detail.setLodDebug} />
 

@@ -78,6 +78,7 @@ export function useWorkspace(options: WorkspaceOptions) {
   const [uiHidden, setUiHidden] = useState(false);
   const [lodMode, setLodMode] = useState<LodMode>(() => (viewerConfig().distanceLod.enabledByDefault ? "distance" : "manual"));
   const [lodSummary, setLodSummary] = useState<LodRenderSummary>();
+  const [lodGapPixels, setLodGapPixels] = useState(() => viewerConfig().distanceLod.maxGapPixels.default);
   const [quality, setQuality] = useState<QualityState>({ status: "idle" });
   const qualityJobRef = useRef<QualityReportJob | undefined>(undefined);
   const [checkpoints, setCheckpoints] = useState<CheckpointSet>();
@@ -368,6 +369,10 @@ export function useWorkspace(options: WorkspaceOptions) {
   useEffect(() => {
     viewerRef.current?.setLodDebug(lodDebug);
   }, [lodDebug]);
+
+  useEffect(() => {
+    viewerRef.current?.setLodGapPixels(lodGapPixels);
+  }, [lodGapPixels]);
 
   // The chosen colour is kept as chosen and only stood in for while the scan
   // on screen cannot show it: writing the stand-in back would lose the choice,
@@ -877,6 +882,8 @@ export function useWorkspace(options: WorkspaceOptions) {
       setPointBudget,
       budgetMaximum,
       lodSummary,
+      lodGapPixels,
+      setLodGapPixels,
       lodDebug,
       setLodDebug,
     },

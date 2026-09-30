@@ -21,6 +21,31 @@ export interface TiledLodSelection {
   readonly tier: PointCloudLodTier;
 }
 
+/** What screen-space selection needs to know about the view. */
+export interface ScreenSpaceLodView {
+  readonly cameraX: number;
+  readonly cameraY: number;
+  readonly cameraZ: number;
+  /** CSS pixels one world unit spans at a distance of one unit: the view's height over twice the tangent of half its field of view. */
+  readonly pixelsPerUnit: number;
+  /** The widest gap, in CSS pixels, allowed between neighbouring points on screen before a finer tier is drawn. */
+  readonly maxGapPixels: number;
+  /** Whether a tile's bounds can be seen at all; a tile out of view draws its leanest tier. */
+  readonly inView?: ((bounds: PointCloudBounds) => boolean) | undefined;
+}
+
+/**
+ * Typical distance between a cloud's points: the side of the square each
+ * point would have if they were spread evenly over the tile's plan. Walls
+ * make an aerial tile's surface larger than its plan, so this errs a little
+ * wide, which suits both a dot meant to close the gaps and a detail choice
+ * that should not come out coarser than it looks.
+ */
+export function pointSpacing(bounds: PointCloudBounds, pointCount: number): number {
+  const area = Math.max(bounds.size[0] * bounds.size[2], 1e-6);
+  return Math.max(Math.sqrt(area / Math.max(1, pointCount)), 0.005);
+}
+
 /**
  * A grid of independent LOD pyramids, one per spatial tile, so distance-based
  * selection can give nearby tiles full detail while distant tiles fall back
@@ -89,6 +114,33 @@ export class TiledPointCloudLodPyramid {
       }),
     );
     return new TiledPointCloudLodPyramid(tiles);
+  }
+
+  /**
+   * Picks for every tile the leanest tier whose points still sit no further
+   * apart on screen than `maxGapPixels` - the screen-space error rule Potree
+   * and 3D Tiles use. A tier's spacing is measured, not assumed, so the choice
+   * follows the scan's real density, the field of view and the size of the
+   * view, where fixed distances would not: the same threshold holds on a
+   * phone and a 4K screen, for a dense drone scan and a sparse national one.
+   * Distance is to the nearest point of the tile's bounds, so a tile the
+   * camera stands in draws full detail.
+   */
+  public selectForScreenSpace(view: ScreenSpaceLodView): readonly TiledLodSelection[] {
+    if (!(view.maxGapPixels > 0) || !(view.pixelsPerUnit > 0)) throw new Error("maxGapPixels and pixelsPerUnit must be positive");
+    return this.tiles.map((tile) => {
+      const tiers = tile.pyramid.tiers;
+      if (view.inView !== undefined && !view.inView(tile.bounds)) return { tile, tier: tiers.at(-1)! };
+      const distance = Math.max(distanceToBounds(view.cameraX, view.cameraY, view.cameraZ, tile.bounds), 1e-3);
+      // Tiers run from full detail to the leanest; the first is kept when even it is too sparse.
+      let chosen = tiers[0]!;
+      for (const tier of tiers) {
+        const gap = (pointSpacing(tile.bounds, tier.cloud.pointCount) * view.pixelsPerUnit) / distance;
+        if (gap > view.maxGapPixels) break;
+        chosen = tier;
+      }
+      return { tile, tier: chosen };
+    });
   }
 
   /** Picks a tier for every tile from its distance to the camera. */

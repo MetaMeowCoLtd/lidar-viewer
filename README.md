@@ -58,8 +58,10 @@ it live, handles light up under the cursor, and every change can be undone.
 - Unreal Engine-style navigation: left-drag walks, right-drag looks (WASD/QE to
   fly, wheel for speed), middle-drag pans, Alt + left orbits, double-click flies
   to a point. The cursor is locked while dragging.
-- Precomputed levels of detail and an adjustable point budget keep tens of
-  millions of points fluid. Dots are sized adaptively - as wide as the spacing
+- Precomputed levels of detail keep tens of millions of points fluid: a fixed
+  point budget, or by distance, where each area draws the lightest detail whose
+  points stay within a chosen gap on screen (and the lightest of all out of
+  view). Dots are sized adaptively - as wide as the spacing
   of their points, so they grow as you come closer - or at fixed pixels, and L
   shows the levels of detail: tiles tinted and boxed by tier, with a panel of
   their spacing, tiles and points.

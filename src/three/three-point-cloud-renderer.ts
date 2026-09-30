@@ -1,7 +1,11 @@
 import {
+  Box3,
   BufferAttribute,
   BufferGeometry,
   Color,
+  Frustum,
+  Matrix4,
+  Vector3,
   LineBasicMaterial,
   LineSegments,
   MathUtils,
@@ -14,7 +18,7 @@ import {
 } from "three";
 import type { PointCloud, PointCloudBounds, PointCloudColorMode, PointCloudPointShape, PointSizeMode } from "../core/point-cloud.js";
 import type { PointCloudLodTier } from "../core/lod-pyramid.js";
-import { distanceToBounds, type TiledPointCloudLodPyramid } from "../core/tiled-lod-pyramid.js";
+import { distanceToBounds, pointSpacing, type TiledPointCloudLodPyramid } from "../core/tiled-lod-pyramid.js";
 import { PointCloudShaderMaterial, maxDotSize, type NoiseDisplay } from "./point-cloud-shader-material.js";
 import { MeasurementOverlay, type Annotations } from "./measurement-overlay.js";
 import { TerrainLayer } from "./terrain-layer.js";
@@ -55,16 +59,7 @@ export const lodTierColors: Readonly<Record<string, string>> = {
 };
 const otherTierColor = "#a4aebb";
 
-/**
- * Typical distance between a cloud's points: the side of the square each
- * point would have if they were spread evenly over the tile's plan. Walls
- * make an aerial tile's surface larger than its plan, so this errs a little
- * wide, which suits a dot meant to close the gaps.
- */
-function pointSpacing(bounds: PointCloudBounds, pointCount: number): number {
-  const area = Math.max(bounds.size[0] * bounds.size[2], 1e-6);
-  return Math.max(Math.sqrt(area / Math.max(1, pointCount)), 0.005);
-}
+
 
 interface TileRenderState {
   readonly id: string;
@@ -110,6 +105,11 @@ export class ThreePointCloudRenderer {
   private pointsVisible = true;
   private noiseDisplay: NoiseDisplay = "shown";
   private sizeMode: PointSizeMode = "adaptive";
+  private readonly frustum = new Frustum();
+  private readonly viewProjection = new Matrix4();
+  private readonly box = new Box3();
+  private readonly boxMin = new Vector3();
+  private readonly boxMax = new Vector3();
   /** How far apart the points of every tier of every tile lie, for sizing their dots and picking them. */
   private spacings = new WeakMap<PointCloud, number>();
   private lodDebug = false;
@@ -233,12 +233,26 @@ export class ThreePointCloudRenderer {
     for (const selection of tiled.selectForPointBudget(pointBudget)) this.applyTileTier(selection.tile.id, selection.tier);
   }
 
-  /** Applies each tile's tier from its own distance to the camera. */
-  public applyCameraDistanceLod(cameraX: number, cameraY: number, cameraZ: number, tiled: TiledPointCloudLodPyramid): void {
-    for (const tile of tiled.tiles) {
-      const distance = distanceToBounds(cameraX, cameraY, cameraZ, tile.bounds);
-      this.applyTileTier(tile.id, tile.pyramid.selectForCameraDistance(distance));
-    }
+  /**
+   * Applies each tile's tier from how far apart its points would sit on
+   * screen: the leanest tier whose gaps stay within `maxGapPixels`, and the
+   * leanest of all for a tile out of view.
+   */
+  public applyScreenSpaceLod(tiled: TiledPointCloudLodPyramid, maxGapPixels: number): void {
+    if (!(this.camera instanceof PerspectiveCamera)) return;
+    const camera = this.camera;
+    camera.updateMatrixWorld();
+    this.frustum.setFromProjectionMatrix(this.viewProjection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
+    const cssHeight = this.renderer.getDrawingBufferSize(this.drawingSize).y / this.renderer.getPixelRatio();
+    const selections = tiled.selectForScreenSpace({
+      cameraX: camera.position.x,
+      cameraY: camera.position.y,
+      cameraZ: camera.position.z,
+      pixelsPerUnit: cssHeight / (2 * Math.tan(MathUtils.degToRad(camera.fov) / 2)),
+      maxGapPixels,
+      inView: (bounds) => this.frustum.intersectsBox(this.box.set(this.boxMin.set(...bounds.min), this.boxMax.set(...bounds.max))),
+    });
+    for (const selection of selections) this.applyTileTier(selection.tile.id, selection.tier);
   }
 
   /** The detail level each tile is drawing right now - what is actually on screen. */

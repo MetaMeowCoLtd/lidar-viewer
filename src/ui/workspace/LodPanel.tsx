@@ -17,7 +17,7 @@ export function LodPanel({ workspace }: { workspace: Workspace }) {
     <section className="ws-lod" aria-label="Levels of detail">
       <header>
         <h2>Levels of detail</h2>
-        <span>{detail.lodMode === "distance" ? "by distance" : `budget ${formatCount(detail.pointBudget)}`}</span>
+        <span>{detail.lodMode === "distance" ? `gaps up to ${detail.lodGapPixels.toFixed(1)} px` : `budget ${formatCount(detail.pointBudget)}`}</span>
       </header>
       <table>
         <thead>
