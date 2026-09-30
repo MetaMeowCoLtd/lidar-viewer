@@ -93,7 +93,7 @@ const fallback: ViewerConfig = {
     enabledByDefault: false,
     distanceMultipliers: { full: 0, fine: 0.5, balanced: 1.2, lean: 2.5 },
   },
-  tiling: { enabled: true, targetPointsPerTile: 2_000_000, buildWorkers: 16 },
+  tiling: { enabled: true, targetPointsPerTile: 500_000, buildWorkers: 16 },
   gpuPointBudget: 40_000_000,
   groundDetection: defaultGroundDetectionOptions,
   objectDetection: defaultObjectDetectionOptions,
