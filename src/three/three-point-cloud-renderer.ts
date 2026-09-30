@@ -235,6 +235,16 @@ export class ThreePointCloudRenderer {
     this.annotations.setAnnotations(annotations);
   }
 
+  /** What the cursor is about to do, drawn over the annotations; undefined clears it. */
+  public setAnnotationPreview(preview: Annotations | undefined): void {
+    this.annotations.setPreview(preview);
+  }
+
+  /** Lights up the handle with this id. */
+  public setAnnotationHighlight(id: string | undefined): void {
+    this.annotations.setHighlight(id);
+  }
+
   /** Radius in drawing-surface pixels of a point's dot at this depth, and the largest it can be. */
   public dotRadius(depth: number): number {
     return this.material?.dotRadius(depth) ?? maxDotSize / 2;

@@ -555,6 +555,27 @@ export class NavigationControls {
     this.camera.updateMatrixWorld();
   }
 
+  /**
+   * Flies to where a sphere fills most of the view, looking at it from the
+   * direction the camera looks now - Unreal's F, framing what is selected.
+   */
+  public flyToFit(center: Vector3, radius: number): void {
+    this.stopMotion();
+    const fit = Math.max(radius, 0.5) / Math.sin(((this.camera.fov * Math.PI) / 180) / 2) * 1.15;
+    const away = this.camera.getWorldDirection(new Vector3()).negate();
+    const toPosition = center.clone().add(away.multiplyScalar(fit));
+    const toQuaternion = new Quaternion().setFromRotationMatrix(new Matrix4().lookAt(toPosition, center, up));
+    this.flight = {
+      fromPosition: this.camera.position.clone(),
+      toPosition,
+      fromQuaternion: this.camera.quaternion.clone(),
+      toQuaternion,
+      toTarget: center.clone(),
+      elapsed: 0,
+      duration: 0.6,
+    };
+  }
+
   private flyTo(point: Vector3): void {
     this.stopMotion();
     const distance = this.camera.position.distanceTo(point);

@@ -11,12 +11,12 @@ import type { DetectedObject } from "../core/object-detection.js";
 import { pickPoint, type PointHit } from "../core/point-picking.js";
 import { maxDotSize, type NoiseDisplay } from "./point-cloud-shader-material.js";
 import { isNoiseClass } from "../core/noise-detection.js";
-import type { Annotations } from "./measurement-overlay.js";
+import { arrowLength, arrowPixels, type Annotations } from "./measurement-overlay.js";
 import type { TerrainModel } from "../core/terrain.js";
 import type { ContourSet } from "../core/contours.js";
 
 export type { LodRenderSummary } from "./three-point-cloud-renderer.js";
-export type { Annotations, MarkerAnnotation, MarkerTone } from "./measurement-overlay.js";
+export type { Annotations, ArrowAnnotation, FillStyle, LineStyle, MarkerAnnotation, MarkerTone } from "./measurement-overlay.js";
 import type { LodRenderSummary } from "./three-point-cloud-renderer.js";
 
 /** How far, in CSS pixels, a press may travel and still count as a click. */
@@ -29,12 +29,31 @@ const pickTolerance = 8;
 const pivotTolerance = 14;
 /** How close, in CSS pixels, a press must land to a marker to grab it rather than move the camera. */
 const handleRadius = 13;
+/** How close, in CSS pixels, a press must land to a gizmo arrow to grab it. */
+const arrowReach = 9;
+/** Below this angle between the view and the vertical, an arrow is dragged by the cursor's height on screen instead. */
+const minArrowAngle = Math.sin((12 * Math.PI) / 180);
 
 /** A marker the user can drag to another spot on the scan. */
 export interface DraggableMarker {
   readonly id: string;
   readonly position: readonly [number, number, number];
 }
+
+/** A gizmo arrow the user can drag straight up or down. */
+export interface AxisHandle {
+  readonly id: string;
+  readonly anchor: readonly [number, number, number];
+  readonly direction: 1 | -1;
+}
+
+/** Keys held while dragging an arrow: Ctrl snaps to whole steps, Shift moves finely, as in Blender. */
+export interface DragModifiers {
+  readonly snap: boolean;
+  readonly fine: boolean;
+}
+
+export type AxisDragPhase = "move" | "end" | "cancel";
 
 export interface LidarViewerOptions {
   readonly pointBudget?: number;
@@ -85,10 +104,38 @@ export class LidarViewer {
   private readonly frameListeners = new Set<() => void>();
   private pointsVisible = true;
   private readonly framingDistance: number | undefined;
-  private pressed: { x: number; y: number; time: number; pointerId: number } | undefined;
+  private pressed: { x: number; y: number; time: number; pointerId: number; button: number } | undefined;
   private draggableMarkers: readonly DraggableMarker[] = [];
   private readonly markerDragListeners = new Set<(id: string, hit: PointHit, done: boolean) => void>();
-  private markerDrag: { id: string; pointerId: number; x: number; y: number; pending: boolean } | undefined;
+  private markerDrag:
+    | { id: string; pointerId: number; x: number; y: number; pending: boolean; startX: number; startY: number; moved: boolean; last?: PointHit }
+    | undefined;
+  private axisHandles: readonly AxisHandle[] = [];
+  private readonly axisDragListeners = new Set<(id: string, delta: number, modifiers: DragModifiers, phase: AxisDragPhase) => void>();
+  private axisDrag:
+    | {
+        id: string;
+        pointerId: number;
+        anchor: readonly [number, number, number];
+        lastT: number | undefined;
+        lastY: number;
+        delta: number;
+        startX: number;
+        startY: number;
+        moved: boolean;
+      }
+    | undefined;
+  private readonly handleClickListeners = new Set<(id: string) => void>();
+  private readonly dragStartListeners = new Set<(id: string) => void>();
+  private readonly secondaryClickListeners = new Set<() => void>();
+  private readonly hoverListeners = new Set<(hit: PointHit | undefined, handle: string | undefined) => void>();
+  /** Where the cursor rests over the scan, waiting for the next frame to find the point under it. */
+  private hover: { x: number; y: number; pending: boolean } | undefined;
+  private hoverPicking = false;
+  private hoveredHandle: string | undefined;
+  /** How long the last hover search took, and when it ran: a slow one is repeated less often. */
+  private hoverCost = 0;
+  private lastHoverPick = 0;
   /**
    * A press on a marker starts dragging it instead of moving the camera: the
    * press is caught before the navigation controls see it. Anywhere else, the
@@ -96,13 +143,22 @@ export class LidarViewer {
    */
   private readonly onHandlePointerDown = (event: PointerEvent) => {
     if (!event.isPrimary || event.button !== 0 || event.altKey || event.shiftKey || event.ctrlKey || event.metaKey) return;
-    const id = this.markerAt(event.clientX, event.clientY);
-    if (id === undefined) return;
+    const handle = this.handleAt(event.clientX, event.clientY);
+    if (handle === undefined) return;
     event.stopImmediatePropagation();
     // Also keeps the browser from firing the mousedown the controls listen for.
     event.preventDefault();
     this.pressed = undefined;
-    this.markerDrag = { id, pointerId: event.pointerId, x: event.clientX, y: event.clientY, pending: false };
+    this.clearHover();
+    const start = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, moved: false };
+    const axis = handle.kind === "axis" ? this.axisHandles.find((each) => each.id === handle.id) : undefined;
+    if (axis !== undefined) {
+      const lastT = this.axisParameter(axis.anchor, event.clientX, event.clientY);
+      this.axisDrag = { id: handle.id, anchor: axis.anchor, lastT, lastY: event.clientY, delta: 0, ...start };
+    } else {
+      this.markerDrag = { id: handle.id, x: event.clientX, y: event.clientY, pending: false, ...start };
+    }
+    this.setHighlight(handle.id);
     // Keeps the drag when the cursor leaves the canvas; a pointer the browser no longer tracks cannot be captured.
     try {
       this.renderer.domElement.setPointerCapture(event.pointerId);
@@ -112,36 +168,103 @@ export class LidarViewer {
     this.renderer.domElement.style.cursor = "grabbing";
   };
   private readonly onHandlePointerMove = (event: PointerEvent) => {
+    const axis = this.axisDrag;
+    if (axis !== undefined) {
+      if (event.pointerId !== axis.pointerId) return;
+      event.stopImmediatePropagation();
+      if (!axis.moved && Math.hypot(event.clientX - axis.startX, event.clientY - axis.startY) <= clickSlop) return;
+      if (!axis.moved) {
+        axis.moved = true;
+        for (const listener of this.dragStartListeners) listener(axis.id);
+      }
+      // The point on the arrow's line nearest the cursor's ray keeps the arrow under the cursor, as a DCC gizmo
+      // does. Seen end-on, from straight above, the line says nothing, and the cursor's height on screen moves it.
+      const t = this.axisParameter(axis.anchor, event.clientX, event.clientY);
+      let step = t !== undefined && axis.lastT !== undefined ? t - axis.lastT : -(event.clientY - axis.lastY) * this.worldPerPixel(axis.anchor);
+      if (event.shiftKey) step *= 0.1;
+      axis.delta += step;
+      axis.lastT = t;
+      axis.lastY = event.clientY;
+      for (const listener of this.axisDragListeners) listener(axis.id, axis.delta, { snap: event.ctrlKey || event.metaKey, fine: event.shiftKey }, "move");
+      return;
+    }
     const drag = this.markerDrag;
     if (drag === undefined) {
-      // Only hovering: say that the marker under the cursor can be picked up.
-      if (event.buttons === 0 && this.draggableMarkers.length > 0) {
-        const over = this.markerAt(event.clientX, event.clientY) !== undefined;
-        const style = this.renderer.domElement.style;
-        if (over) style.cursor = "grab";
-        else if (style.cursor === "grab") style.cursor = "";
+      if (event.buttons !== 0) return;
+      // Only hovering: say that the handle under the cursor can be picked up, or find the point a click would take.
+      const handle = this.handleAt(event.clientX, event.clientY)?.id;
+      const style = this.renderer.domElement.style;
+      if (handle !== undefined) style.cursor = "grab";
+      else if (style.cursor === "grab") style.cursor = "";
+      this.setHighlight(handle);
+      if (handle !== undefined) {
+        if (this.hover !== undefined || this.hoveredHandle !== handle) {
+          this.hover = undefined;
+          this.hoveredHandle = handle;
+          for (const listener of this.hoverListeners) listener(undefined, handle);
+        }
+        return;
       }
+      this.hoveredHandle = undefined;
+      if (this.hoverPicking) this.hover = { x: event.clientX, y: event.clientY, pending: true };
       return;
     }
     if (event.pointerId !== drag.pointerId) return;
     event.stopImmediatePropagation();
-    // Snapping searches the whole scan, so it runs once per frame on the latest position rather than on every move.
+    if (!drag.moved && Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) <= clickSlop) return;
+    if (!drag.moved) {
+      drag.moved = true;
+      for (const listener of this.dragStartListeners) listener(drag.id);
+    }
+    // Snapping searches the scan, so it runs once per frame on the latest position rather than on every move.
     drag.x = event.clientX;
     drag.y = event.clientY;
     drag.pending = true;
   };
   private readonly onHandlePointerUp = (event: PointerEvent) => {
+    const axis = this.axisDrag;
     const drag = this.markerDrag;
-    if (drag === undefined || event.pointerId !== drag.pointerId) return;
+    const active = axis ?? drag;
+    if (active === undefined || event.pointerId !== active.pointerId) return;
     event.stopImmediatePropagation();
+    this.axisDrag = undefined;
     this.markerDrag = undefined;
     this.renderer.domElement.style.cursor = "";
+    this.setHighlight(undefined);
     if (this.renderer.domElement.hasPointerCapture(event.pointerId)) this.renderer.domElement.releasePointerCapture(event.pointerId);
-    const hit = this.pickAt(event.clientX, event.clientY);
-    if (hit !== undefined) for (const listener of this.markerDragListeners) listener(drag.id, hit, true);
+    // A press that never moved is a click on the handle: it selects it, or on a polygon's first corner, closes it.
+    if (!active.moved) {
+      if (event.type === "pointerup") for (const listener of this.handleClickListeners) listener(active.id);
+      return;
+    }
+    if (axis !== undefined) {
+      const modifiers = { snap: event.ctrlKey || event.metaKey, fine: event.shiftKey };
+      for (const listener of this.axisDragListeners) listener(axis.id, axis.delta, modifiers, event.type === "pointerup" ? "end" : "cancel");
+      return;
+    }
+    // Let go over empty space, the marker stays where it last found the scan.
+    const hit = this.pickAt(event.clientX, event.clientY) ?? drag?.last;
+    if (hit !== undefined && drag !== undefined) for (const listener of this.markerDragListeners) listener(drag.id, hit, true);
+  };
+  /** Escape while an arrow is dragged puts it back where the drag began, as it cancels a transform in Blender. */
+  private readonly onKeyDown = (event: KeyboardEvent) => {
+    const axis = this.axisDrag;
+    if (event.key !== "Escape" || axis === undefined) return;
+    event.stopImmediatePropagation();
+    event.preventDefault();
+    this.axisDrag = undefined;
+    this.setHighlight(undefined);
+    this.renderer.domElement.style.cursor = "";
+    if (this.renderer.domElement.hasPointerCapture(axis.pointerId)) this.renderer.domElement.releasePointerCapture(axis.pointerId);
+    if (axis.moved) for (const listener of this.axisDragListeners) listener(axis.id, 0, { snap: false, fine: false }, "cancel");
+  };
+  private readonly onPointerLeave = () => {
+    if (this.markerDrag === undefined && this.axisDrag === undefined) this.clearHover();
   };
   private readonly onPointerDown = (event: PointerEvent) => {
-    this.pressed = event.isPrimary && event.button === 0 ? { x: event.clientX, y: event.clientY, time: event.timeStamp, pointerId: event.pointerId } : undefined;
+    const tracked = event.isPrimary && (event.button === 0 || event.button === 2);
+    this.pressed = tracked ? { x: event.clientX, y: event.clientY, time: event.timeStamp, pointerId: event.pointerId, button: event.button } : undefined;
+    this.clearHover();
   };
   /**
    * A press and release close together in place and time is a click; anything
@@ -150,10 +273,16 @@ export class LidarViewer {
   private readonly onPointerUp = (event: PointerEvent) => {
     const pressed = this.pressed;
     this.pressed = undefined;
-    if (pressed === undefined || pressed.pointerId !== event.pointerId || this.clickListeners.size === 0) return;
+    if (pressed === undefined || pressed.pointerId !== event.pointerId) return;
     // The controls count the travel too: a drag under the pointer lock ends where it began on screen.
     const moved = Math.max(Math.hypot(event.clientX - pressed.x, event.clientY - pressed.y), this.controls.dragDistance);
     if (moved > clickSlop || event.timeStamp - pressed.time > clickDuration) return;
+    // A right click that did not turn into a look around finishes what is being drawn, as in survey software.
+    if (pressed.button === 2) {
+      for (const listener of this.secondaryClickListeners) listener();
+      return;
+    }
+    if (this.clickListeners.size === 0) return;
     const hit = this.pickAt(event.clientX, event.clientY);
     for (const listener of this.clickListeners) listener(hit);
   };
@@ -179,6 +308,9 @@ export class LidarViewer {
     canvas.addEventListener("pointercancel", this.onHandlePointerUp, { capture: true });
     canvas.addEventListener("pointerdown", this.onPointerDown);
     canvas.addEventListener("pointerup", this.onPointerUp);
+    canvas.addEventListener("pointerleave", this.onPointerLeave);
+    // Captured on the window, so an Escape that cancels a drag goes no further.
+    window.addEventListener("keydown", this.onKeyDown, { capture: true });
 
     this.session.subscribe((state) => {
       if (state.status !== "ready" || this.disposed || state.tiled === undefined) return;
@@ -343,6 +475,20 @@ export class LidarViewer {
    * press or a wheel notch cheap however big the scan is.
    */
   private pivotAt(clientX: number, clientY: number): Vector3 | undefined {
+    const hit = this.pickDrawn(clientX, clientY, pivotTolerance);
+    if (hit === undefined) return undefined;
+    const offset = hit.index * 3;
+    return new Vector3(hit.cloud.positions[offset], hit.cloud.positions[offset + 1], hit.cloud.positions[offset + 2]);
+  }
+
+  /**
+   * The drawn point under a position in the page, searching only the detail on
+   * screen: an order of magnitude cheaper than {@link LidarViewer.pickAt} on a
+   * large scan seen whole, which is what lets the cursor and the camera ask
+   * every frame. On a thinned tile the point found is an average of the ones
+   * it stands for, so what is measured still comes from `pickAt`.
+   */
+  private pickDrawn(clientX: number, clientY: number, tolerance: number): PointHit | undefined {
     if (this.activeTiledPyramid === undefined || !this.pointsVisible) return undefined;
     const canvas = this.renderer.domElement;
     const rect = canvas.getBoundingClientRect();
@@ -351,7 +497,7 @@ export class LidarViewer {
     const scale = size.x / rect.width;
     this.camera.updateMatrixWorld();
     const viewProjection = new Matrix4().multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse);
-    const hit = pickPoint(this.pointCloudRenderer.drawnClouds(), {
+    return pickPoint(this.pointCloudRenderer.drawnClouds(), {
       viewProjection: viewProjection.elements,
       width: size.x,
       height: size.y,
@@ -359,12 +505,9 @@ export class LidarViewer {
       cursorY: (clientY - rect.top) * scale,
       dotRadius: (depth) => this.pointCloudRenderer.dotRadius(depth),
       maxDotRadius: maxDotSize / 2,
-      tolerance: pivotTolerance * this.renderer.getPixelRatio(),
+      tolerance: tolerance * this.renderer.getPixelRatio(),
       skip: this.hiddenPoint(),
     });
-    if (hit === undefined) return undefined;
-    const offset = hit.index * 3;
-    return new Vector3(hit.cloud.positions[offset], hit.cloud.positions[offset + 1], hit.cloud.positions[offset + 2]);
   }
 
   /** Hidden noise and flight lines are not on screen, so a click must go through them to what is. */
@@ -400,9 +543,10 @@ export class LidarViewer {
 
   /**
    * Markers the user may pick up and drag. While dragged, each follows the
-   * scan's surface under the cursor - it snaps to the nearest real point, so a
-   * measurement always runs between measured points - and listeners hear every
-   * new spot, the last with `done` set.
+   * scan's surface under the cursor as drawn, which is cheap enough to ask every
+   * frame; where it is let go it snaps to the nearest real point, so a
+   * measurement always runs between measured points. Listeners hear every new
+   * spot, the last with `done` set.
    */
   public setDraggableMarkers(markers: readonly DraggableMarker[]): void {
     this.draggableMarkers = markers;
@@ -413,35 +557,162 @@ export class LidarViewer {
     return () => this.markerDragListeners.delete(listener);
   }
 
-  /** The draggable marker nearest the cursor, if one is close enough to grab. */
-  private markerAt(clientX: number, clientY: number): string | undefined {
+  /**
+   * Gizmo arrows the user may drag straight up or down. Listeners hear how far
+   * the drag has moved from where it began, in local units along the vertical,
+   * with the keys held; the last with "end", or "cancel" when Escape put it back.
+   */
+  public setAxisHandles(handles: readonly AxisHandle[]): void {
+    this.axisHandles = handles;
+  }
+
+  public onAxisDrag(listener: (id: string, delta: number, modifiers: DragModifiers, phase: AxisDragPhase) => void): () => void {
+    this.axisDragListeners.add(listener);
+    return () => this.axisDragListeners.delete(listener);
+  }
+
+  /** Notified when a marker or an arrow is pressed and released without moving. */
+  public onHandleClick(listener: (id: string) => void): () => void {
+    this.handleClickListeners.add(listener);
+    return () => this.handleClickListeners.delete(listener);
+  }
+
+  /** Notified once when a marker or an arrow starts moving, before its first move - for keeping an undo step. */
+  public onDragStart(listener: (id: string) => void): () => void {
+    this.dragStartListeners.add(listener);
+    return () => this.dragStartListeners.delete(listener);
+  }
+
+  /** Notified of a right click that did not become a look around. */
+  public onSecondaryClick(listener: () => void): () => void {
+    this.secondaryClickListeners.add(listener);
+    return () => this.secondaryClickListeners.delete(listener);
+  }
+
+  /**
+   * While on, the point under the resting cursor is found once a frame and
+   * listeners hear it - or the handle the cursor is over instead - so a tool
+   * can show where a click would land before it is made.
+   */
+  public setHoverPicking(enabled: boolean): void {
+    this.hoverPicking = enabled;
+    if (!enabled) this.hover = undefined;
+  }
+
+  public onHover(listener: (hit: PointHit | undefined, handle: string | undefined) => void): () => void {
+    this.hoverListeners.add(listener);
+    return () => this.hoverListeners.delete(listener);
+  }
+
+  /** Flies the camera to look at a sphere from the direction it looks now, near enough for it to fill most of the view. */
+  public frame(center: readonly [number, number, number], radius: number): void {
+    this.assertNotDisposed();
+    this.controls.flyToFit(new Vector3(...center), radius);
+  }
+
+  private setHighlight(id: string | undefined): void {
+    this.pointCloudRenderer.setAnnotationHighlight(id);
+  }
+
+  private clearHover(): void {
+    const had = this.hover !== undefined || this.hoveredHandle !== undefined;
+    this.hover = undefined;
+    this.hoveredHandle = undefined;
+    if (this.markerDrag === undefined && this.axisDrag === undefined) this.setHighlight(undefined);
+    if (had) for (const listener of this.hoverListeners) listener(undefined, undefined);
+  }
+
+  /**
+   * Finds the point under the resting cursor among those drawn, at most once a
+   * frame and less often when each search is slow. It is a preview of where a
+   * click would land; the click itself snaps to the full-resolution point.
+   */
+  private pickHover(now: number): void {
+    const hover = this.hover;
+    if (hover === undefined || !hover.pending || !this.hoverPicking) return;
+    if (now - this.lastHoverPick < Math.min(160, this.hoverCost * 3)) return;
+    hover.pending = false;
+    const started = performance.now();
+    this.lastHoverPick = now;
+    const hit = this.pickDrawn(hover.x, hover.y, pickTolerance);
+    this.hoverCost = performance.now() - started;
+    for (const listener of this.hoverListeners) listener(hit, undefined);
+  }
+
+  /** What is under the cursor to grab: the nearest marker or arrow within reach. */
+  private handleAt(clientX: number, clientY: number): { id: string; kind: "marker" | "axis" } | undefined {
     const rect = this.renderer.domElement.getBoundingClientRect();
-    let best: string | undefined;
-    let bestDistance = handleRadius;
+    const x = clientX - rect.left;
+    const y = clientY - rect.top;
+    let best: { id: string; kind: "marker" | "axis" } | undefined;
+    let bestDistance = Infinity;
     for (const marker of this.draggableMarkers) {
       const spot = this.projectToCanvas(marker.position);
       if (!spot.visible) continue;
-      const distance = Math.hypot(clientX - rect.left - spot.x, clientY - rect.top - spot.y);
-      if (distance <= bestDistance) {
+      const distance = Math.hypot(x - spot.x, y - spot.y);
+      if (distance <= handleRadius && distance < bestDistance) {
         bestDistance = distance;
-        best = marker.id;
+        best = { id: marker.id, kind: "marker" };
+      }
+    }
+    for (const handle of this.axisHandles) {
+      const length = arrowLength(this.camera, handle.anchor, rect.height);
+      const a = this.projectToCanvas(handle.anchor);
+      const b = this.projectToCanvas([handle.anchor[0], handle.anchor[1] + length * handle.direction, handle.anchor[2]]);
+      if (!a.visible || !b.visible) continue;
+      // An arrow counts as a little further off than it is, so a corner under it can still be grabbed.
+      const distance = distanceToSegment(x, y, a, b) + 3;
+      if (distance <= arrowReach + 3 && distance < bestDistance) {
+        bestDistance = distance;
+        best = { id: handle.id, kind: "axis" };
       }
     }
     return best;
+  }
+
+  /** Where on the vertical line through `anchor` the cursor's ray passes closest, or undefined when the view looks along it. */
+  private axisParameter(anchor: readonly [number, number, number], clientX: number, clientY: number): number | undefined {
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return undefined;
+    this.camera.updateMatrixWorld();
+    const origin = this.camera.position.clone();
+    const direction = new Vector3(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1, 0.5)
+      .unproject(this.camera)
+      .sub(origin)
+      .normalize();
+    // Closest approach of the lines anchor + t·up and origin + s·direction.
+    const b = direction.y;
+    const denominator = 1 - b * b;
+    if (denominator < minArrowAngle * minArrowAngle) return undefined;
+    const w = new Vector3(anchor[0], anchor[1], anchor[2]).sub(origin);
+    return (b * w.dot(direction) - w.y) / denominator;
+  }
+
+  /** How far one CSS pixel reaches at a position's distance from the camera. */
+  private worldPerPixel(position: readonly [number, number, number]): number {
+    return arrowLength(this.camera, position, this.renderer.domElement.getBoundingClientRect().height) / arrowPixels;
   }
 
   private snapDraggedMarker(): void {
     const drag = this.markerDrag;
     if (drag === undefined || !drag.pending) return;
     drag.pending = false;
-    const hit = this.pickAt(drag.x, drag.y);
-    if (hit !== undefined) for (const listener of this.markerDragListeners) listener(drag.id, hit, false);
+    const hit = this.pickDrawn(drag.x, drag.y, pickTolerance);
+    if (hit === undefined) return;
+    drag.last = hit;
+    for (const listener of this.markerDragListeners) listener(drag.id, hit, false);
   }
 
   /** Markers and measurement lines drawn over the scan; they stay until replaced. */
   public setAnnotations(annotations: Annotations): void {
     this.assertNotDisposed();
     this.pointCloudRenderer.setAnnotations(annotations);
+  }
+
+  /** What the cursor is about to do - a snap target, an edge being drawn - over the annotations; undefined clears it. */
+  public setPreview(preview: Annotations | undefined): void {
+    this.assertNotDisposed();
+    this.pointCloudRenderer.setAnnotationPreview(preview);
   }
 
   /**
@@ -524,6 +795,7 @@ export class LidarViewer {
         this.notifySummary();
       }
       this.snapDraggedMarker();
+      this.pickHover(now);
       this.pointCloudRenderer.render();
       for (const listener of this.frameListeners) listener();
       this.frameHandle = requestAnimationFrame(tick);
@@ -546,8 +818,15 @@ export class LidarViewer {
     this.renderer.domElement.removeEventListener("pointercancel", this.onHandlePointerUp, { capture: true });
     this.renderer.domElement.removeEventListener("pointerdown", this.onPointerDown);
     this.renderer.domElement.removeEventListener("pointerup", this.onPointerUp);
+    this.renderer.domElement.removeEventListener("pointerleave", this.onPointerLeave);
+    window.removeEventListener("keydown", this.onKeyDown, { capture: true });
     this.clickListeners.clear();
     this.markerDragListeners.clear();
+    this.axisDragListeners.clear();
+    this.handleClickListeners.clear();
+    this.dragStartListeners.clear();
+    this.secondaryClickListeners.clear();
+    this.hoverListeners.clear();
     this.frameListeners.clear();
     this.session.cancelPendingLoad();
     this.controls.dispose();
@@ -637,4 +916,12 @@ export class LidarViewer {
   private assertNotDisposed(): void {
     if (this.disposed) throw new Error("LidarViewer has already been disposed");
   }
+}
+
+function distanceToSegment(x: number, y: number, a: { x: number; y: number }, b: { x: number; y: number }): number {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const lengthSq = dx * dx + dy * dy;
+  const t = lengthSq === 0 ? 0 : Math.max(0, Math.min(1, ((x - a.x) * dx + (y - a.y) * dy) / lengthSq));
+  return Math.hypot(x - (a.x + t * dx), y - (a.y + t * dy));
 }
