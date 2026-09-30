@@ -366,7 +366,7 @@ export class LidarViewer {
     const tiling = viewerConfig().tiling;
     this.buildPool ??= new LodBuildPool(Math.min(navigator.hardwareConcurrency || 4, tiling.buildWorkers));
     const pool = this.buildPool;
-    await this.session.load(source, specs.filter((spec) => spec.voxelSize === 0), (cloud) =>
+    await this.session.load(source, specs.filter((spec) => spec.voxelSize === 0 && spec.pointFraction === undefined), (cloud) =>
       TiledPointCloudLodPyramid.buildWithPool(cloud, specs, tiling, pool, onProgress),
     );
   }
@@ -374,6 +374,7 @@ export class LidarViewer {
   public setPointBudget(pointBudget: number): void {
     this.assertNotDisposed();
     this.pointBudget = pointBudget;
+    // By distance, the budget caps what refinement may spend; the next frame applies it.
     if (this.activeTiledPyramid !== undefined && !this.distanceBasedLodEnabled) {
       this.pointCloudRenderer.applyPointBudget(pointBudget, this.activeTiledPyramid);
       this.notifySummary();
@@ -818,7 +819,7 @@ export class LidarViewer {
       previous = now;
       this.fitClippingPlanes();
       if (this.distanceBasedLodEnabled && this.activeTiledPyramid !== undefined) {
-        this.pointCloudRenderer.applyScreenSpaceLod(this.activeTiledPyramid, this.lodGapPixels);
+        this.pointCloudRenderer.applyScreenSpaceLod(this.activeTiledPyramid, this.lodGapPixels, this.pointBudget);
         this.notifySummary();
       }
       this.snapDraggedMarker();
@@ -866,7 +867,7 @@ export class LidarViewer {
   private applyLodForCurrentMode(): void {
     if (this.activeTiledPyramid === undefined) return;
     if (this.distanceBasedLodEnabled) {
-      this.pointCloudRenderer.applyScreenSpaceLod(this.activeTiledPyramid, this.lodGapPixels);
+      this.pointCloudRenderer.applyScreenSpaceLod(this.activeTiledPyramid, this.lodGapPixels, this.pointBudget);
     } else {
       this.pointCloudRenderer.applyPointBudget(this.pointBudget, this.activeTiledPyramid);
     }

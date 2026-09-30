@@ -33,7 +33,7 @@ export function LodPanel({ workspace }: { workspace: Workspace }) {
             <tr key={tier.id} className={tier.tiles === 0 ? "is-idle" : undefined}>
               <td>
                 <i style={{ background: lodTierColors[tier.id] ?? "var(--text-3)" }} />
-                {tier.id}
+                {tierName(tier.id)}
                 {tier.id === summary.focusTierId ? <b title="The tier of the tile nearest the camera"> ●</b> : null}
               </td>
               <td>{tier.tiles === 0 ? "—" : spacing(tier.spacing)}</td>
@@ -48,6 +48,12 @@ export function LodPanel({ workspace }: { workspace: Workspace }) {
       </p>
     </section>
   );
+}
+
+/** "Full" for full resolution, "Level 3" for the third level down. */
+function tierName(id: string): string {
+  const level = /^lod(\d+)$/.exec(id)?.[1];
+  return level === undefined ? (id === "full" ? "Full" : id) : `Level ${level}`;
 }
 
 function spacing(metres: number): string {

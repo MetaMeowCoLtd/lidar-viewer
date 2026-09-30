@@ -50,12 +50,18 @@ export interface LodTierUsage {
   readonly points: number;
 }
 
-/** Each detail level's colour in the level-of-detail view: green at full resolution through blue and amber to red at the leanest. */
+/**
+ * Each detail level's colour in the level-of-detail view, a gradient from
+ * green at full resolution through yellow and orange to red and violet at the
+ * lightest, so how detail falls away with distance reads as a ramp.
+ */
 export const lodTierColors: Readonly<Record<string, string>> = {
-  full: "#3fd09a",
-  fine: "#52c7ff",
-  balanced: "#f5b85c",
-  lean: "#ff6b6b",
+  full: "#2fcf7f",
+  lod1: "#9bd23c",
+  lod2: "#f2d23a",
+  lod3: "#f59a3a",
+  lod4: "#ec4f4f",
+  lod5: "#a855f7",
 };
 const otherTierColor = "#a4aebb";
 
@@ -238,11 +244,10 @@ export class ThreePointCloudRenderer {
    * screen: the leanest tier whose gaps stay within `maxGapPixels`, and the
    * leanest of all for a tile out of view.
    */
-  public applyScreenSpaceLod(tiled: TiledPointCloudLodPyramid, maxGapPixels: number): void {
+  public applyScreenSpaceLod(tiled: TiledPointCloudLodPyramid, maxGapPixels: number, pointBudget: number): void {
     if (!(this.camera instanceof PerspectiveCamera)) return;
     const camera = this.camera;
-    camera.updateMatrixWorld();
-    this.frustum.setFromProjectionMatrix(this.viewProjection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
+    this.updateFrustum();
     const cssHeight = this.renderer.getDrawingBufferSize(this.drawingSize).y / this.renderer.getPixelRatio();
     const selections = tiled.selectForScreenSpace({
       cameraX: camera.position.x,
@@ -250,7 +255,8 @@ export class ThreePointCloudRenderer {
       cameraZ: camera.position.z,
       pixelsPerUnit: cssHeight / (2 * Math.tan(MathUtils.degToRad(camera.fov) / 2)),
       maxGapPixels,
-      inView: (bounds) => this.frustum.intersectsBox(this.box.set(this.boxMin.set(...bounds.min), this.boxMax.set(...bounds.max))),
+      pointBudget,
+      inView: (bounds) => this.inView(bounds),
     });
     for (const selection of selections) this.applyTileTier(selection.tile.id, selection.tier);
   }
@@ -262,11 +268,21 @@ export class ThreePointCloudRenderer {
     return clouds;
   }
 
+  private updateFrustum(): void {
+    this.camera.updateMatrixWorld();
+    this.frustum.setFromProjectionMatrix(this.viewProjection.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse));
+  }
+
+  private inView(bounds: PointCloudBounds): boolean {
+    return this.frustum.intersectsBox(this.box.set(this.boxMin.set(...bounds.min), this.boxMax.set(...bounds.max)));
+  }
+
   /** Reports the currently rendered tiers - independent of which apply method was last called. */
   public getRenderSummary(cameraX: number, cameraY: number, cameraZ: number, tiled: TiledPointCloudLodPyramid): LodRenderSummary {
     let drawnPointCount = 0;
     let focusTierId: string | undefined;
     let focusDistance = Number.POSITIVE_INFINITY;
+    this.updateFrustum();
     const usage = new Map<string, { id: string; voxelSize: number; spacing: number; tiles: number; points: number }>();
     for (const tier of tiled.tiles[0]?.pyramid.tiers ?? []) usage.set(tier.id, { id: tier.id, voxelSize: tier.voxelSize, spacing: 0, tiles: 0, points: 0 });
     for (const state of this.tileStates.values()) {
@@ -280,8 +296,9 @@ export class ThreePointCloudRenderer {
         usage.set(tier.id, entry);
       }
       drawnPointCount += state.activeTier?.cloud.pointCount ?? 0;
+      // The nearest tile the camera can see: one behind it is drawn at its lightest and says nothing of the view.
       const distance = distanceToBounds(cameraX, cameraY, cameraZ, state.bounds);
-      if (distance < focusDistance) {
+      if (distance < focusDistance && this.inView(state.bounds)) {
         focusDistance = distance;
         focusTierId = state.activeTier?.id;
       }

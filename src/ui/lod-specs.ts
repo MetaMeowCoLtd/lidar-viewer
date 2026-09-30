@@ -1,19 +1,21 @@
 import { viewerConfig } from "../config.js";
 import type { LodTierSpec } from "../core/lod-pyramid.js";
 
+/** Tier ids, finest first: full resolution, then each level down. */
+export const fullTierId = "full";
+export const levelTierId = (level: number) => `lod${level}`;
+
 /**
- * The detail levels built for a scan, scaled to its size: full resolution,
- * then three voxel grids of coarser steps. Which one a tile draws by distance
- * is decided on screen, from each tier's measured spacing; see
- * `TiledPointCloudLodPyramid.selectForScreenSpace`.
+ * The detail levels built for a scan: full resolution, then levels that each
+ * keep about a quarter of the points of the one above, as an octree's levels
+ * do. The levels are measured on every tile's own points rather than set from
+ * the scan's size, so they step down evenly on a forest and a city alike, and
+ * the step from one to the next is small enough to read as a gradient.
  */
-export function createLodSpecs(diagonal: number): LodTierSpec[] {
-  const scale = Math.max(diagonal, 1);
-  const { fine, balanced, lean } = viewerConfig().lodDivisors;
+export function createLodSpecs(): LodTierSpec[] {
+  const { count, pointFraction } = viewerConfig().lodLevels;
   return [
-    { id: "full", voxelSize: 0 },
-    { id: "fine", voxelSize: scale / fine },
-    { id: "balanced", voxelSize: scale / balanced },
-    { id: "lean", voxelSize: scale / lean },
+    { id: fullTierId, voxelSize: 0 },
+    ...Array.from({ length: count }, (_, index) => ({ id: levelTierId(index + 1), voxelSize: 0, pointFraction })),
   ];
 }

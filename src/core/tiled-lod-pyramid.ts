@@ -1,5 +1,7 @@
 import { PointCloud, definedChannels, type PointCloudBounds } from "./point-cloud.js";
-import { PointCloudLodPyramid, type LodTierSpec, type PointCloudLodTier } from "./lod-pyramid.js";
+import { PointCloudLodPyramid, pointSpacing, type LodTierSpec, type PointCloudLodTier } from "./lod-pyramid.js";
+
+export { pointSpacing } from "./lod-pyramid.js";
 import { PointCloudTiler, type PointCloudTile } from "./point-cloud-tiler.js";
 import type { LodBuildPool } from "./lod-build-pool.js";
 import type { SerializedTier } from "./lod-build-protocol.js";
@@ -30,21 +32,13 @@ export interface ScreenSpaceLodView {
   readonly pixelsPerUnit: number;
   /** The widest gap, in CSS pixels, allowed between neighbouring points on screen before a finer tier is drawn. */
   readonly maxGapPixels: number;
+  /** The most points to draw in all; refinement stops when the next step would pass it. */
+  readonly pointBudget?: number | undefined;
   /** Whether a tile's bounds can be seen at all; a tile out of view draws its leanest tier. */
   readonly inView?: ((bounds: PointCloudBounds) => boolean) | undefined;
 }
 
-/**
- * Typical distance between a cloud's points: the side of the square each
- * point would have if they were spread evenly over the tile's plan. Walls
- * make an aerial tile's surface larger than its plan, so this errs a little
- * wide, which suits both a dot meant to close the gaps and a detail choice
- * that should not come out coarser than it looks.
- */
-export function pointSpacing(bounds: PointCloudBounds, pointCount: number): number {
-  const area = Math.max(bounds.size[0] * bounds.size[2], 1e-6);
-  return Math.max(Math.sqrt(area / Math.max(1, pointCount)), 0.005);
-}
+
 
 /**
  * A grid of independent LOD pyramids, one per spatial tile, so distance-based
@@ -117,30 +111,52 @@ export class TiledPointCloudLodPyramid {
   }
 
   /**
-   * Picks for every tile the leanest tier whose points still sit no further
-   * apart on screen than `maxGapPixels` - the screen-space error rule Potree
-   * and 3D Tiles use. A tier's spacing is measured, not assumed, so the choice
-   * follows the scan's real density, the field of view and the size of the
-   * view, where fixed distances would not: the same threshold holds on a
-   * phone and a 4K screen, for a dense drone scan and a sparse national one.
-   * Distance is to the nearest point of the tile's bounds, so a tile the
-   * camera stands in draws full detail.
+   * Chooses every tile's tier the way Potree refines its octree: by what the
+   * viewer would see, most-needed first, within a point budget.
+   *
+   * Every tile in view starts at its leanest tier. The tile whose points sit
+   * furthest apart on screen - spacing times pixels per unit over distance,
+   * the screen-space error 3D Tiles refines by - steps one tier finer, and is
+   * weighed again; this repeats until every tile's gaps are within
+   * `maxGapPixels`, or the next step would pass the budget. Near tiles have
+   * the widest gaps, so they refine first and furthest: full detail in front,
+   * a little lighter behind, lightest at the back, and a budget spent where
+   * it shows. Tiles out of view keep their leanest tier.
+   *
+   * Spacing is measured from each tier's own points, so the rule follows the
+   * scan's real density, the field of view and the size of the view. Distance
+   * is to the nearest point of the tile's bounds, so the tile the camera
+   * stands in counts as nearest of all.
    */
   public selectForScreenSpace(view: ScreenSpaceLodView): readonly TiledLodSelection[] {
     if (!(view.maxGapPixels > 0) || !(view.pixelsPerUnit > 0)) throw new Error("maxGapPixels and pixelsPerUnit must be positive");
-    return this.tiles.map((tile) => {
-      const tiers = tile.pyramid.tiers;
-      if (view.inView !== undefined && !view.inView(tile.bounds)) return { tile, tier: tiers.at(-1)! };
+    const budget = view.pointBudget ?? Number.POSITIVE_INFINITY;
+    // Tiers run from full detail (index 0) to the leanest; every tile starts at the leanest.
+    const level = this.tiles.map((tile) => tile.pyramid.tiers.length - 1);
+    let drawn = this.tiles.reduce((sum, tile, index) => sum + tile.pyramid.tiers[level[index]!]!.cloud.pointCount, 0);
+    const gap = (index: number): number => {
+      const tile = this.tiles[index]!;
+      const tier = tile.pyramid.tiers[level[index]!]!;
       const distance = Math.max(distanceToBounds(view.cameraX, view.cameraY, view.cameraZ, tile.bounds), 1e-3);
-      // Tiers run from full detail to the leanest; the first is kept when even it is too sparse.
-      let chosen = tiers[0]!;
-      for (const tier of tiers) {
-        const gap = (pointSpacing(tile.bounds, tier.cloud.pointCount) * view.pixelsPerUnit) / distance;
-        if (gap > view.maxGapPixels) break;
-        chosen = tier;
-      }
-      return { tile, tier: chosen };
+      return (pointSpacing(tile.bounds, tier.cloud.pointCount) * view.pixelsPerUnit) / distance;
+    };
+    const queue = new MaxHeap();
+    this.tiles.forEach((tile, index) => {
+      if (level[index]! > 0 && (view.inView === undefined || view.inView(tile.bounds))) queue.push(index, gap(index));
     });
+    for (let entry = queue.pop(); entry !== undefined; entry = queue.pop()) {
+      if (entry.priority <= view.maxGapPixels) break;
+      const tiers = this.tiles[entry.index]!.pyramid.tiers;
+      const current = tiers[level[entry.index]!]!;
+      const finer = tiers[level[entry.index]! - 1]!;
+      const cost = finer.cloud.pointCount - current.cloud.pointCount;
+      // Out of budget: every tile still waiting needs this less, so the refinement ends here, as Potree's does.
+      if (drawn + cost > budget) break;
+      drawn += cost;
+      level[entry.index]! -= 1;
+      if (level[entry.index]! > 0) queue.push(entry.index, gap(entry.index));
+    }
+    return this.tiles.map((tile, index) => ({ tile, tier: tile.pyramid.tiers[level[index]!]! }));
   }
 
   /** Picks a tier for every tile from its distance to the camera. */
@@ -227,4 +243,40 @@ export function distanceToBounds(x: number, y: number, z: number, bounds: PointC
     y - Math.min(Math.max(y, bounds.min[1]), bounds.max[1]),
     z - Math.min(Math.max(z, bounds.min[2]), bounds.max[2]),
   );
+}
+
+/** A binary heap of tile indices, largest priority first. */
+class MaxHeap {
+  private readonly items: Array<{ index: number; priority: number }> = [];
+
+  public push(index: number, priority: number): void {
+    const items = this.items;
+    items.push({ index, priority });
+    let at = items.length - 1;
+    while (at > 0) {
+      const parent = (at - 1) >> 1;
+      if (items[parent]!.priority >= items[at]!.priority) break;
+      [items[parent], items[at]] = [items[at]!, items[parent]!];
+      at = parent;
+    }
+  }
+
+  public pop(): { index: number; priority: number } | undefined {
+    const items = this.items;
+    const top = items[0];
+    const last = items.pop();
+    if (top === undefined || last === undefined || items.length === 0) return top;
+    items[0] = last;
+    let at = 0;
+    for (;;) {
+      const left = at * 2 + 1;
+      const right = left + 1;
+      let largest = at;
+      if (left < items.length && items[left]!.priority > items[largest]!.priority) largest = left;
+      if (right < items.length && items[right]!.priority > items[largest]!.priority) largest = right;
+      if (largest === at) return top;
+      [items[largest], items[at]] = [items[at]!, items[largest]!];
+      at = largest;
+    }
+  }
 }

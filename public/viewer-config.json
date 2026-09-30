@@ -7,10 +7,9 @@
     "min": 1,
     "max": 7
   },
-  "lodDivisors": {
-    "fine": 900,
-    "balanced": 350,
-    "lean": 130
+  "lodLevels": {
+    "count": 5,
+    "pointFraction": 0.25
   },
   "eyeDomeLighting": {
     "strength": 40,
@@ -30,7 +29,7 @@
   },
   "tiling": {
     "enabled": true,
-    "targetPointsPerTile": 500000,
+    "targetPointsPerTile": 100000,
     "buildWorkers": 16
   },
   "gpuPointBudget": 40000000,

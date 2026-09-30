@@ -206,6 +206,38 @@ describe("PointCloudTiler", () => {
   });
 });
 
+describe("levels measured by their share of points", () => {
+  function random(seed: number) {
+    return () => {
+      seed = (seed * 16807) % 2147483647;
+      return seed / 2147483647;
+    };
+  }
+  const specs = [
+    { id: "full", voxelSize: 0 },
+    ...[1, 2, 3].map((level) => ({ id: `lod${level}`, voxelSize: 0, pointFraction: 0.25 })),
+  ];
+
+  it("steps down by about a quarter at every level, for points filling a volume and points on a surface", () => {
+    const next = random(3);
+    // A forest: points throughout a 20 m cube. A city: points on a 40 by 40 m plane.
+    const volume = new PointCloud({ positions: Float32Array.from({ length: 60_000 * 3 }, () => next() * 20) });
+    const surface = new PointCloud({
+      positions: Float32Array.from({ length: 60_000 * 3 }, (_, index) => (index % 3 === 1 ? 0 : next() * 40)),
+    });
+    for (const cloud of [volume, surface]) {
+      const tiers = PointCloudLodPyramid.build(cloud, specs).tiers;
+      expect(tiers.map((tier) => tier.id)).toEqual(["full", "lod1", "lod2", "lod3"]);
+      for (let level = 1; level < tiers.length; level += 1) {
+        const share = tiers[level]!.cloud.pointCount / tiers[level - 1]!.cloud.pointCount;
+        expect(share).toBeLessThanOrEqual(0.25);
+        expect(share).toBeGreaterThan(0.08);
+        expect(tiers[level]!.voxelSize).toBeGreaterThan(tiers[level - 1]!.voxelSize);
+      }
+    }
+  });
+});
+
 describe("TiledPointCloudLodPyramid", () => {
   const specs = [
     { id: "full", voxelSize: 0, minCameraDistance: 0 },
@@ -256,6 +288,14 @@ describe("TiledPointCloudLodPyramid", () => {
     it("keeps full detail when even that is sparser than the gap, and goes lean as the gap widens", () => {
       expect(tierAt(tiled.selectForScreenSpace({ ...above, maxGapPixels: 1 }), false)).toEqual(new Set(["full"]));
       expect(tierAt(tiled.selectForScreenSpace({ ...above, maxGapPixels: 500 }), true)).toEqual(new Set(["coarse"]));
+    });
+
+    it("refines the nearest tiles first when the budget runs out", () => {
+      // Enough for the near patch at full detail but not both.
+      const selections = tiled.selectForScreenSpace({ ...above, maxGapPixels: 1, pointBudget: 450 });
+      expect(tierAt(selections, true)).toEqual(new Set(["full"]));
+      expect(tierAt(selections, false)).toEqual(new Set(["coarse"]));
+      expect(selections.reduce((sum, s) => sum + s.tier.cloud.pointCount, 0)).toBeLessThanOrEqual(450);
     });
 
     it("draws the leanest tier for tiles out of view", () => {

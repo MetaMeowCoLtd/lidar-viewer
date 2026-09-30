@@ -360,13 +360,25 @@ fixed sizing draws the same pixels everywhere. Both scale with the screen's
 pixel density, and picking uses the same per-tile spacing. The
 level-of-detail view tints each tile and its bounding box by the tier it draws.
 
-By distance, each tile draws the leanest tier whose points would sit no more
-than a chosen gap apart on screen - the screen-space error rule of Potree and
-3D Tiles - measured from the tier's own point spacing, the distance to the
-nearest point of the tile, the field of view and the view's height in CSS
-pixels. Thresholds in world distances, as a share of the scan's diagonal,
-ignored all of that and left the coarser tiers unused. Tiles outside the view
-draw their leanest tier.
+Detail levels follow Potree's octree more than a fixed set of voxel sizes.
+The scan is tiled at about 100,000 points a tile, so there are enough tiles
+for detail to fall away gradually across a view. Each tile has full
+resolution and five lighter levels, each keeping about a quarter of the points
+of the one above: the voxel for each level grows until that share is reached,
+measured on the tile's own points, because a voxel size set from the scan's
+extent means nothing in particular to a forest whose points fill a volume and
+something quite different to a city whose points lie on roofs and roads.
+
+By distance, the tiers are chosen the way Potree refines: every tile in view
+starts at its lightest level, and the tile whose points sit furthest apart on
+screen - spacing times pixels per unit over distance, the screen-space error
+3D Tiles refines by - steps one level finer and is weighed again, until every
+tile's gaps are within the chosen threshold or the next step would pass the
+point budget. Near tiles have the widest gaps, so they refine first: full
+detail in front, lighter levels behind, the lightest at the back, and the
+budget spent where it shows. Tiles out of view keep their lightest level.
+Earlier versions set tiers by distance as a share of the scan's diagonal,
+which ignored the view and the density and left most tiers unused.
 Fallback attributes are allocated when a scan has no RGB or intensity data so
 the shader layout stays stable across all clouds.
 

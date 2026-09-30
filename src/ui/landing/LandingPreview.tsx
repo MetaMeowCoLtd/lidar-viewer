@@ -36,7 +36,7 @@ export function LandingPreview() {
       const file = await fetchSampleFile(defaultSample.previewUrl ?? defaultSample.url);
       if (disposed) return;
       const { cloud } = await startScanImport(file, Number.POSITIVE_INFINITY).result;
-      if (!disposed) void viewer.load(cloud, createLodSpecs(cloud.bounds.diagonal));
+      if (!disposed) void viewer.load(cloud, createLodSpecs());
     })().catch(() => undefined);
     return () => {
       disposed = true;

@@ -261,7 +261,7 @@ export function useWorkspace(options: WorkspaceOptions) {
         importJobRef.current = undefined;
         if (sourcePointCount > cloud.pointCount) setSampling({ loaded: cloud.pointCount, total: sourcePointCount });
         report("building", 0);
-        await viewerRef.current?.load(cloud, createLodSpecs(cloud.bounds.diagonal), (fraction) => report("building", fraction));
+        await viewerRef.current?.load(cloud, createLodSpecs(), (fraction) => report("building", fraction));
         if (importRunRef.current === run) setImportProgress(undefined);
       } catch (error) {
         if (error instanceof ScanImportCancelled || importRunRef.current !== run) return;

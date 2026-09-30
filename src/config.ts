@@ -4,10 +4,10 @@ import { defaultGroundDetectionOptions, type GroundDetectionOptions } from "./co
 import { defaultObjectDetectionOptions, type ObjectDetectionOptions } from "./core/object-detection.js";
 import { defaultTerrainOptions, type TerrainOptions } from "./core/terrain.js";
 
-export interface LodDivisors {
-  readonly fine: number;
-  readonly balanced: number;
-  readonly lean: number;
+/** How many lighter levels are built below full resolution, and the share of points each keeps of the one above. */
+export interface LodLevelsConfig {
+  readonly count: number;
+  readonly pointFraction: number;
 }
 
 export interface PointSizeConfig {
@@ -57,7 +57,7 @@ export interface ViewerConfig {
   readonly defaultPointBudget: number;
   readonly pointShape: PointCloudPointShape;
   readonly pointSize: PointSizeConfig;
-  readonly lodDivisors: LodDivisors;
+  readonly lodLevels: LodLevelsConfig;
   readonly eyeDomeLighting: EyeDomeLightingConfig;
   readonly camera: CameraConfig;
   readonly distanceLod: DistanceLodConfig;
@@ -79,14 +79,14 @@ const fallback: ViewerConfig = {
   defaultPointBudget: 1_000_000,
   pointShape: "circle",
   pointSize: { default: 2.4, min: 1, max: 7 },
-  lodDivisors: { fine: 900, balanced: 350, lean: 130 },
+  lodLevels: { count: 5, pointFraction: 0.25 },
   eyeDomeLighting: { strength: 40, radius: 1.4 },
   camera: { fieldOfView: 55, framingDistance: 1.15 },
   distanceLod: {
     enabledByDefault: false,
     maxGapPixels: { default: 2, min: 0.5, max: 12 },
   },
-  tiling: { enabled: true, targetPointsPerTile: 500_000, buildWorkers: 16 },
+  tiling: { enabled: true, targetPointsPerTile: 100_000, buildWorkers: 16 },
   gpuPointBudget: 40_000_000,
   groundDetection: defaultGroundDetectionOptions,
   objectDetection: defaultObjectDetectionOptions,
@@ -109,7 +109,7 @@ export async function loadViewerConfig(): Promise<ViewerConfig> {
         ...fallback,
         ...parsed,
         pointSize: { ...fallback.pointSize, ...parsed.pointSize },
-        lodDivisors: { ...fallback.lodDivisors, ...parsed.lodDivisors },
+        lodLevels: { ...fallback.lodLevels, ...parsed.lodLevels },
         eyeDomeLighting: { ...fallback.eyeDomeLighting, ...parsed.eyeDomeLighting },
         camera: { ...fallback.camera, ...parsed.camera },
         distanceLod: {
